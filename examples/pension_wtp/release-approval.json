@@ -1,0 +1,10 @@
+{
+  "tier": "tier2",
+  "approved": true,
+  "decision_ref": "HR-PENSION-WTP-WELCOME-2026-11-04",
+  "evidence_ref": "docs/evaluation.md#welcoming-letter-help-release",
+  "writers": {
+    "gg-counsellor": {"definition_sha256": "bd85a4100359f0422b15ba75d09e87485953601faa434f137bb6080ac88c4f6f"},
+    "gg-counsellor-voice-compact": {"definition_sha256": "ea18a71a3c172b8147620e3242b3290272dafda2249ef6751bc7e59d6753757c"}
+  }
+}

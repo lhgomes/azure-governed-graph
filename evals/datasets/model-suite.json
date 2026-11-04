@@ -1,0 +1,55 @@
+{
+  "label": "SIMULATED - ILLUSTRATIVE - synthetic data",
+  "baseline": "gpt-counsellor",
+  "judge": "gpt-counsellor",
+  "persona_version": "3",
+  "decision_versions": {
+    "intent": null,
+    "understanding": null,
+    "answer-review": null
+  },
+  "candidates": [
+    {
+      "deployment": "gpt-counsellor",
+      "model": "gpt-4.1",
+      "model_version": "2025-04-14",
+      "agent_name": "gg-counsellor",
+      "agent_version": null,
+      "rate_card": {
+        "currency": "USD",
+        "source": "Azure Retail Prices API, swedencentral, non-batch Data Zone, verified 2026-10-27; meter IDs retained in model-rates-2026-10-27.json. https://prices.azure.com/api/retail/prices",
+        "input_per_million": "2.2",
+        "cached_input_per_million": "0.55",
+        "output_per_million": "8.8"
+      }
+    },
+    {
+      "deployment": "gpt-compact",
+      "model": "gpt-4.1-mini",
+      "model_version": "2025-04-14",
+      "agent_name": "gg-counsellor-voice-compact",
+      "agent_version": null,
+      "rate_card": {
+        "currency": "USD",
+        "source": "Azure Retail Prices API, swedencentral, non-batch Data Zone, verified 2026-10-27; meter IDs retained in model-rates-2026-10-27.json. https://prices.azure.com/api/retail/prices",
+        "input_per_million": "0.44",
+        "cached_input_per_million": "0.11",
+        "output_per_million": "1.76"
+      }
+    },
+    {
+      "deployment": "gpt-modern",
+      "model": "gpt-5.4-mini",
+      "model_version": "2026-03-17",
+      "agent_name": "gg-counsellor-modern",
+      "agent_version": null,
+      "rate_card": {
+        "currency": "USD",
+        "source": "Azure Retail Prices API, swedencentral, verified 2026-10-30; non-batch non-priority Data Zone meters 5.4 mini Inp Dz, 5.4 mini cd Inp Dz, 5.4 mini Opt Dz, unit 1M. https://prices.azure.com/api/retail/prices",
+        "input_per_million": "0.825",
+        "cached_input_per_million": "0.0825",
+        "output_per_million": "4.95"
+      }
+    }
+  ]
+}

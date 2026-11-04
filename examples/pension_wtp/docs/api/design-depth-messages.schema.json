@@ -1,0 +1,754 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://governedgraph.example/schemas/design-depth-messages/1.0",
+  "title": "GovernedGraph design-depth Service Bus contracts",
+  "description": "ILLUSTRATIVE - synthetic data. At-least-once. Map message_id to MessageId and session_id to SessionId. Consumers deduplicate before writes; same-key/different-body replay fails. Use batch ID for conversion/reconciliation, event ID for life events/outcomes and journey ID for next steps/escalations. Queued batches have no engine run ID yet; every engine result must have one. EscalationRequest retains the deployed body shape; its version is in this envelope.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message_type",
+        "contract_version",
+        "message_id",
+        "session_id",
+        "body"
+      ],
+      "properties": {
+        "message_type": {
+          "const": "ConversionBatch"
+        },
+        "contract_version": {
+          "const": "1.0"
+        },
+        "message_id": {
+          "type": "string",
+          "pattern": "^MSG-[0-9a-f]{32}$"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "body": {
+          "$ref": "#/$defs/ConversionBatch"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message_type",
+        "contract_version",
+        "message_id",
+        "session_id",
+        "body"
+      ],
+      "properties": {
+        "message_type": {
+          "const": "ReconciliationResult"
+        },
+        "contract_version": {
+          "const": "1.0"
+        },
+        "message_id": {
+          "type": "string",
+          "pattern": "^MSG-[0-9a-f]{32}$"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "body": {
+          "$ref": "#/$defs/ReconciliationResult"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message_type",
+        "contract_version",
+        "message_id",
+        "session_id",
+        "body"
+      ],
+      "properties": {
+        "message_type": {
+          "const": "LifeEvent"
+        },
+        "contract_version": {
+          "const": "1.0"
+        },
+        "message_id": {
+          "type": "string",
+          "pattern": "^MSG-[0-9a-f]{32}$"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "body": {
+          "$ref": "#/$defs/LifeEvent"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message_type",
+        "contract_version",
+        "message_id",
+        "session_id",
+        "body"
+      ],
+      "properties": {
+        "message_type": {
+          "const": "EventOutcome"
+        },
+        "contract_version": {
+          "const": "1.0"
+        },
+        "message_id": {
+          "type": "string",
+          "pattern": "^MSG-[0-9a-f]{32}$"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "body": {
+          "$ref": "#/$defs/EventOutcome"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message_type",
+        "contract_version",
+        "message_id",
+        "session_id",
+        "body"
+      ],
+      "properties": {
+        "message_type": {
+          "const": "NextStep"
+        },
+        "contract_version": {
+          "const": "1.0"
+        },
+        "message_id": {
+          "type": "string",
+          "pattern": "^MSG-[0-9a-f]{32}$"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "body": {
+          "$ref": "#/$defs/NextStep"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message_type",
+        "contract_version",
+        "message_id",
+        "session_id",
+        "body"
+      ],
+      "properties": {
+        "message_type": {
+          "const": "EscalationRequest"
+        },
+        "contract_version": {
+          "const": "1.0"
+        },
+        "message_id": {
+          "type": "string",
+          "pattern": "^MSG-[0-9a-f]{32}$"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "body": {
+          "$ref": "#/$defs/EscalationRequest"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "ConversionBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "title": "Batch Id",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "run_plan_id": {
+          "title": "Run Plan Id",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "rule_set_version": {
+          "title": "Rule Set Version",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "member_refs": {
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "title": "Member Refs",
+          "type": "array",
+          "minItems": 1
+        },
+        "status": {
+          "default": "queued",
+          "enum": [
+            "queued",
+            "running",
+            "awaiting_actuary",
+            "exceptions",
+            "released"
+          ],
+          "title": "Status",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "engine_run_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engine Run Id"
+        },
+        "exceptions": {
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "title": "Exceptions",
+          "type": "array"
+        },
+        "actuary_approval_ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actuary Approval Ref"
+        },
+        "contract_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Contract Version",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "batch_id",
+        "run_plan_id",
+        "rule_set_version",
+        "member_refs"
+      ],
+      "title": "ConversionBatch",
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "running",
+                  "awaiting_actuary",
+                  "exceptions",
+                  "released"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "engine_run_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "engine_run_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "released"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "actuary_approval_ref": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "exceptions": {
+                "maxItems": 0
+              }
+            },
+            "required": [
+              "actuary_approval_ref"
+            ]
+          }
+        }
+      ]
+    },
+    "ReconciliationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "title": "Batch Id",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "engine_run_id": {
+          "title": "Engine Run Id",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "rule_set_version": {
+          "title": "Rule Set Version",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "exceptions": {
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "title": "Exceptions",
+          "type": "array"
+        },
+        "plausibility_passed": {
+          "title": "Plausibility Passed",
+          "type": "boolean"
+        },
+        "contract_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Contract Version",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "batch_id",
+        "engine_run_id",
+        "rule_set_version",
+        "exceptions",
+        "plausibility_passed"
+      ],
+      "title": "ReconciliationResult",
+      "type": "object"
+    },
+    "LifeEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "title": "Event Id",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "member_ref": {
+          "title": "Member Ref",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "event_type": {
+          "enum": [
+            "employment_change",
+            "divorce",
+            "death",
+            "retirement"
+          ],
+          "title": "Event Type",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "document_refs": {
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "title": "Document Refs",
+          "type": "array"
+        },
+        "contract_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Contract Version",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "event_id",
+        "member_ref",
+        "event_type",
+        "document_refs"
+      ],
+      "title": "LifeEvent",
+      "type": "object"
+    },
+    "EventOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "title": "Event Id",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "route": {
+          "enum": [
+            "submitted",
+            "exception_queue"
+          ],
+          "title": "Route",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "reason_code": {
+          "enum": [
+            "complex_case_human_review",
+            "unknown_event_type",
+            "documents_incomplete",
+            "documents_unverified",
+            "routine_rule_covered",
+            "member_request"
+          ],
+          "title": "Reason Code",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "administrator_ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Administrator Ref"
+        },
+        "contract_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Contract Version",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "event_id",
+        "route",
+        "reason_code"
+      ],
+      "title": "EventOutcome",
+      "type": "object",
+      "oneOf": [
+        {
+          "properties": {
+            "route": {
+              "const": "submitted"
+            },
+            "reason_code": {
+              "const": "routine_rule_covered"
+            },
+            "administrator_ref": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            }
+          },
+          "required": [
+            "administrator_ref"
+          ]
+        },
+        {
+          "properties": {
+            "route": {
+              "const": "exception_queue"
+            },
+            "reason_code": {
+              "not": {
+                "const": "routine_rule_covered"
+              }
+            },
+            "administrator_ref": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "NextStep": {
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "enum": [
+            "NS-01",
+            "NS-02",
+            "NS-03",
+            "NS-04",
+            "NS-05"
+          ],
+          "title": "Step Id",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "content_id": {
+          "title": "Content Id",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "content_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Content Version",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "contract_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Contract Version",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "step_id",
+        "title",
+        "content_id"
+      ],
+      "title": "NextStep",
+      "type": "object",
+      "oneOf": [
+        {
+          "properties": {
+            "step_id": {
+              "const": "NS-01"
+            },
+            "title": {
+              "const": "Read your personal transition letter"
+            },
+            "content_id": {
+              "const": "C-004"
+            },
+            "content_version": {
+              "const": "1.0"
+            }
+          }
+        },
+        {
+          "properties": {
+            "step_id": {
+              "const": "NS-02"
+            },
+            "title": {
+              "const": "Check your figures in the fund's online portal"
+            },
+            "content_id": {
+              "const": "C-007"
+            },
+            "content_version": {
+              "const": "1.0"
+            }
+          }
+        },
+        {
+          "properties": {
+            "step_id": {
+              "const": "NS-03"
+            },
+            "title": {
+              "const": "Learn how yearly adjustments work"
+            },
+            "content_id": {
+              "const": "C-003"
+            },
+            "content_version": {
+              "const": "1.0"
+            }
+          }
+        },
+        {
+          "properties": {
+            "step_id": {
+              "const": "NS-04"
+            },
+            "title": {
+              "const": "How to raise a question or an objection"
+            },
+            "content_id": {
+              "const": "C-005"
+            },
+            "content_version": {
+              "const": "1.0"
+            }
+          }
+        },
+        {
+          "properties": {
+            "step_id": {
+              "const": "NS-05"
+            },
+            "title": {
+              "const": "Talk to a human advisor"
+            },
+            "content_id": {
+              "const": "C-006"
+            },
+            "content_version": {
+              "const": "1.0"
+            }
+          }
+        }
+      ]
+    },
+    "EscalationRequest": {
+      "properties": {
+        "journey_id": {
+          "title": "Journey Id",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "reason_code": {
+          "title": "Reason Code",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "context_summary": {
+          "title": "Context Summary",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "value_ids": {
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "title": "Value Ids",
+          "type": "array"
+        },
+        "callback_preference": {
+          "default": "none",
+          "title": "Callback Preference",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "escalation_id": {
+          "title": "Escalation Id",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "journey_id",
+        "reason_code",
+        "context_summary",
+        "value_ids"
+      ],
+      "title": "EscalationRequest",
+      "type": "object",
+      "additionalProperties": false
+    }
+  }
+}

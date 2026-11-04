@@ -1,0 +1,11 @@
+---
+applyTo: "src/**/*.py,tests/**/*.py,evals/**/*.py,examples/**/*.py"
+---
+- Framework code under `src/governedgraph` must never import `examples/*` (see `tests/test_layering.py`); sample code plugs in through configuration.
+- Keep `src/governedgraph/common`, `strategy_service/service.py`, `learning/*`, `guardrails/*`, `orchestrator/state_machine.py` free of Azure imports.
+- New inbound contracts: dataclass + `from_dict` via `_strict` so unknown fields are rejected (B7).
+- Never format, compute or round a member value in Python on the AI side; use the `display` string from the system of record.
+- Member-facing text containing a figure must be produced from a placeholder and pass `numeric_fidelity.check`.
+- Agent tools must be bound to the journey context; never accept `member_ref` from the model.
+- Use `logging` with the journey ID in `extra`; never log member values or utterances at INFO.
+- Tests: plain pytest functions, `tmp_path` for state, no network. Name tests after the boundary they protect.

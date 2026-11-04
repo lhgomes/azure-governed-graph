@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Your pension, explained | GovernedGraph</title>
+<style>
+:root{color-scheme:light;--ink:#172e50;--blue:#254b82;--paper:#f5f7fc;--line:#cbd5e6;--lilac:#e4def5;--quiet:#50617b}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.6 "Segoe UI",Candara,sans-serif}
+header,main,footer{max-width:1240px;margin:auto;padding:24px 40px}header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);gap:20px}
+.brand{font-weight:700;font-size:20px}.label{margin:0;font-size:13px;color:var(--quiet)}button,input,textarea{font:inherit}
+button{border:1px solid var(--line);border-radius:8px;padding:12px 20px;background:white;color:var(--ink);cursor:pointer}
+button:hover:not(:disabled){background:var(--lilac)}button:disabled{opacity:.5;cursor:default}button:focus-visible,textarea:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid #6c4ac2;outline-offset:4px}
+.primary{background:var(--blue);color:white;border-color:var(--blue)}.primary:hover:not(:disabled){background:#183c70}
+main{padding-top:48px}h1{font:400 clamp(36px,5vw,60px)/1.12 Georgia,serif;letter-spacing:-1.6px;max-width:650px;margin:0 0 20px}h2{font-size:22px;margin:0 0 12px}p{max-width:72ch}
+.intro{max-width:720px;color:var(--quiet);margin-bottom:32px}.workspace{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(280px,1fr);gap:32px;align-items:start}
+.voice-stage{background:#e8eef9;border-radius:24px 24px 8px 8px;padding:36px;text-align:center;border:1px solid #d5dfef}
+.voice-mark{height:124px;display:flex;align-items:center;justify-content:center;gap:7px;margin:10px auto 24px}
+.voice-mark span{display:block;width:9px;height:24px;background:var(--blue);border-radius:10px;transition:height .25s}
+.voice-mark span:nth-child(2),.voice-mark span:nth-child(6){height:48px}.voice-mark span:nth-child(3),.voice-mark span:nth-child(5){height:76px}.voice-mark span:nth-child(4){height:106px}
+[data-state="listening"] .voice-mark span{background:#356e66;animation:listen 1s ease-in-out infinite alternate}
+[data-state="speaking"] .voice-mark span{animation:listen .5s ease-in-out infinite alternate}
+[data-state="thinking"] .voice-mark{opacity:.6}
+@keyframes listen{to{transform:scaleY(.5)}}.voice-mark span:nth-child(even){animation-delay:.2s}
+#status{min-height:3.2em;margin:12px auto;max-width:48ch}.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.privacy{font-size:14px;color:var(--quiet)}.disclosure{font-size:15px;text-align:left;background:white;border-left:3px solid #8e7ab8;padding:16px;margin-top:24px}
+.conversation{padding:28px 4px}#conversation{list-style:none;padding:0;max-height:420px;overflow:auto;scrollbar-gutter:stable}#conversation li{padding:14px 18px;margin:12px 0;background:white;border-left:3px solid var(--line);white-space:pre-wrap;overflow-wrap:anywhere}
+#conversation li.member{border-color:var(--blue);background:#e8eef9}#conversation strong{display:block;font-size:13px;color:var(--quiet);margin-bottom:4px}
+aside{border-left:1px solid var(--line);padding-left:28px}aside p{font-size:15px;color:var(--quiet)}dl{margin:24px 0}dl div{padding:12px 0;border-bottom:1px solid var(--line)}dt{font-size:13px;color:var(--quiet)}dd{margin:2px 0;overflow-wrap:anywhere}
+.learning-note{background:var(--lilac);padding:18px;border-radius:8px;font-size:14px}details{border-top:1px solid var(--line);padding:20px 0;margin-top:20px}summary{cursor:pointer;font-weight:600}
+canvas{width:100%;border-radius:8px;margin-top:20px}#result{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;background:#e8eef9;padding:16px;max-height:440px;overflow:auto}
+textarea{display:block;width:100%;min-height:100px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:12px;background:white;color:var(--ink);margin:8px 0 12px}
+[hidden]{display:none!important}.text-button{background:transparent;border-color:transparent;text-decoration:underline;font-size:15px}
+footer{font-size:13px;color:var(--quiet);border-top:1px solid var(--line);margin-top:32px}.handover{margin-top:16px}.empty{color:var(--quiet);font-size:15px}
+@media(max-width:800px){header,main,footer{padding:20px}.workspace{grid-template-columns:1fr}aside{border-left:0;border-top:1px solid var(--line);padding:24px 0}main{padding-top:32px}.voice-stage{padding:24px 16px}header{align-items:flex-start}.brand{font-size:17px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+<body>
+<header><div><div class="brand">Pension Counsellor</div><p class="label">ILLUSTRATIVE - synthetic data. gg-dev only.</p></div><button id="login">Sign in with Entra</button></header>
+<main>
+<h1>Your pension.<br>A conversation, not a maze.</h1>
+<p class="intro">Talk through your transition letter at your own pace. Official figures stay with the fund's systems. A person is always an option.</p>
+<div class="workspace">
+<section aria-label="Your conversation">
+<div class="voice-stage" id="voice-stage" data-state="ready">
+<div class="voice-mark" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+<h2 id="activity">Ready when you are</h2>
+<p id="status" role="status" aria-live="polite">Sign in with the assigned dev operator account.</p>
+<div class="controls"><button id="present" class="primary" disabled>Start voice conversation</button><button id="speak" class="primary" disabled>Speak (maximum 20 seconds)</button><button id="finish" disabled>Finish speaking</button></div>
+<p class="privacy">Microphone audio is not recorded. Synthetic conversation text may appear in this dev demo's traces.</p>
+<div class="controls"><button id="chat" class="text-button" disabled>Prefer to type?</button><button id="stop" class="text-button" disabled>Ask a person</button><button id="end-session" class="text-button" disabled>End conversation</button></div>
+<div class="disclosure" id="disclosure">{{AI_DISCLOSURE}}</div>
+</div>
+<section class="conversation" aria-labelledby="conversation-title"><h2 id="conversation-title">Conversation &amp; captions</h2>
+<p id="empty" class="empty">Your conversation will appear here. Guidance, not advice.</p>
+<ol id="conversation" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Conversation and live captions"></ol>
+<p id="conversation-error" role="alert" hidden></p>
+<form id="chat-form" hidden><label for="chat-text">Your message</label><textarea id="chat-text" maxlength="4000" disabled></textarea><button id="send" class="primary" disabled>Send message</button><p class="privacy">Uses the same authenticated journey and safety checks as voice. No microphone needed.</p></form>
+</section>
+</section>
+<aside aria-labelledby="learning-title"><h2 id="learning-title">How it learns</h2>
+<p>Learning can reorder approved explanation strategies using aggregate outcomes. It does not retrain from this conversation or change your official figures.</p>
+<div class="learning-note">This pane shows metadata returned for your journey. It is not a live training feed. Missing metadata stays unavailable.</div>
+<dl><div><dt>Journey state</dt><dd id="meta-state">Not started</dd></div><div><dt>Selected explanation strategy</dt><dd id="meta-strategy">Not yet served</dd></div><div><dt>Signed ranking snapshot</dt><dd id="meta-snapshot">Not yet returned</dd></div><div><dt>Approved ranking served</dt><dd id="meta-ranked">Not yet returned</dd></div><div><dt>Fairness suspensions</dt><dd id="meta-suspended">Not yet returned</dd></div><div><dt>Answer audit</dt><dd id="meta-audit">Not yet returned</dd></div><div><dt>Evaluation arm</dt><dd id="meta-arm">Not yet returned</dd></div></dl>
+<h3>Workflow evidence</h3><ol id="workflow-steps"><li>No execution evidence returned yet.</li></ol>
+<h3>Last aggregate projection</h3>
+<p id="feedback-status">No aggregate projection metadata returned.</p>
+<div id="learning-feedback" hidden>
+<p>Last background projection, not this turn. Pending means the repeat-contact window or explicit outcome evidence is incomplete; it is not completed/FCR evidence.</p>
+<dl><div><dt>Observed decisions</dt><dd id="feedback-observed">Unavailable</dd></div><div><dt>Eligible decisions (observation window complete)</dt><dd id="feedback-eligible">Unavailable</dd></div><div><dt>Pending decisions (window or outcome evidence incomplete)</dt><dd id="feedback-pending">Unavailable</dd></div></dl>
+<details><summary>Aggregate provenance</summary><p>Seeded historical counts are separate from these observed decision counts. The baseline digest identifies the historical seed; none of these counts demonstrates improved performance.</p>
+<dl><div><dt>Outcome snapshot digest</dt><dd id="feedback-outcome">Unavailable</dd></div><div><dt>Audited source digest</dt><dd id="feedback-source">Unavailable</dd></div><div><dt>Historical baseline digest (separate seed)</dt><dd id="feedback-baseline">Unavailable</dd></div></dl>
+</details>
+</div>
+<p>Fairness can veto a strategy. Material changes require human approval; bounded ranking is not permission to invent new guidance.</p>
+</aside>
+</div>
+<details><summary>Watch the synthetic Annelies conversation</summary><p>A scripted secondary demonstration. Only this synthetic flow can be saved as a video; your microphone conversation cannot.</p><button id="simulate" disabled>Run Annelies and save fallback video</button><canvas id="screen" width="1280" height="720" aria-label="Synthetic Annelies video; accessible captions appear in the conversation"></canvas><a id="download" hidden>Download synthetic fallback video</a></details>
+<details id="diagnostics"><summary>Latency &amp; delivery diagnostics</summary><p id="latency-summary">No samples yet. Browser playback dispatch is not an acoustic measurement. A short demonstration does not certify the SLO.</p><pre id="result">No completed journey yet.</pre></details>
+</main><footer>ILLUSTRATIVE - synthetic data. Guidance, not advice. No pension option recommendations.</footer>
+<script>
+"use strict";
+const $ = id => document.getElementById(id), origin = location.origin;
+let config, socket, audio, destination, recorder, chunks = [], recording = false, pending,
+    inputStream, processor, inputSource, captured = [], popup, verifier, state, audioReceivedAt;
+let speaker = "Ready", caption = "Speak to the fund's AI assistant, or run the synthetic Annelies flow.";
+let outcome = "", playbackSource, recordingUrl, turnStartedAt = null, firstSamples = [], completeSamples = [],
+    substantiveSamples = [], acknowledgementSamples = [], firstPlayed = false, substantivePlayed = false;
+let nextPlaybackAt = 0;
+let sessionMode = null, waitingForInput = false, handoverPending = false, authenticated = false;
+let replyTimeout;
+const activeSources = new Set();
+const canvas = $("screen"), ctx = canvas.getContext("2d");
+function paint(){
+  ctx.fillStyle="#101c30";ctx.fillRect(0,0,1280,720);
+  ctx.fillStyle="#ffd36a";ctx.font="bold 25px system-ui";ctx.fillText("ILLUSTRATIVE - synthetic data | GovernedGraph dev",45,55);
+  ctx.fillStyle="#f4f7ff";ctx.font="bold 40px system-ui";ctx.fillText("Governed Pension Counsellor",45,130);
+  ctx.fillStyle="#8ed9f9";ctx.font="30px system-ui";ctx.fillText(speaker,45,205);
+  ctx.fillStyle="#f4f7ff";ctx.font="30px system-ui";
+  const words=caption.split(/\s+/);let line="",y=270;
+  for(const word of words){if(ctx.measureText(line+word).width>1170){ctx.fillText(line,45,y);y+=46;line="";}line+=word+" ";}
+  ctx.fillText(line,45,y);
+  ctx.fillStyle="#8de7b5";ctx.font="25px system-ui";ctx.fillText(outcome,45,640);
+  ctx.fillStyle="#ffd36a";ctx.font="21px system-ui";
+  ctx.fillText("Guidance, not advice. Human support is always available.",45,690);
+  requestAnimationFrame(paint);
+}
+paint();
+function status(text){$("status").textContent=text;}
+function activity(name){
+  $("voice-stage").dataset.state=name;
+  $("activity").textContent=({ready:"Ready when you are",listening:"I'm listening",thinking:"Checking your request",
+    speaking:"Your explanation",typing:"Type at your own pace",complete:"Conversation complete",error:"Let's get you support"})[name];
+}
+function addCaption(role,text){
+  $("empty").hidden=true;const item=document.createElement("li"),label=document.createElement("strong");
+  item.className=role;label.textContent=role==="member"?"You":role==="persona"?"Annelies (synthetic)":"Pension Counsellor (AI)";
+  item.append(label,document.createTextNode(text));$("conversation").append(item);item.scrollIntoView({block:"nearest"});
+}
+function metadata(message){
+  for(const [field,key] of Object.entries({state:"state",strategy:"strategy",snapshot:"snapshot_id",ranked:"ranked",suspended:"suspended",audit:"audit_status",arm:"arm"})){
+    const value=message[key];$("meta-"+field).textContent=Array.isArray(value)?(value.length?value.join(", "):"None returned"):(value||"Unavailable");
+  }
+  $("workflow-steps").replaceChildren();
+  for(const step of message.workflow_steps&&message.workflow_steps.length?message.workflow_steps:["No execution evidence returned."]){
+    const item=document.createElement("li");item.textContent=step;$("workflow-steps").append(item);
+  }
+  const feedback=message.learning_feedback;
+  $("learning-feedback").hidden=!feedback;
+  $("feedback-status").textContent=feedback?feedback.watermark:"No aggregate projection metadata returned.";
+  for(const [field,key] of Object.entries({observed:"observed_decisions",eligible:"eligible_decisions",pending:"pending_decisions",
+    outcome:"outcome_digest",source:"source_digest",baseline:"baseline_digest"})){
+    $("feedback-"+field).textContent=feedback?String(feedback[key]):"Unavailable";
+  }
+}
+function clearReplyTimeout(){clearTimeout(replyTimeout);replyTimeout=undefined;}
+function awaitChatReply(){
+  clearReplyTimeout();
+  replyTimeout=setTimeout(()=>{
+    fail(Error("No reply arrived in time. Your message may already be saved. End chat and start a new conversation, or ask a person."));
+    if(socket)socket.close();
+  },150000);
+}
+function fail(error){
+  clearReplyTimeout();activity("error");status("FAILED: "+error.message);
+  $("conversation-error").textContent=error.message;$("conversation-error").hidden=false;
+  $("conversation-error").scrollIntoView({block:"nearest"});
+  console.error("Channel operation failed");
+}
+const b64 = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+async function setupAudio(){
+  if(!audio){audio=new AudioContext({sampleRate:24000});destination=audio.createMediaStreamDestination();}
+  await audio.resume();
+}
+async function authorize(token){
+  const response=await fetch("/voice-demo/authorize",{method:"POST",headers:{Authorization:"Bearer "+token}});
+  if(!response.ok)throw Error("Assigned presenter authorization rejected ("+response.status+")");
+  authenticated=true;$("simulate").disabled=false;$("present").disabled=false;$("chat").disabled=false;$("stop").disabled=false;
+  status("Signed in. Start a voice conversation, or choose to type. Member tokens remain server-side.");
+}
+async function load(){
+  const query=new URLSearchParams(location.hash.slice(1));
+  if(query.has("code")||query.has("error")){
+    if(window.opener)window.opener.postMessage({kind:"voice-oauth",code:query.get("code"),state:query.get("state"),error:query.get("error")},origin);
+    history.replaceState(null,"","/voice-demo/");window.close();return;
+  }
+  const response=await fetch("/voice-demo/config");if(!response.ok)throw Error("Demo is disabled");
+  config=await response.json();
+}
+$("login").onclick=async()=>{
+  try{
+    popup=window.open("about:blank","gg-voice-login","width=650,height=800");
+    if(!popup)throw Error("Allow the sign-in popup");
+    verifier=b64(crypto.getRandomValues(new Uint8Array(32)));state=b64(crypto.getRandomValues(new Uint8Array(32)));
+    const challenge=b64(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(verifier))));
+    const query=new URLSearchParams({client_id:config.client_id,response_type:"code",redirect_uri:origin+"/voice-demo/",
+      response_mode:"fragment",scope:"api://"+config.client_id+"/VoiceDemo.Access",state,code_challenge:challenge,code_challenge_method:"S256"});
+    popup.location="https://login.microsoftonline.com/"+config.tenant+"/oauth2/v2.0/authorize?"+query;
+  }catch(error){fail(error);}
+};
+window.addEventListener("message",async event=>{
+  if(event.origin!==origin||event.source!==popup||event.data.kind!=="voice-oauth")return;
+  try{
+    if(event.data.state!==state||event.data.error||!event.data.code)throw Error("Invalid sign-in response");
+    const response=await fetch("https://login.microsoftonline.com/"+config.tenant+"/oauth2/v2.0/token",{
+      method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
+      body:new URLSearchParams({client_id:config.client_id,grant_type:"authorization_code",code:event.data.code,
+        redirect_uri:origin+"/voice-demo/",code_verifier:verifier,scope:"api://"+config.client_id+"/VoiceDemo.Access"})});
+    verifier=null;state=null;
+    if(!response.ok)throw Error("Entra sign-in failed");
+    const tokens=await response.json();await authorize(tokens.access_token);
+  }catch(error){fail(error);}
+});
+function startRecording(){
+  if(recordingUrl){URL.revokeObjectURL(recordingUrl);recordingUrl=null;}
+  const video=canvas.captureStream(25);
+  const mixed=new MediaStream([...video.getVideoTracks(),...destination.stream.getAudioTracks()]);
+  chunks=[];recorder=new MediaRecorder(mixed,{mimeType:"video/webm;codecs=vp8,opus",videoBitsPerSecond:512000,audioBitsPerSecond:96000});
+  recorder.ondataavailable=event=>{if(event.data.size)chunks.push(event.data);};
+  recorder.onstop=()=>{
+    for(const track of video.getTracks())track.stop();
+    if(recording){recordingUrl=URL.createObjectURL(new Blob(chunks,{type:recorder.mimeType}));
+      $("download").href=recordingUrl;$("download").download="annelies-voice-fallback.webm";
+      $("download").hidden=false;$("download").click();}
+    chunks=[];recording=false;
+  };
+  recording=true;recorder.start(1000);
+}
+async function connect(mode, handover=false){
+  if(socket&&socket.readyState!==WebSocket.CLOSED)throw Error("Finish the current conversation first");
+  if(mode!=="chat")await setupAudio();sessionMode=mode;waitingForInput=false;handoverPending=handover;
+  $("chat-form").hidden=mode!=="chat";$("conversation").replaceChildren();$("empty").hidden=false;
+  clearReplyTimeout();$("conversation-error").hidden=true;$("conversation-error").textContent="";
+  $("result").textContent="Journey in progress.";$("download").hidden=true;outcome="";
+  metadata({state:"Starting"});
+  firstSamples=[];completeSamples=[];substantiveSamples=[];acknowledgementSamples=[];
+  turnStartedAt=null;firstPlayed=false;substantivePlayed=false;
+  $("simulate").disabled=true;$("present").disabled=true;$("chat").disabled=true;$("stop").disabled=false;
+  socket=new WebSocket(origin.replace("https:","wss:")+"/voice-demo-stream");socket.binaryType="arraybuffer";
+  socket.onopen=()=>{
+    if(mode==="simulator")startRecording();
+    socket.send(JSON.stringify(mode==="simulator"?{mode,script:{
+      opening:"Good afternoon. I received a letter about the new pension system. Will the transition change what I receive?",
+      teach_back_answer:"So on the transition date my monthly pension stays the same, and after that it can go up or down a little each year with the fund's results."
+    }}:{mode}));activity("thinking");status("Connected. Waiting for the AI disclosure.");
+  };
+  socket.onmessage=async event=>{
+    try{
+      if(typeof event.data==="string"){
+        const message=JSON.parse(event.data);
+        if(message.kind==="audio"){pending=message;}
+        else if(message.kind==="caption"){
+          if(sessionMode==="chat"&&message.role==="counsellor")clearReplyTimeout();
+          addCaption(message.role,message.text);
+        }
+        else if(message.kind==="thinking"){activity("thinking");status("Checking your request through the governed journey.");}
+        else if(message.kind==="chat_ready"){
+          clearReplyTimeout();
+          waitingForInput=true;activity("typing");status(message.duplicate?"Message already committed; not repeated.":"Your turn. Type your message.");
+          $("chat-text").disabled=false;$("send").disabled=false;
+          $("end-session").disabled=false;
+          if(handoverPending)requestHandover();
+        }
+        else if(message.kind==="chat_complete"){
+          clearReplyTimeout();
+          const terminal=["escalation_requested","handed_over","closed"].includes(message.state);
+          waitingForInput=!terminal;$("chat-text").disabled=terminal;$("send").disabled=terminal;
+          $("end-session").disabled=terminal;
+          activity(terminal?"complete":"typing");status(terminal?"Human handover requested through the fund's journey.":"Your turn. Ask a follow-up question.");
+        }
+        else if(message.kind==="capture"){
+          waitingForInput=true;activity("ready");status("Your turn. Speak, then finish.");$("speak").disabled=false;
+          $("end-session").disabled=false;
+          if(handoverPending)requestHandover();
+        }
+        else if(message.kind==="session_ended"){
+          clearReplyTimeout();waitingForInput=false;activity("complete");status("Conversation ended.");
+        }
+        else if(message.kind==="progress"){metadata(message);outcome="Strategy "+message.strategy+" | suspended: "+message.suspended.join(", ");}
+        else if(message.kind==="complete"){
+          const p95=values=>values.length?[...values].sort((a,b)=>a-b)[Math.ceil(values.length*.95)-1]:null;
+          const p50=values=>values.length?[...values].sort((a,b)=>a-b)[Math.ceil(values.length*.5)-1]:null;
+          message.browser_metrics={measurement:"end_of_input_to_browser_playback_dispatch_and_complete_audio_ready",
+            first_audio_p95_ms:p95(firstSamples),first_audio_sample_count:firstSamples.length,
+            complete_audio_p95_ms:p95(completeSamples),complete_audio_sample_count:completeSamples.length,
+            first_audio_p50_ms:p50(firstSamples),complete_audio_p50_ms:p50(completeSamples),
+            acknowledgement_p95_ms:p95(acknowledgementSamples),acknowledgement_sample_count:acknowledgementSamples.length,
+            substantive_first_p95_ms:p95(substantiveSamples),substantive_first_sample_count:substantiveSamples.length,
+            target_ms:2000,first_audio_target_met:firstSamples.length>0&&p95(firstSamples)<2000,
+            acoustic_measurement:false};
+          outcome="Strategy "+message.strategy+" | suspended: "+message.suspended.join(", ")+" | "+message.state;
+          $("result").textContent=JSON.stringify(message,null,2);
+          const met=message.metrics.target_met===true;
+          $("latency-summary").textContent="Complete-audio target: "+(met?"met for this sample":"not met")+
+            ". "+message.metrics.turn_count+" measured turns. SLO certified: "+(message.metrics.slo_certified?"yes":"no")+
+            ". Expand for first-audio and substantive-audio timings; no samples are hidden.";
+          window.voiceDemoResult=message;activity("complete");
+          status(message.state==="escalation_requested"?"Human handover requested through the fund's journey.":"Flow complete. Latency and delivery results are available below.");
+          if(recorder&&recorder.state==="recording"){
+            await new Promise(resolve=>setTimeout(resolve,200));recorder.stop();}
+        }else if(message.kind==="error")throw Error(message.message);
+      }else{
+        if(!pending)throw Error("Unbound audio rejected");
+        audioReceivedAt=performance.now();
+        const message=pending;pending=null;
+        const samples=new Int16Array(event.data),buffer=audio.createBuffer(1,samples.length,24000),channel=buffer.getChannelData(0);
+        for(let i=0;i<samples.length;i++)channel[i]=samples[i]/32768;
+        const source=audio.createBufferSource();source.buffer=buffer;playbackSource=source;activeSources.add(source);
+        source.connect(audio.destination);if(recording)source.connect(destination);
+        const readyAt=performance.now();
+        const startAt=Math.max(audio.currentTime+.005,nextPlaybackAt);
+        nextPlaybackAt=startAt+buffer.duration;
+        const dispatchAt=performance.now()+(startAt-audio.currentTime)*1000;
+        setTimeout(()=>{if(activeSources.has(source)){
+          speaker=message.role==="persona"?"Annelies (simulated)":"Pension Counsellor (AI)";
+          caption=message.text;addCaption(message.role,message.text);activity("speaking");status("Playing "+speaker);}},Math.max(0,dispatchAt-performance.now()));
+        await new Promise(resolve=>{
+          source.onended=()=>{activeSources.delete(source);source.disconnect();resolve();};source.start(startAt);
+          if(message.role==="counsellor"&&turnStartedAt!==null){
+            if(!firstPlayed){firstSamples.push(dispatchAt-turnStartedAt);firstPlayed=true;}
+            if(message.acknowledgement){acknowledgementSamples.push(dispatchAt-turnStartedAt);}
+            else {
+              if(!substantivePlayed){substantiveSamples.push(dispatchAt-turnStartedAt);substantivePlayed=true;}
+              if(message.final_sentence!==false){completeSamples.push(readyAt-turnStartedAt);
+                $("latency-summary").textContent="Latest complete audio ready: "+Math.round(readyAt-turnStartedAt)+" ms. Target "+
+                  (readyAt-turnStartedAt<2000?"met for this sample":"not met")+"; SLO not certified. Full measurements follow at completion.";}
+            }
+          }
+        });
+        if(message.role==="persona"){turnStartedAt=performance.now();firstPlayed=false;substantivePlayed=false;}
+        if(socket.readyState===WebSocket.OPEN)socket.send(JSON.stringify({kind:"played",id:message.id}));
+      }
+    }catch(error){recording=false;if(recorder&&recorder.state==="recording")recorder.stop();fail(error);socket.close();}
+  };
+  socket.onerror=()=>{recording=false;fail(Error("Authenticated media connection failed"));};
+  socket.onclose=()=>{
+    if(replyTimeout!==undefined)fail(Error("Connection closed before a reply arrived. Your message may already be saved. Start a new conversation or ask a person."));
+    clearReplyTimeout();
+    if(recorder&&recorder.state==="recording"){recording=false;recorder.stop();}
+    stopCapture(false);for(const source of activeSources){source.stop();source.disconnect();}
+    activeSources.clear();playbackSource=null;nextPlaybackAt=0;
+    $("stop").disabled=!authenticated;$("speak").disabled=true;
+    $("end-session").disabled=true;
+    waitingForInput=false;$("chat-text").disabled=true;$("send").disabled=true;
+    $("simulate").disabled=!authenticated;$("present").disabled=!authenticated;$("chat").disabled=!authenticated;
+  };
+}
+$("simulate").onclick=()=>connect("simulator").catch(fail);
+$("present").onclick=()=>connect("presenter").catch(fail);
+$("chat").onclick=()=>connect("chat").catch(fail);
+$("end-session").onclick=()=>{
+  if(!waitingForInput||!socket||socket.readyState!==WebSocket.OPEN)return;
+  socket.send(JSON.stringify({kind:"end",request_id:crypto.randomUUID()}));
+  waitingForInput=false;$("end-session").disabled=true;
+  $("chat-text").disabled=true;$("send").disabled=true;$("speak").disabled=true;
+  activity("complete");status("Ending the conversation.");
+};
+function requestHandover(){
+  if(!socket||socket.readyState===WebSocket.CLOSED){connect("chat",true).catch(fail);return;}
+  handoverPending=true;$("stop").disabled=true;stopCapture(false);
+  if((waitingForInput||sessionMode!=="chat")&&socket&&socket.readyState===WebSocket.OPEN){
+    socket.send(JSON.stringify({kind:"handover",request_id:crypto.randomUUID()}));waitingForInput=false;
+    if(sessionMode==="chat")awaitChatReply();
+    $("speak").disabled=true;$("chat-text").disabled=true;$("send").disabled=true;
+    activity("thinking");status("Requesting a human advisor through the fund's journey.");
+  }else status("Human support requested. Finishing the current checked response before handover.");
+}
+$("stop").onclick=requestHandover;
+$("chat-form").onsubmit=event=>{
+  event.preventDefault();const text=$("chat-text").value;
+  if(!waitingForInput||!text.trim()||text.length>4000||!socket||socket.readyState!==WebSocket.OPEN)return;
+  socket.send(JSON.stringify({kind:"chat",request_id:crypto.randomUUID(),text}));addCaption("member",text);
+  awaitChatReply();
+  $("chat-text").value="";$("chat-text").disabled=true;$("send").disabled=true;waitingForInput=false;activity("thinking");
+  status("Checking your request through the governed journey.");
+};
+$("speak").onclick=async()=>{
+  try{
+    $("speak").disabled=true;
+    await setupAudio();inputStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,sampleRate:24000}});
+    if(!waitingForInput||handoverPending||!socket||socket.readyState!==WebSocket.OPEN){stopCapture(false);return;}
+    if(audio.sampleRate!==24000)throw Error("This browser must support 24-kHz capture");
+    captured=[];inputSource=audio.createMediaStreamSource(inputStream);processor=audio.createScriptProcessor(4096,1,1);
+    processor.onaudioprocess=event=>{captured.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+      if(captured.length*4096>=24000*20)stopCapture(true);};
+    inputSource.connect(processor);processor.connect(audio.destination);
+    $("speak").disabled=true;$("finish").disabled=false;activity("listening");status("Listening (not recorded).");
+  }catch(error){stopCapture(false);fail(error);}
+};
+function stopCapture(send){
+  if(processor){processor.disconnect();processor.onaudioprocess=null;processor=null;}
+  if(inputSource){inputSource.disconnect();inputSource=null;}
+  if(inputStream){inputStream.getTracks().forEach(track=>track.stop());inputStream=null;}
+  $("finish").disabled=true;
+  if(send&&captured.length&&socket.readyState===WebSocket.OPEN){
+    const count=Math.min(24000*20,captured.reduce((total,part)=>total+part.length,0)),pcm=new Int16Array(count);let offset=0;
+    for(const part of captured)for(const sample of part){if(offset<count)pcm[offset++]=Math.max(-32768,Math.min(32767,Math.round(sample*32767)));}
+    turnStartedAt=performance.now();firstPlayed=false;substantivePlayed=false;waitingForInput=false;
+    socket.send(pcm.buffer);activity("thinking");status("Checking your request through the governed journey.");
+  }
+  captured=[];
+}
+$("finish").onclick=()=>stopCapture(true);
+window.addEventListener("pagehide",()=>{if(socket)socket.close();stopCapture(false);});
+load().catch(fail);
+</script></body></html>

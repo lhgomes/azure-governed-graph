@@ -1,0 +1,54 @@
+// ILLUSTRATIVE - synthetic data. Only fixed event names and allowlisted scalar metadata.
+let Turns = AppTraces
+| where TimeGenerated > ago(24h) and Message == "journey_turn_delivered"
+| extend p=Properties
+| summarize arg_max(TimeGenerated, *) by event_id=tostring(p.event_id)
+| extend arm=tostring(p.arm), elapsed=todouble(p.duration_ms),
+         escalated=tobool(p.escalated), fidelity=tobool(p.numeric_fidelity_passed);
+let Voice = AppTraces
+| where TimeGenerated > ago(24h) and Message == "voice_audio"
+| extend p=Properties
+| summarize arg_max(TimeGenerated, *) by event_id=tostring(p.event_id);
+let Uplift = union
+ (AppTraces | where TimeGenerated > ago(24h) and Message == "graph_uplift"
+  | project TimeGenerated, p=Properties),
+ (ContainerAppConsoleLogs | where TimeGenerated > ago(24h) and JobName == "job-gg-p2-pipeline"
+  | extend p=parse_json(Log)
+  | where tostring(p.event) == "graph_uplift" and tostring(p.data) == "ILLUSTRATIVE - synthetic data"
+  | project TimeGenerated, p);
+union
+(Turns | summarize n=count(), p50_ms=percentile(elapsed, 50), p95_ms=percentile(elapsed, 95)
+ | extend metric="Guarded turn (diagnostic, not voice audio SLO)", target_ms=real(null)),
+(Turns | summarize n=count(), incidents=countif(escalated)
+ | extend metric="Escalation rate", rate=iff(n > 0, todouble(incidents)/n, real(null))),
+(Turns | summarize n=count() by arm | extend metric="Delivered turns by arm"),
+(Voice | where todouble(p.acknowledgement_ms) >= 0
+ | summarize n=count(), p50_ms=percentile(todouble(p.acknowledgement_ms), 50),
+             p95_ms=percentile(todouble(p.acknowledgement_ms), 95)
+ | extend metric="Approved acknowledgement dispatch", target_ms=1000.0),
+(Voice | summarize n=count(), p50_ms=percentile(todouble(p.substantive_ms), 50),
+             p95_ms=percentile(todouble(p.substantive_ms), 95)
+ | extend metric="First checked substantive audio dispatch", target_ms=6000.0),
+(Voice | summarize n=count(), p50_ms=percentile(todouble(p.complete_audio_ms), 50),
+             p95_ms=percentile(todouble(p.complete_audio_ms), 95)
+ | extend metric="Complete audio readiness (diagnostic)", target_ms=real(null)),
+(AppTraces | where TimeGenerated > ago(24h) and Message == "numeric_fidelity_block"
+ | summarize n=dcount(tostring(Properties.event_id)) | extend metric="Numeric-fidelity blocks"),
+(AppTraces | where TimeGenerated > ago(24h) and Message == "strategy_snapshot_state"
+ | top 1 by TimeGenerated desc
+ | project metric="Last served suspension overlay (not global inventory)",
+     snapshot_id=tostring(Properties.snapshot_id), suspended_ids=tostring(Properties.suspended_ids)),
+(union isfuzzy=true ContainerAppConsoleLogs_CL, ContainerAppConsoleLogs
+ | where TimeGenerated > ago(24h)
+ | extend p=parse_json(tostring(column_ifexists("Log_s", column_ifexists("Log", ""))))
+ | where tostring(p.event) == "strategy_suspension"
+ | summarize n=count() | extend metric="Suspension operations (not active-state count)"),
+(Uplift
+ | summarize arg_max(TimeGenerated, *) by window_id=tostring(p.window_id)
+ | project metric="Governed graph-vs-control window", window_id,
+     fcr_uplift_pts=todouble(p.fcr_uplift_pts),
+     repeat_reduction_pts=todouble(p.repeat_reduction_pts),
+     decision=tostring(p.decision))
+| extend data="ILLUSTRATIVE - synthetic data",
+         sample_sufficient=iff(isnotnull(target_ms), n >= 20, bool(null))
+| extend slo_met=iff(isnotnull(target_ms) and n >= 20, p95_ms <= target_ms, bool(null))

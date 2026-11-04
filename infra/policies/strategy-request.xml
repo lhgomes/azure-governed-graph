@@ -1,0 +1,19 @@
+<!-- B7 enforcement point: the StrategyRequest schema is CLOSED. Unknown fields (including any
+     demographic attribute) are rejected before reaching the Strategy Service. -->
+<policies>
+  <inbound>
+    <base />
+    <choose>
+      <when condition='@{
+        var body = context.Request.Body.As&lt;Newtonsoft.Json.Linq.JObject&gt;(preserveContent: true);
+        var allowed = new [] { "journey_id", "journey_state", "intent", "channel", "accessibility_mode" };
+        foreach (var p in body.Properties()) { if (!allowed.Contains(p.Name)) { return true; } }
+        return false; }'>
+        <return-response><set-status code="400" reason="Unknown or demographic field rejected (B7)" /></return-response>
+      </when>
+    </choose>
+  </inbound>
+  <backend><base /></backend>
+  <outbound><base /></outbound>
+  <on-error><base /></on-error>
+</policies>

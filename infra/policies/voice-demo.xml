@@ -1,0 +1,35 @@
+<policies>
+  <inbound>
+    <base />
+    <choose>
+      <when condition="@(__DISABLED__)"><return-response><set-status code="404" reason="Not Found" /></return-response></when>
+    </choose>
+    <cors allow-credentials="true">
+      <allowed-origins><origin>__ORIGIN__</origin></allowed-origins>
+      <allowed-methods><method>GET</method><method>POST</method></allowed-methods>
+      <allowed-headers><header>Authorization</header><header>Content-Type</header></allowed-headers>
+    </cors>
+    <rate-limit-by-key calls="120" renewal-period="60" counter-key="@(&quot;voice-page-&quot; + context.Request.IpAddress)" />
+    <choose>
+      <when condition="@(context.Request.Method != &quot;GET&quot;)">
+        <check-header name="Origin" failed-check-httpcode="403" failed-check-error-message="Demo origin required" ignore-case="false"><value>__ORIGIN__</value></check-header>
+        <validate-jwt header-name="Authorization" require-scheme="Bearer" require-signed-tokens="true" require-expiration-time="true" failed-validation-httpcode="401">
+          <openid-config url="https://login.microsoftonline.com/__TENANT__/v2.0/.well-known/openid-configuration" />
+          <audiences><audience>__CLIENT__</audience></audiences>
+          <issuers><issuer>https://login.microsoftonline.com/__TENANT__/v2.0</issuer></issuers>
+          <required-claims>
+            <claim name="tid"><value>__TENANT__</value></claim>
+            <claim name="oid"><value>__OPERATOR__</value></claim>
+            <claim name="scp" match="any" separator=" "><value>VoiceDemo.Access</value></claim>
+            <claim name="roles" match="any"><value>VoiceDemo.Presenter</value></claim>
+            <claim name="azp" match="any"><value>__CLIENT__</value><value>04b07795-8ddb-461a-bbee-02f9e1bf7b46</value></claim>
+          </required-claims>
+        </validate-jwt>
+        <rate-limit-by-key calls="6" renewal-period="60" counter-key="gg-dev-voice-authorize" />
+      </when>
+    </choose>
+  </inbound>
+  <backend><base /></backend>
+  <outbound><base /><set-header name="Cache-Control" exists-action="override"><value>no-store</value></set-header></outbound>
+  <on-error><base /></on-error>
+</policies>

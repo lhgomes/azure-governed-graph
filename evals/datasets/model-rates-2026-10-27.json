@@ -1,0 +1,16 @@
+{
+  "gpt-counsellor": {
+    "currency": "USD",
+    "source": "Azure Retail Prices API, swedencentral, Azure OpenAI Data Zone, 2026-10-27. USD/1K meters converted to USD/1M: input 55f82ecc-5e15-5e12-91f2-3fee86e8fb3e, cached a8927796-72b9-5516-9ec4-7098b1af733a, output 0f842d9f-7ad0-520f-bbb4-078cc8b3f314. https://prices.azure.com/api/retail/prices",
+    "input_per_million": "2.2",
+    "cached_input_per_million": "0.55",
+    "output_per_million": "8.8"
+  },
+  "gpt-compact": {
+    "currency": "USD",
+    "source": "Azure Retail Prices API, swedencentral, Azure OpenAI Data Zone, 2026-10-27. USD/1K meters converted to USD/1M: input 3c1eb35d-8add-5e8b-8b85-cce154352ee1, cached 6aba7acd-eaff-5d76-8290-025219c3244c, output 3dff6466-c36f-5648-b1fb-eda772f4ebcc. https://prices.azure.com/api/retail/prices",
+    "input_per_million": "0.44",
+    "cached_input_per_million": "0.11",
+    "output_per_million": "1.76"
+  }
+}

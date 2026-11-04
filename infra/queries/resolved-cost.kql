@@ -1,0 +1,47 @@
+// ILLUSTRATIVE - synthetic data. Observed model-token list cost, NOT full-stack/invoice cost.
+// As-of now: a resolution must have a complete subsequent 14-day window.
+let AsOf=now();
+let CohortEnd=AsOf-14d;
+let CohortStart=CohortEnd-30d;
+let E=AppTraces
+| where TimeGenerated between (CohortStart .. AsOf)
+| where Message in ("journey_started", "journey_contact", "journey_turn_delivered",
+                    "model_usage", "model_usage_missing")
+| extend p=Properties
+| summarize arg_max(TimeGenerated, *) by event_id=tostring(p.event_id)
+| extend journey_id=tostring(p.journey_id), contact_key=tostring(p.contact_key),
+         OccurredAt=todatetime(p.occurred_at)
+| where OccurredAt between (CohortStart .. AsOf);
+let Cohort=E | where Message == "journey_started" and OccurredAt < CohortEnd
+| project journey_id;
+let Contacts=E | where Message in ("journey_started", "journey_contact")
+| project contact_key, ContactAt=OccurredAt;
+let Resolved=E | where Message == "journey_turn_delivered" and tostring(p.state) == "resolved"
+| join kind=inner Cohort on journey_id
+| summarize ResolvedAt=min(OccurredAt) by journey_id, contact_key
+| where ResolvedAt+14d <= AsOf;
+let Repeats=Resolved | join kind=inner Contacts on contact_key
+| where ContactAt > ResolvedAt and ContactAt <= ResolvedAt+14d | distinct journey_id;
+let Qualified=Resolved | join kind=leftanti Repeats on journey_id;
+// Verified Sweden Central non-batch Data Zone USD/million meters; IMP-36 source rate card.
+let Rates=datatable(model_deployment:string, input_rate:real, cached_rate:real, output_rate:real)
+["gpt-counsellor",2.2,0.55,8.8, "gpt-compact",0.44,0.11,1.76];
+let Usage=E | where Message in ("model_usage", "model_usage_missing")
+| join kind=inner Cohort on journey_id
+| extend model_deployment=tostring(p.model_deployment)
+| join kind=leftouter Rates on model_deployment
+| extend known=Message == "model_usage" and isnotnull(input_rate)
+                 and TimeGenerated >= datetime(2026-10-27),
+         cost=((todouble(p.input_tokens)-todouble(p.cached_input_tokens))*input_rate
+                +todouble(p.cached_input_tokens)*cached_rate+todouble(p.output_tokens)*output_rate)/1000000.0;
+let N=toscalar(Qualified | count);
+let Missing=toscalar(Usage | summarize countif(not(known)));
+let Receipts=toscalar(Usage | count);
+let Total=toscalar(Usage | summarize sum(cost));
+print data="ILLUSTRATIVE - synthetic data",
+      cost_scope="Observed Responses token usage at sourced list rates; excludes Search, Speech and infrastructure",
+      observation="No repeat contact OBSERVED; confirm ingestion completeness against durable journeys before financial use",
+      qualified_observed_resolutions=N, unknown_usage=Missing, usage_receipts=Receipts,
+      observed_token_cost_usd=iff(Missing == 0 and Receipts > 0, Total, real(null)),
+      observed_cost_per_resolved_query_usd=iff(N > 0 and Missing == 0 and Receipts > 0, Total/N, real(null)),
+      full_stack_cost_per_resolved_query_usd=real(null)

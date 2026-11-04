@@ -1,0 +1,9 @@
+-r requirements.txt
+# Isolated P2 environment: current Azure ML tracking plugin's supported ceiling.
+azure-identity==1.26.0
+azure-ai-ml==1.35.2
+azure-storage-blob==12.27.1
+azure-keyvault-keys==4.11.3
+fairlearn==0.15.0
+azureml-mlflow==1.62.0.post6
+mlflow-skinny==3.15.0

@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+name: governedgraph
+metadata:
+  template: governedgraph@1.0.0
+infra:
+  provider: bicep
+  path: infra
+services:
+  orchestrator:
+    project: .
+    language: docker
+    host: containerapp
+    docker: { path: Dockerfile, remoteBuild: true }
+  strategy-service:
+    project: .
+    language: docker
+    host: containerapp
+    docker: { path: Dockerfile, remoteBuild: true }
+  member-values:
+    project: .
+    language: docker
+    host: containerapp
+    docker: { path: Dockerfile, remoteBuild: true }
+  contact-centre:
+    project: .
+    language: docker
+    host: containerapp
+    docker: { path: Dockerfile, remoteBuild: true }
+hooks:
+  preprovision:
+    shell: sh
+    run: |
+      if [ "${AZURE_ENV_NAME:-}" = "gg-dev" ] && { [ "${DEPLOY_VOICE_DEMO:-false}" = "true" ] || [ -n "${VOICE_DEMO_CLIENT_ID:-}" ]; }; then
+        PYTHONPATH=. python -m scripts.configure_voice_demo --apply --azd-env
+      fi
+    continueOnError: false
+  postprovision:
+    shell: sh
+    run: |
+      if [ -z "${SERVICE_ORCHESTRATOR_IMAGE_NAME:-}" ]; then
+        echo "Skipping approved-content publication: the services are not deployed yet."
+        echo "After 'azd deploy' and approving the Search private link, run: azd hooks run postprovision"
+        exit 0
+      fi
+      python -m venv .azure/hooks-venv
+      .azure/hooks-venv/bin/python -m pip install -q -r requirements-azure.txt
+      GOVERNEDGRAPH_MODE=azure PYTHONPATH=src .azure/hooks-venv/bin/python -m governedgraph.search.run_publisher_job
+    continueOnError: false

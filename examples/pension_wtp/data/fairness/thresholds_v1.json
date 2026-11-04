@@ -1,0 +1,12 @@
+{
+  "threshold_version": "1.0",
+  "watermark": "ILLUSTRATIVE - synthetic data (real values are set by the governance board with the DPO, AD-05)",
+  "max_cohort_gap_pts": 10.0,
+  "min_cell_size": 100,
+  "min_sample_per_strategy": 300,
+  "max_rank_shift_per_cycle": 2,
+  "prior_pseudo_count": 200,
+  "exploration_rate": 0.05,
+  "tier1_rank_shift": 2,
+  "audit_dimensions": ["age_band", "gender", "salary_band"]
+}

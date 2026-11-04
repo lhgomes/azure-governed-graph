@@ -1,0 +1,28 @@
+{
+  "watermark": "ILLUSTRATIVE - synthetic data",
+  "source_system": "mock-administration-system (stands in for the outsourced administrator's deterministic actuarial engine)",
+  "note": "Official values only. No demographic attributes are exposed by this API (B7). Display strings are formatted by the system of record and quoted verbatim by agents (B2).",
+  "members": {
+    "MBR-7Q2K": {
+      "values": [
+        {"value_id": "current_monthly_pension", "label": "Current gross monthly pension", "value": 1412.50, "unit": "EUR/month", "calculation_run_id": "RUN-2026-09-PAY", "as_of": "2026-09-30", "display": "EUR 1,412.50"},
+        {"value_id": "monthly_pension_after_transition", "label": "Gross monthly pension directly after transition", "value": 1412.50, "unit": "EUR/month", "calculation_run_id": "RUN-2026-10-INV-0042", "as_of": "2026-10-01", "display": "EUR 1,412.50"},
+        {"value_id": "transition_date", "label": "Transition date (invaren)", "value": 20270101, "unit": "date", "calculation_run_id": "RUN-2026-10-INV-0042", "as_of": "2026-10-01", "display": "1 January 2027"}
+      ]
+    },
+    "MBR-3H8D": {
+      "values": [
+        {"value_id": "accrued_annual_pension", "label": "Accrued annual pension (old contract)", "value": 18240.00, "unit": "EUR/year", "calculation_run_id": "RUN-2026-09-UPO", "as_of": "2026-09-30", "display": "EUR 18,240 a year"},
+        {"value_id": "personal_capital_after_transition", "label": "Personal pension capital after transition", "value": 301550.00, "unit": "EUR", "calculation_run_id": "RUN-2026-10-INV-0107", "as_of": "2026-10-01", "display": "EUR 301,550"},
+        {"value_id": "transition_date", "label": "Transition date (invaren)", "value": 20270101, "unit": "date", "calculation_run_id": "RUN-2026-10-INV-0107", "as_of": "2026-10-01", "display": "1 January 2027"}
+      ]
+    },
+    "MBR-9C1M": {
+      "values": [
+        {"value_id": "accrued_annual_pension", "label": "Accrued annual pension (old contract)", "value": 9105.00, "unit": "EUR/year", "calculation_run_id": "RUN-2026-09-UPO", "as_of": "2026-09-30", "display": "EUR 9,105 a year"},
+        {"value_id": "personal_capital_after_transition", "label": "Personal pension capital after transition", "value": 121870.00, "unit": "EUR", "calculation_run_id": "RUN-2026-10-INV-0219", "as_of": "2026-10-01", "display": "EUR 121,870"},
+        {"value_id": "transition_date", "label": "Transition date (invaren)", "value": 20270101, "unit": "date", "calculation_run_id": "RUN-2026-10-INV-0219", "as_of": "2026-10-01", "display": "1 January 2027"}
+      ]
+    }
+  }
+}

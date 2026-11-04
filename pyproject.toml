@@ -1,0 +1,16 @@
+[project]
+name = "governedgraph"
+version = "1.0.0"
+description = "GovernedGraph: a governed Learning Member Journey Graph framework - deterministic values, approved strategies, bounded learning, fairness veto and human escalation for regulated member journeys"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "examples/pension_wtp/tests"]
+pythonpath = [".", "src", "examples"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 130
+src = ["src", "examples"]

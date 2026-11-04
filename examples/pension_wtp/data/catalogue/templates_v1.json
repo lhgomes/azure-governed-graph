@@ -1,0 +1,39 @@
+{
+  "template_set_version": "1.3",
+  "acknowledgements": {
+    "approval_ref": "IMP-35-user-approval-2026-10-27",
+    "label": "ILLUSTRATIVE - synthetic data",
+    "voice_checking": "Thank you. I'm checking your official figures now."
+  },
+  "note": "Approved templates. Figures are bound BY REFERENCE ({{value:<value_id>}}) from get_member_values results (B2). The model may choose wording around a template but never writes a figure itself. Each template has approved variants; the runtime picks the first variant whose placeholders are all present in the member's official values.",
+  "templates": {
+    "T-S1": {
+      "pensioner": "In short: the Wtp transition (invaren) changes how your pension is organised, not the official amounts you have built up. Your current official monthly pension is {{value:current_monthly_pension}}. The fund's administrator calculated your figures; I can only explain them.",
+      "active_member": "In short: the Wtp transition (invaren) converts the pension you have built up into the new contract; it does not take entitlements away. Under the old contract you had built up {{value:accrued_annual_pension}}. The administrator's official conversion shows a personal pension capital of {{value:personal_capital_after_transition}}. I can only explain these figures, not change them."
+    },
+    "T-S2": {
+      "pensioner": "Here is a worked example with your own official figures. Today you receive {{value:current_monthly_pension}} a month. The administrator's transition calculation shows {{value:monthly_pension_after_transition}} a month directly after the transition, as of {{asof:monthly_pension_after_transition}}. After the transition your pension can move with the fund's results each year.",
+      "active_member": "Here is a worked example with your own official figures. Under the old contract you had built up {{value:accrued_annual_pension}}. On {{value:transition_date}} the administrator converts this into a personal pension capital of {{value:personal_capital_after_transition}}, as of {{asof:personal_capital_after_transition}}. From then on that capital moves with the fund's results."
+    },
+    "T-S3": {
+      "pensioner": "Think of it as a timeline. Before the transition: your pension is {{value:current_monthly_pension}} a month. On the transition date: your entitlements are converted. Directly after: the official calculation shows {{value:monthly_pension_after_transition}} a month. After that: yearly adjustments depend on the fund's results.",
+      "active_member": "Think of it as a timeline. Before the transition: you have built up {{value:accrued_annual_pension}}. On {{value:transition_date}}: your entitlements are converted. Directly after: the official calculation shows a personal pension capital of {{value:personal_capital_after_transition}}. After that: it moves with contributions and the fund's results."
+    },
+    "T-S4": {
+      "pensioner": "What stays the same: your official monthly pension directly after the transition is {{value:monthly_pension_after_transition}}, and it is paid on the same date. What changes: from then on, the yearly adjustment depends on the fund's results. What to check: the transition letter dated {{asof:monthly_pension_after_transition}}.",
+      "active_member": "What stays the same: what you have built up is converted, not lost, and the fund still pays your pension. What changes: from {{value:transition_date}} your pension is shown as a personal pension capital - officially {{value:personal_capital_after_transition}}. What to check: the figures in your transition letter."
+    },
+    "T-S5": {
+      "pensioner": "Let me take this step by step. Step 1: today you receive {{value:current_monthly_pension}} a month. Step 2: the administrator's official calculation for directly after the transition is {{value:monthly_pension_after_transition}} a month. Step 3: after that, the yearly adjustment can go up or down with the fund's results. To check I explained this clearly: in your own words, what happens to your monthly pension on the transition date?",
+      "active_member": "Let me take this step by step. Step 1: under the old contract you had built up {{value:accrued_annual_pension}}. Step 2: on {{value:transition_date}} the administrator converts this into a personal pension capital of {{value:personal_capital_after_transition}}. Step 3: after that, the capital moves with contributions and the fund's results. To check I explained this clearly: in your own words, what happens to what you have built up on the transition date?"
+    },
+    "T-S6": {
+      "any": "If you would like to talk this through with a person, I can arrange a call with one of the fund's advisors. Would that help?"
+    }
+  },
+  "disclosure": {
+    "approval_ref": "IMP-102-user-approval-2026-11-04",
+    "label": "ILLUSTRATIVE - synthetic data",
+    "en": "Hello, welcome! I'm your AI pension guide. We can take your pension questions one step at a time. I can help explain pension information and your official figures, but I can't give personal advice. You can ask for a person at any time. Where would you like to start?"
+  }
+}

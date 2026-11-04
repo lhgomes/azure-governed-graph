@@ -1,0 +1,72 @@
+<!-- Responses front door, not Foundry BYOM: preserve the pinned agent and caller identity. -->
+<policies>
+  <inbound>
+    <base />
+    <validate-azure-ad-token tenant-id="{{tenant-id}}" header-name="Authorization" failed-validation-httpcode="401">
+      <client-application-ids><application-id>{{model-runtime-client-id}}</application-id></client-application-ids>
+      <audiences><audience>https://ai.azure.com</audience><audience>https://ai.azure.com/</audience></audiences>
+    </validate-azure-ad-token>
+    <choose>
+      <when condition='@(!System.Text.RegularExpressions.Regex.IsMatch(context.Request.Headers.GetValueOrDefault("X-Journey-ID", ""), "^J-[a-fA-F0-9]{32}$"))'>
+        <return-response><set-status code="400" reason="Journey correlation required" /></return-response>
+      </when>
+      <when condition='@{
+        var body = context.Request.Body.As&lt;Newtonsoft.Json.Linq.JObject&gt;(preserveContent: true);
+        var agent = body["agent_reference"] as Newtonsoft.Json.Linq.JObject;
+        if (agent == null) { return true; }
+        var name = (string)agent["name"];
+        var version = (string)agent["version"];
+        return (string)agent["type"] != "agent_reference"
+          || body["model"] != null || body["instructions"] != null || body["tools"] != null || body["text"] != null
+          || !((name == "gg-counsellor" &amp;&amp; version == "{{model-main-agent-version}}")
+            || (name == "gg-counsellor-voice-compact" &amp;&amp; version == "{{model-compact-agent-version}}")
+            || (name == "gg-intent-agent" &amp;&amp; version == "{{model-intent-agent-version}}")
+            || (name == "gg-understanding-agent" &amp;&amp; version == "{{model-understanding-agent-version}}")
+            || (name == "gg-answer-review-agent" &amp;&amp; version == "{{model-review-agent-version}}")); }'>
+        <return-response><set-status code="400" reason="Approved pinned agent required" /></return-response>
+      </when>
+      <!-- Human approval is scoped to the immutable writer and Foundry project, not a universal version number. -->
+      <when condition='@{
+        var body = context.Request.Body.As&lt;Newtonsoft.Json.Linq.JObject&gt;(preserveContent: true);
+        var name = (string)body["agent_reference"]["name"];
+        var version = (string)body["agent_reference"]["version"];
+        var isWriter = name == "gg-counsellor" || name == "gg-counsellor-voice-compact";
+        if (!isWriter) { return false; }
+        var approval = Newtonsoft.Json.Linq.JObject.Parse(System.Text.Encoding.UTF8.GetString(
+          System.Convert.FromBase64String("{{model-writer-approval}}")));
+        var writers = approval["writers"] as Newtonsoft.Json.Linq.JObject;
+        var writer = writers == null ? null : writers[name] as Newtonsoft.Json.Linq.JObject;
+        var approved = approval["approved"];
+        return !((string)approval["tier"] == "tier2"
+            &amp;&amp; approved != null &amp;&amp; approved.Type == Newtonsoft.Json.Linq.JTokenType.Boolean &amp;&amp; (bool)approved
+            &amp;&amp; (string)approval["project_endpoint"] == "{{model-project-endpoint}}"
+            &amp;&amp; System.Text.RegularExpressions.Regex.IsMatch((string)approval["decision_ref"] ?? "", "^(?:GB|HR)-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+            &amp;&amp; !string.IsNullOrWhiteSpace((string)approval["evidence_ref"])
+            &amp;&amp; writer != null &amp;&amp; (string)writer["version"] == version
+            &amp;&amp; System.Text.RegularExpressions.Regex.IsMatch((string)writer["definition_sha256"] ?? "", "^[0-9a-f]{64}$")); }'>
+        <return-response>
+          <set-status code="503" reason="Generated answers suspended pending semantic acceptance" />
+        </return-response>
+      </when>
+    </choose>
+    <llm-token-limit counter-key='@("gg-conversation:" + context.Request.Headers.GetValueOrDefault("X-Journey-ID", ""))'
+      tokens-per-minute="12000" token-quota="120000" token-quota-period="Daily" estimate-prompt-tokens="true" />
+    <set-header name="X-Authenticated-Member" exists-action="delete" />
+  </inbound>
+  <!-- Do not replay a possibly accepted model request or change its pinned model on failure. -->
+  <backend><forward-request timeout="25" /></backend>
+  <outbound><base /></outbound>
+  <!-- Name the daily-quota refusal so the host escalates with a conversation-limit reason, not an outage. -->
+  <on-error>
+    <base />
+    <choose>
+      <when condition='@(context.LastError != null &amp;&amp; context.LastError.Source == "llm-token-limit"
+          &amp;&amp; (context.LastError.Reason ?? "").IndexOf("Quota", System.StringComparison.OrdinalIgnoreCase) >= 0)'>
+        <return-response>
+          <set-status code="403" reason="Conversation token quota exceeded" />
+          <set-header name="X-GG-Limit" exists-action="override"><value>conversation-token-quota</value></set-header>
+        </return-response>
+      </when>
+    </choose>
+  </on-error>
+</policies>

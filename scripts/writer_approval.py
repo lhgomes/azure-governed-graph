@@ -1,0 +1,121 @@
+"""Internal verifier used by `scripts.deploy`: check a derived Tier-2 writer approval against the live immutable
+Foundry definitions and, with --apply, store it in the azd environment. Not a manual deployment step; read-only by default."""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
+
+from scripts.azd_env import EnvError, load
+from scripts.create_agents import definition_sha256
+
+if TYPE_CHECKING:
+    from azure.ai.projects import AIProjectClient
+
+WRITERS = {
+    "gg-counsellor": "AZURE_AI_AGENT_VERSION",
+    "gg-counsellor-voice-compact": "AZURE_AI_VOICE_COMPACT_VERSION",
+}
+APPROVAL_ENV = "GOVERNEDGRAPH_WRITER_APPROVAL_JSON"
+
+
+def validate_record(record: dict, values: dict[str, str]) -> str:
+    required = {"tier", "approved", "decision_ref", "evidence_ref", "project_endpoint", "writers"}
+    if not isinstance(record, dict) or set(record) != required:
+        raise EnvError("writer approval must contain exactly tier, approved, decision_ref, evidence_ref, project_endpoint and writers")
+    if record["tier"] != "tier2" or record["approved"] is not True:
+        raise EnvError("writer activation requires an explicit approved human Tier-2 decision")
+    if not isinstance(record["decision_ref"], str) or not re.fullmatch(r"(?:GB|HR)-[A-Za-z0-9][A-Za-z0-9._-]{0,127}", record["decision_ref"]):
+        raise EnvError("writer approval requires a GB- board or HR- human release decision reference")
+    if not isinstance(record["evidence_ref"], str) or not record["evidence_ref"].strip() or len(record["evidence_ref"]) > 256:
+        raise EnvError("writer approval requires an acceptance evidence reference of at most 256 characters")
+    endpoint = record["project_endpoint"]
+    if not isinstance(endpoint, str) or endpoint != values.get("AZURE_AI_PROJECT_ENDPOINT"):
+        raise EnvError("writer approval is not for this deployment's Foundry project")
+    try:
+        target = urlsplit(endpoint)
+    except ValueError as error:
+        raise EnvError("writer approval has an invalid project endpoint") from error
+    if (target.scheme != "https" or not (target.hostname or "").endswith(".services.ai.azure.com")
+            or target.netloc != target.hostname or not target.path.startswith("/api/projects/")
+            or target.query or target.fragment):
+        raise EnvError("writer approval requires the deployed Foundry project endpoint")
+    if values.get("AZURE_ENV_NAME") != "gg-dev":
+        raise EnvError("this operator helper applies only to gg-dev")
+    writers = record["writers"]
+    if not isinstance(writers, dict) or set(writers) != set(WRITERS):
+        raise EnvError("approval must cover exactly the counsellor and compact voice writer")
+    for name, variable in WRITERS.items():
+        writer = writers[name]
+        if not isinstance(writer, dict) or set(writer) != {"version", "definition_sha256"}:
+            raise EnvError(f"{name}: approval must contain exactly version and definition_sha256")
+        version, digest = writer["version"], writer["definition_sha256"]
+        if not isinstance(version, str) or not re.fullmatch(r"[1-9][0-9]*", version):
+            raise EnvError(f"{name}: approval requires an immutable numeric version, never latest or a draft")
+        if version != values.get(variable):
+            raise EnvError(f"{name}: approval does not match the deployment's pinned version")
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise EnvError(f"{name}: approval requires the exact definition SHA-256")
+    encoded = json.dumps(record, sort_keys=True, separators=(",", ":"))
+    if len(encoded) > 3000:
+        raise EnvError("writer approval exceeds the gateway configuration limit")
+    return encoded
+
+
+def verify(project: AIProjectClient, record: dict, values: dict[str, str]) -> str:
+    encoded = validate_record(record, values)
+    for name, approved in record["writers"].items():
+        version = project.agents.get_version(name, approved["version"])
+        if str(version.version) != approved["version"]:
+            raise EnvError(f"{name}: Foundry returned another version")
+        if definition_sha256(version.definition.as_dict()) != approved["definition_sha256"]:
+            raise EnvError(f"{name}: the live immutable definition does not match the human approval")
+    return encoded
+
+
+def unique_fields(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    fields = {}
+    for key, value in pairs:
+        if key in fields:
+            raise EnvError("duplicate field in writer approval")
+        fields[key] = value
+    return fields
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--file", required=True, help="existing human-approved Tier-2 JSON record; never generated by this helper")
+    parser.add_argument("--environment", default="gg-dev")
+    parser.add_argument("--apply", action="store_true", help="store the verified approval in azd; provision separately to apply the policy")
+    args = parser.parse_args(argv)
+    try:
+        if args.environment != "gg-dev":
+            raise EnvError("this operator helper applies only to gg-dev")
+        values = load(environment=args.environment)
+        record = json.loads(Path(args.file).read_text(), object_pairs_hook=unique_fields)
+        validate_record(record, values)
+        from azure.ai.projects import AIProjectClient
+        from azure.identity import DefaultAzureCredential
+
+        with DefaultAzureCredential() as credential:
+            with AIProjectClient(endpoint=values["AZURE_AI_PROJECT_ENDPOINT"], credential=credential) as project:
+                encoded = verify(project, record, values)
+        if args.apply:
+            subprocess.run(["azd", "env", "set", APPROVAL_ENV, encoded, "--environment", args.environment], check=True)
+        print(json.dumps({"decision_ref": record["decision_ref"], "action": "stored" if args.apply else "verified; no changes"}))
+    except (EnvError, OSError, json.JSONDecodeError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    except subprocess.CalledProcessError as error:
+        print(f"error: azd failed with exit code {error.returncode}; no approval was applied to the gateway", file=sys.stderr)
+        return error.returncode
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

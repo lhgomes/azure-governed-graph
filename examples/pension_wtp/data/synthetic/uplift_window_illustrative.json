@@ -1,0 +1,7 @@
+{
+  "window_id": "synthetic-window",
+  "window_closed": true,
+  "treatment": {"interactions": 19000, "resolved": 14250, "repeat_contacts": 1500},
+  "control": {"interactions": 1000, "resolved": 680, "repeat_contacts": 120},
+  "watermark": "ILLUSTRATIVE - synthetic data"
+}

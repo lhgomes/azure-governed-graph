@@ -1,0 +1,4 @@
+name: gg-model-evaluation
+infra:
+  provider: bicep
+  path: .

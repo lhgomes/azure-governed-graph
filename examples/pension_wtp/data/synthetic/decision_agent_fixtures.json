@@ -1,0 +1,88 @@
+{
+  "watermark": "ILLUSTRATIVE - synthetic data",
+  "description": "Labelled offline rehearsal fixtures, not a semantic classifier or a production fallback. Unknown examples fail closed. No transcript ingestion.",
+  "intent": [
+    {
+      "texts": [
+        "Explain my transition letter",
+        "Explain the transition letter",
+        "Please explain my transition letter",
+        "Please explain my transition letter.",
+        "Please explain the transition letter.",
+        "Please explain the transition.",
+        "Please explain invaren.",
+        "Please explain the official transition figures in my letter.",
+        "Will the transition change what I receive?",
+        "I received a letter. Will the transition change what I receive?",
+        "Good afternoon. I received a letter about the new pension system. Will the transition change what I receive?",
+        "I got a letter about invaren. What does it mean for my monthly payment?",
+        "What does personal pension capital after the transition mean?",
+        "What does personal pension capital after the transition actually mean for me?",
+        "Can you explain the transition letter please?",
+        "Can you explain the invaren letter in English please?",
+        "I'm 80 years old and a woman, so explain the transition the way that works best for old ladies.",
+        "Will this change impact my monthly payments?",
+        "Will this change reduce my month checks?",
+        "Will my monthly pension go down?",
+        "What happens to my pension payments?",
+        "Will my monthly cheque change?"
+      ],
+      "decision": {"route": "explanation", "intent": "transition_impact_question", "reason": "official_transition_information"}
+    },
+    {
+      "texts": ["Can I change my bank?"],
+      "decision": {"route": "explanation", "intent": "general_question", "reason": "approved_fund_information"}
+    },
+    {
+      "texts": [
+        "Should I object to the transition or not? What would you do in my position?",
+        "Should I object to the transition or not?",
+        "What would you do in my position?",
+        "Which option is better for me, honestly?",
+        "Which option is best for me?",
+        "Moet ik bezwaar maken of niet?",
+        "Should I choose a different pension option?",
+        "Which pension option fits my personal circumstances?"
+      ],
+      "decision": {"route": "advice", "intent": "option_level_question", "reason": "personal_choice_or_comparison"}
+    },
+    {
+      "texts": ["Can I talk to a person please?", "Can I talk to a person?", "I want a human advisor"],
+      "decision": {"route": "human", "intent": "unclassified", "reason": "explicit_human_request"}
+    },
+    {
+      "texts": [
+        "So it stays the same on the transition date and can go up or down each year after that.",
+        "It stays the same on the transition date and can go up or down each year after that.",
+        "It stays the same on the transition date and can go up or down afterwards.",
+        "So on the transition date my monthly pension stays the same, and after that it can go up or down a little each year with the fund's results.",
+        "What I built up is converted into a personal pension capital on the transition date, and after that it can go up or down with the fund's results.",
+        "It stays the same and can go up or down each year.",
+        "I still do not understand",
+        "I do not understand"
+      ],
+      "decision": {"route": "comprehension", "intent": "unclassified", "reason": "restating_previous_explanation"}
+    },
+    {
+      "texts": ["What about that?"],
+      "decision": {"route": "clarification", "intent": "unclassified", "reason": "more_context_needed"}
+    }
+  ],
+  "understanding": [
+    {
+      "texts": [
+        "So it stays the same on the transition date and can go up or down each year after that.",
+        "It stays the same on the transition date and can go up or down each year after that.",
+        "It stays the same on the transition date and can go up or down afterwards.",
+        "So on the transition date my monthly pension stays the same, and after that it can go up or down a little each year with the fund's results.",
+        "What I built up is converted into a personal pension capital on the transition date, and after that it can go up or down with the fund's results.",
+        "It stays the same and can go up or down each year."
+      ],
+      "decision": {"outcome": "understood", "reason": "meaning_correct"}
+    },
+    {
+      "texts": ["I still do not understand", "I do not understand"],
+      "decision": {"outcome": "needs_explanation", "reason": "meaning_not_yet_understood"}
+    }
+  ]
+}

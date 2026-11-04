@@ -1,0 +1,21 @@
+<policies>
+  <inbound>
+    <base />
+    <validate-jwt header-name="Authorization" require-scheme="Bearer" require-signed-tokens="true" require-expiration-time="true" clock-skew="0" failed-validation-httpcode="401" output-token-variable-name="jwt">
+      <issuer-signing-keys><key n="{{member-token-modulus}}" e="{{member-token-exponent}}" /></issuer-signing-keys>
+      <audiences><audience>{{member-token-audience}}</audience></audiences>
+      <issuers><issuer>{{member-token-issuer}}</issuer></issuers>
+    </validate-jwt>
+    <choose>
+      <when condition='@{ var jwt = (Jwt)context.Variables["jwt"]; return string.IsNullOrWhiteSpace(jwt.Claims.GetValueOrDefault("member_ref", "")) || jwt.Algorithm != "RS256" || !jwt.IssuedAt.HasValue || !jwt.ExpirationTime.HasValue || jwt.IssuedAt.Value &gt; DateTime.UtcNow || (jwt.ExpirationTime.Value - jwt.IssuedAt.Value).TotalSeconds &gt; 900 || jwt.ExpirationTime.Value &lt;= jwt.IssuedAt.Value; }'>
+        <return-response><set-status code="401" reason="Invalid member token" /></return-response>
+      </when>
+    </choose>
+    <set-header name="X-Authenticated-Member" exists-action="override">
+      <value>@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("member_ref", ""))</value>
+    </set-header>
+  </inbound>
+  <backend><base /></backend>
+  <outbound><base /></outbound>
+  <on-error><base /></on-error>
+</policies>

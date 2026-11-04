@@ -1,0 +1,173 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-labelledby="title description">
+  <title id="title">Agent workflow and coordination</title>
+  <desc id="description">A host-controlled member journey coordinates intent routing, understanding assessment, a Pension Counsellor and an independent Answer Quality Judge. Deterministic gates and durable audit precede every released answer. A separate aggregate-only learning loop bounds ranking changes, applies universal fairness vetoes and publishes governed signed snapshots. Human help is always available; material change requires human approval.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 L9 5 L1 9 Z" fill="#536780"/>
+    </marker>
+    <marker id="teal-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 L9 5 L1 9 Z" fill="#087f82"/>
+    </marker>
+    <marker id="amber-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 L9 5 L1 9 Z" fill="#a76b13"/>
+    </marker>
+    <style>
+      text { font-family: "DejaVu Sans", Aptos, "Segoe UI", Arial, sans-serif; fill: #182b45; }
+      .title { font-size: 46px; font-weight: 700; letter-spacing: -1px; }
+      .subtitle { font-size: 23px; fill: #52657d; }
+      .lane { font-size: 20px; font-weight: 700; letter-spacing: 2px; }
+      .heading { font-size: 22px; font-weight: 700; }
+      .body { font-size: 19px; fill: #415671; }
+      .small { font-size: 16px; fill: #52657d; }
+      .label { font-size: 16px; font-weight: 600; fill: #52657d; }
+      .tag { font-size: 13px; font-weight: 700; letter-spacing: 1.3px; }
+      .flow { fill: none; stroke: #536780; stroke-width: 2.5; marker-end: url(#arrow); stroke-linejoin: round; }
+      .learning-flow { fill: none; stroke: #087f82; stroke-width: 2.5; marker-end: url(#teal-arrow); stroke-linejoin: round; }
+      .feedback { fill: none; stroke: #087f82; stroke-width: 2.5; stroke-dasharray: 8 6; marker-end: url(#teal-arrow); stroke-linejoin: round; }
+      .exception { fill: none; stroke: #a76b13; stroke-width: 2.5; stroke-dasharray: 8 6; marker-end: url(#amber-arrow); stroke-linejoin: round; }
+    </style>
+  </defs>
+
+  <rect width="1920" height="1080" fill="#ffffff"/>
+  <rect x="0" y="0" width="12" height="1080" fill="#087f82"/>
+  <text x="64" y="76" class="title">Agent workflow and coordination</text>
+  <text x="66" y="117" class="subtitle">Learning Member Journey Graph  |  Learns how to explain, never what to decide</text>
+
+  <rect x="40" y="151" width="1840" height="517" rx="22" fill="#f5f8fc" stroke="#dce5ef"/>
+  <text x="65" y="187" class="lane">01 / MEMBER JOURNEY</text>
+  <text x="1853" y="187" text-anchor="end" class="small">Host-controlled workflow  /  Microsoft Agent Framework + Foundry agents</text>
+
+  <!-- Main member journey. -->
+  <path d="M285 324 H328" class="flow"/>
+  <path d="M660 324 H713" class="flow"/>
+  <path d="M1005 324 H1058" class="flow"/>
+  <path d="M1370 324 H1418" class="flow"/>
+  <path d="M1215 253 V222 H860 V253" class="exception"/>
+  <rect x="887" y="207" width="312" height="28" rx="8" fill="#f5f8fc"/>
+  <text x="1043" y="227" text-anchor="middle" class="label" style="fill:#946014">At most one repair + recheck</text>
+
+  <rect x="65" y="254" width="220" height="149" rx="16" fill="#ffffff" stroke="#c5d2e1" stroke-width="2"/>
+  <text x="87" y="283" class="tag" style="fill:#52657d">CHANNEL</text>
+  <text x="87" y="319" class="heading">Member</text>
+  <text x="87" y="350" class="body">Chat or voice</text>
+  <text x="87" y="380" class="small">AI disclosure first</text>
+
+  <rect x="330" y="254" width="330" height="149" rx="16" fill="#edf4ff" stroke="#7ea5d9" stroke-width="2"/>
+  <text x="352" y="283" class="tag" style="fill:#275d9b">HOST / NOT AN LLM</text>
+  <text x="352" y="319" class="heading">Journey Orchestrator</text>
+  <text x="352" y="350" class="body">Authenticate, screen, route</text>
+  <text x="352" y="380" class="small">Owns state and allowed branches</text>
+
+  <rect x="715" y="254" width="290" height="149" rx="16" fill="#f2edfc" stroke="#a58ace" stroke-width="2"/>
+  <text x="737" y="283" class="tag" style="fill:#7044a5">AGENT</text>
+  <text x="737" y="319" class="heading">Pension Counsellor</text>
+  <text x="737" y="350" class="body">Draft grounded answer</text>
+  <text x="737" y="380" class="small">Evidence + value placeholders</text>
+
+  <rect x="1060" y="254" width="310" height="149" rx="16" fill="#f2edfc" stroke="#a58ace" stroke-width="2"/>
+  <text x="1082" y="283" class="tag" style="fill:#7044a5">INDEPENDENT AGENT</text>
+  <text x="1082" y="319" class="heading">Answer Quality Judge</text>
+  <text x="1082" y="350" class="body">Grounding, relevance, clarity</text>
+  <text x="1082" y="380" class="small">Non-pass: checked fallback / help</text>
+
+  <rect x="1420" y="254" width="435" height="149" rx="16" fill="#edf4ff" stroke="#7ea5d9" stroke-width="2"/>
+  <text x="1442" y="283" class="tag" style="fill:#275d9b">HOST RELEASE BARRIER</text>
+  <text x="1442" y="319" class="heading">Check, audit, then respond</text>
+  <text x="1442" y="350" class="body">Bind values; numeric + advice gates</text>
+  <text x="1442" y="380" class="small">Durable explainability record before release</text>
+
+  <!-- Supporting semantic roles and governed tools. -->
+  <path d="M478 403 V450" class="flow"/>
+  <path d="M515 452 V405" class="flow"/>
+  <text x="342" y="433" class="label">Closed decisions</text>
+  <path d="M838 403 V450" class="flow"/>
+  <path d="M878 452 V405" class="flow"/>
+  <text x="903" y="433" class="label">Approved tools only</text>
+
+  <rect x="330" y="452" width="330" height="150" rx="16" fill="#f2edfc" stroke="#a58ace" stroke-width="2"/>
+  <text x="352" y="484" class="heading" style="font-size:20px">Specialist decision agents</text>
+  <text x="352" y="519" class="body">Intent Routing</text>
+  <text x="352" y="548" class="body">Understanding Assessment</text>
+  <text x="352" y="580" class="small">Clarify / explain / teach-back / help</text>
+
+  <rect x="715" y="452" width="655" height="150" rx="16" fill="#ffffff" stroke="#c5d2e1" stroke-width="2"/>
+  <path d="M939 470 V584 M1157 470 V584" stroke="#dce5ef" stroke-width="2"/>
+  <text x="737" y="484" class="tag" style="fill:#275d9b">APPROVED CONTENT</text>
+  <text x="737" y="521" class="heading">AI Search</text>
+  <text x="737" y="552" class="small">Versioned content</text>
+  <text x="737" y="579" class="small">Screened passages</text>
+  <text x="960" y="484" class="tag" style="fill:#275d9b">OFFICIAL VALUES</text>
+  <text x="960" y="521" class="heading">Values API</text>
+  <text x="960" y="552" class="small">Read-only via APIM</text>
+  <text x="960" y="579" class="small">No AI calculations</text>
+  <text x="1177" y="484" class="tag" style="fill:#087f82">APPROVED RANKING</text>
+  <text x="1177" y="521" class="heading" style="font-size:19px">Strategy Service</text>
+  <text x="1177" y="552" class="small">Verify signed ranking</text>
+  <text x="1177" y="579" class="small">Universal vetoes</text>
+
+  <rect x="1420" y="452" width="435" height="150" rx="16" fill="#fff7e9" stroke="#d3ad69" stroke-width="2"/>
+  <text x="1442" y="483" class="tag" style="fill:#946014">ALWAYS AVAILABLE</text>
+  <text x="1442" y="519" class="heading">Human advisor handover</text>
+  <text x="1442" y="550" class="body">Member request, advice or service failure</text>
+  <text x="1442" y="580" class="small">Host-controlled escalation; audited response</text>
+  <path d="M640 403 H687 V631 H1637 V604" class="exception"/>
+  <rect x="718" y="616" width="652" height="29" rx="8" fill="#f5f8fc"/>
+  <text x="1044" y="637" text-anchor="middle" class="label" style="fill:#946014">Human help from every state; no pension-option recommendations</text>
+
+  <rect x="40" y="714" width="1840" height="250" rx="22" fill="#f0f9f8" stroke="#cce4e1"/>
+
+  <!-- Only confirmed outcome aggregates enter the offline learning plane. -->
+  <path d="M330 385 H307 V700 H52 V849 H63" class="feedback"/>
+  <text x="64" y="687" class="label" style="fill:#087f82">Confirmed outcomes to aggregates</text>
+  <path d="M925 779 V705 H1246 V604" class="feedback"/>
+  <text x="941" y="687" class="label" style="fill:#087f82">Protective veto: all members</text>
+  <path d="M1855 849 H1870 V700 H1302 V604" class="feedback"/>
+  <text x="1506" y="687" class="label" style="fill:#087f82">Signed ranking back to runtime</text>
+
+  <text x="65" y="750" class="lane" style="fill:#087f82">02 / GOVERNED LEARNING</text>
+  <text x="1853" y="750" text-anchor="end" class="small">Separate identities and data plane  /  Live from day one</text>
+
+  <path d="M365 849 H408" class="learning-flow"/>
+  <path d="M710 849 H753" class="learning-flow"/>
+  <path d="M1095 849 H1138" class="learning-flow"/>
+  <path d="M1460 849 H1503" class="learning-flow"/>
+
+  <rect x="65" y="780" width="300" height="146" rx="16" fill="#ffffff" stroke="#84beb5" stroke-width="2"/>
+  <text x="85" y="813" class="heading">Outcome aggregates</text>
+  <text x="85" y="849" class="body">Immutable journey counts</text>
+  <text x="85" y="879" class="small">No transcripts or telemetry</text>
+  <text x="85" y="907" class="small">No model retraining</text>
+
+  <rect x="410" y="780" width="300" height="146" rx="16" fill="#ffffff" stroke="#84beb5" stroke-width="2"/>
+  <text x="430" y="813" class="heading">Bounded ranking</text>
+  <text x="430" y="849" class="body">Approved strategies only</text>
+  <text x="430" y="879" class="small">Minimum evidence + shift limits</text>
+  <text x="430" y="907" class="small">Reorder; never create strategies</text>
+
+  <rect x="755" y="780" width="340" height="146" rx="16" fill="#f2edfc" stroke="#a58ace" stroke-width="2"/>
+  <text x="775" y="813" class="heading">Fairness + Explainability</text>
+  <text x="775" y="849" class="body">Isolated aggregate cohort audit</text>
+  <text x="775" y="879" class="small">Can suspend a winning strategy</text>
+  <text x="775" y="907" class="small">No demographics reach runtime</text>
+
+  <rect x="1140" y="780" width="320" height="146" rx="16" fill="#ffffff" stroke="#84beb5" stroke-width="2"/>
+  <text x="1160" y="813" class="heading">Assurance + review</text>
+  <text x="1160" y="849" class="body">Tier 0: bounded automatic</text>
+  <text x="1160" y="879" class="small">Tier 1: agentic committee checks</text>
+  <text x="1160" y="907" class="small">Tier 2: human approval</text>
+
+  <rect x="1505" y="780" width="350" height="146" rx="16" fill="#ffffff" stroke="#84beb5" stroke-width="2"/>
+  <text x="1525" y="813" class="heading">Sign + publish snapshot</text>
+  <text x="1525" y="849" class="body">Versioned ranking + audit link</text>
+  <text x="1525" y="879" class="small">Static control arm + uplift monitoring</text>
+  <text x="1525" y="907" class="small">Kill switch: return to static ranking</text>
+
+  <text x="66" y="1000" class="body" style="font-weight:600">Agents may make the system safer autonomously. Only humans may widen what it can say, use or decide.</text>
+  <rect x="66" y="1024" width="16" height="16" rx="4" fill="#f2edfc" stroke="#a58ace"/>
+  <text x="92" y="1039" class="small">Agent role</text>
+  <rect x="217" y="1024" width="16" height="16" rx="4" fill="#edf4ff" stroke="#7ea5d9"/>
+  <text x="243" y="1039" class="small">Host / deterministic control</text>
+  <path d="M505 1032 H550" class="feedback"/>
+  <text x="563" y="1039" class="small">Aggregate / control feedback</text>
+  <text x="1855" y="1039" text-anchor="end" class="small">ILLUSTRATIVE - synthetic data  |  Reference implementation, not a production service</text>
+</svg>

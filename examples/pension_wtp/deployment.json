@@ -1,0 +1,36 @@
+{
+  "name": "pension_wtp",
+  "watermark": "ILLUSTRATIVE - synthetic data",
+  "data_directory": "data",
+  "local_checks": [
+    {
+      "kind": "pytest",
+      "targets": [
+        "tests/test_domain_pack.py",
+        "tests/test_demo_readiness.py",
+        "examples/pension_wtp/tests/test_acceptance_cases.py",
+        "tests/test_p2_components.py",
+        "tests/test_container_p2.py",
+        "tests/test_p2_fairness_agent_proof.py",
+        "tests/test_scheduled_p2.py",
+        "tests/test_voice_live.py",
+        "tests/test_hosted_voice.py",
+        "tests/test_channel_probe.py"
+      ]
+    },
+    {
+      "kind": "module",
+      "targets": ["pension_wtp.evaluation.run_evals"]
+    },
+    {
+      "kind": "module",
+      "targets": ["pension_wtp.demo.run_demo"]
+    }
+  ],
+  "deployed_checks": ["channel", "voice"],
+  "release_approval": "release-approval.json",
+  "learning": {
+    "fixtures": true,
+    "checks": ["p2-cycle", "fairness-agent"]
+  }
+}

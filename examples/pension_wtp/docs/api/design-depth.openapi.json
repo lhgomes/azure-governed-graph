@@ -1,0 +1,1934 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "GovernedGraph design-depth agent APIM facade",
+    "version": "1.0.0",
+    "description": "ILLUSTRATIVE - synthetic data. Contract design only, not an imported/deployed API. Writes use idempotency keys; calculation scheduling is queue-only. The production APIM adapter must enforce approved tool permissions and bind journey/member scope from authenticated context. The shared escalation operation is available to all three agents. No release, rules-edit, entitlement, eligibility or complex-case-close operation exists."
+  },
+  "servers": [
+    {
+      "url": "https://{gateway}.azure-api.net",
+      "variables": {
+        "gateway": {
+          "default": "apim-gg-dev"
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "entraToken": []
+    }
+  ],
+  "paths": {
+    "/design/v1/calculation/schedule_conversion_batch": {
+      "post": {
+        "operationId": "schedule_conversion_batch",
+        "summary": "schedule conversion batch",
+        "x-design-depth-only": true,
+        "x-writes": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleConversion"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline stub result only; no deployed administrator effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversionBatch"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed contract, version or idempotency-key violation"
+          },
+          "401": {
+            "description": "Production adapter must authenticate callers"
+          },
+          "403": {
+            "description": "Unapproved operation, run plan or scope"
+          },
+          "404": {
+            "description": "Unknown batch or life event"
+          },
+          "409": {
+            "description": "Conflicting idempotent replay (also a ContractError in the offline stub)"
+          },
+          "501": {
+            "description": "Required production adapter is not implemented; never claim success"
+          },
+          "503": {
+            "description": "Dependency failure; use the always-available advisor handover"
+          }
+        }
+      }
+    },
+    "/design/v1/calculation/get_batch_status": {
+      "post": {
+        "operationId": "get_batch_status",
+        "summary": "get batch status",
+        "x-design-depth-only": true,
+        "x-writes": false,
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchReference"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline stub result only; no deployed administrator effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversionBatch"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed contract, version or idempotency-key violation"
+          },
+          "401": {
+            "description": "Production adapter must authenticate callers"
+          },
+          "403": {
+            "description": "Unapproved operation, run plan or scope"
+          },
+          "404": {
+            "description": "Unknown batch or life event"
+          },
+          "409": {
+            "description": "Conflicting idempotent replay (also a ContractError in the offline stub)"
+          },
+          "501": {
+            "description": "Required production adapter is not implemented; never claim success"
+          },
+          "503": {
+            "description": "Dependency failure; use the always-available advisor handover"
+          }
+        }
+      }
+    },
+    "/design/v1/calculation/run_reconciliation_check": {
+      "post": {
+        "operationId": "run_reconciliation_check",
+        "summary": "run reconciliation check",
+        "x-design-depth-only": true,
+        "x-writes": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchReference"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline stub result only; no deployed administrator effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed contract, version or idempotency-key violation"
+          },
+          "401": {
+            "description": "Production adapter must authenticate callers"
+          },
+          "403": {
+            "description": "Unapproved operation, run plan or scope"
+          },
+          "404": {
+            "description": "Unknown batch or life event"
+          },
+          "409": {
+            "description": "Conflicting idempotent replay (also a ContractError in the offline stub)"
+          },
+          "501": {
+            "description": "Required production adapter is not implemented; never claim success"
+          },
+          "503": {
+            "description": "Dependency failure; use the always-available advisor handover"
+          }
+        }
+      }
+    },
+    "/design/v1/calculation/route_exception": {
+      "post": {
+        "operationId": "route_exception",
+        "summary": "route exception",
+        "x-design-depth-only": true,
+        "x-writes": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteException"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline stub result only; no deployed administrator effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteException"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed contract, version or idempotency-key violation"
+          },
+          "401": {
+            "description": "Production adapter must authenticate callers"
+          },
+          "403": {
+            "description": "Unapproved operation, run plan or scope"
+          },
+          "404": {
+            "description": "Unknown batch or life event"
+          },
+          "409": {
+            "description": "Conflicting idempotent replay (also a ContractError in the offline stub)"
+          },
+          "501": {
+            "description": "Required production adapter is not implemented; never claim success"
+          },
+          "503": {
+            "description": "Dependency failure; use the always-available advisor handover"
+          }
+        }
+      }
+    },
+    "/design/v1/calculation/build_actuary_sample": {
+      "post": {
+        "operationId": "build_actuary_sample",
+        "summary": "build actuary sample",
+        "x-design-depth-only": true,
+        "x-writes": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildSample"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline stub result only; no deployed administrator effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActuarySample"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed contract, version or idempotency-key violation"
+          },
+          "401": {
+            "description": "Production adapter must authenticate callers"
+          },
+          "403": {
+            "description": "Unapproved operation, run plan or scope"
+          },
+          "404": {
+            "description": "Unknown batch or life event"
+          },
+          "409": {
+            "description": "Conflicting idempotent replay (also a ContractError in the offline stub)"
+          },
+          "501": {
+            "description": "Required production adapter is not implemented; never claim success"
+          },
+          "503": {
+            "description": "Dependency failure; use the always-available advisor handover"
+          }
+        }
+      }
+    },
+    "/design/v1/events/ingest_life_event": {
+      "post": {
+        "operationId": "ingest_life_event",
+        "summary": "ingest life event",
+        "x-design-depth-only": true,
+        "x-writes": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifeEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline stub result only; no deployed administrator effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifeEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed contract, version or idempotency-key violation"
+          },
+          "401": {
+            "description": "Production adapter must authenticate callers"
+          },
+          "403": {
+            "description": "Unapproved operation, run plan or scope"
+          },
+          "404": {
+            "description": "Unknown batch or life event"
+          },
+          "409": {
+            "description": "Conflicting idempotent replay (also a ContractError in the offline stub)"
+          },
+          "501": {
+            "description": "Required production adapter is not implemented; never claim success"
+          },
+          "503": {
+            "description": "Dependency failure; use the always-available advisor handover"
+          }
+        }
+      }
+    },
+    "/design/v1/events/check_documents": {
+      "post": {
+        "operationId": "check_documents",
+        "summary": "check documents",
+        "x-design-depth-only": true,
+        "x-writes": false,
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventReference"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline stub result only; no deployed administrator effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentCheck"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed contract, version or idempotency-key violation"
+          },
+          "401": {
+            "description": "Production adapter must authenticate callers"
+          },
+          "403": {
+            "description": "Unapproved operation, run plan or scope"
+          },
+          "404": {
+            "description": "Unknown batch or life event"
+          },
+          "409": {
+            "description": "Conflicting idempotent replay (also a ContractError in the offline stub)"
+          },
+          "501": {
+            "description": "Required production adapter is not implemented; never claim success"
+          },
+          "503": {
+            "description": "Dependency failure; use the always-available advisor handover"
+          }
+        }
+      }
+    },
+    "/design/v1/events/submit_event_to_administration": {
+      "post": {
+        "operationId": "submit_event_to_administration",
+        "summary": "submit event to administration",
+        "x-design-depth-only": true,
+        "x-writes": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventReference"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline stub result only; no deployed administrator effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventOutcome"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed contract, version or idempotency-key violation"
+          },
+          "401": {
+            "description": "Production adapter must authenticate callers"
+          },
+          "403": {
+            "description": "Unapproved operation, run plan or scope"
+          },
+          "404": {
+            "description": "Unknown batch or life event"
+          },
+          "409": {
+            "description": "Conflicting idempotent replay (also a ContractError in the offline stub)"
+          },
+          "501": {
+            "description": "Required production adapter is not implemented; never claim success"
+          },
+          "503": {
+            "description": "Dependency failure; use the always-available advisor handover"
+          }
+        }
+      }
+    },
+    "/design/v1/events/route_to_exception_queue": {
+      "post": {
+        "operationId": "route_to_exception_queue",
+        "summary": "route to exception queue",
+        "x-design-depth-only": true,
+        "x-writes": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteEventException"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline stub result only; no deployed administrator effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventOutcome"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed contract, version or idempotency-key violation"
+          },
+          "401": {
+            "description": "Production adapter must authenticate callers"
+          },
+          "403": {
+            "description": "Unapproved operation, run plan or scope"
+          },
+          "404": {
+            "description": "Unknown batch or life event"
+          },
+          "409": {
+            "description": "Conflicting idempotent replay (also a ContractError in the offline stub)"
+          },
+          "501": {
+            "description": "Required production adapter is not implemented; never claim success"
+          },
+          "503": {
+            "description": "Dependency failure; use the always-available advisor handover"
+          }
+        }
+      }
+    },
+    "/design/v1/adoption/get_journey_state": {
+      "post": {
+        "operationId": "get_journey_state",
+        "summary": "get journey state",
+        "x-design-depth-only": true,
+        "x-writes": false,
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline stub result only; no deployed administrator effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JourneyState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed contract, version or idempotency-key violation"
+          },
+          "401": {
+            "description": "Production adapter must authenticate callers"
+          },
+          "403": {
+            "description": "Unapproved operation, run plan or scope"
+          },
+          "404": {
+            "description": "Unknown batch or life event"
+          },
+          "409": {
+            "description": "Conflicting idempotent replay (also a ContractError in the offline stub)"
+          },
+          "501": {
+            "description": "Required production adapter is not implemented; never claim success"
+          },
+          "503": {
+            "description": "Dependency failure; use the always-available advisor handover"
+          }
+        }
+      }
+    },
+    "/design/v1/adoption/get_ranked_strategies": {
+      "post": {
+        "operationId": "get_ranked_strategies",
+        "summary": "get ranked strategies",
+        "x-design-depth-only": true,
+        "x-writes": false,
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline stub result only; no deployed administrator effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed contract, version or idempotency-key violation"
+          },
+          "401": {
+            "description": "Production adapter must authenticate callers"
+          },
+          "403": {
+            "description": "Unapproved operation, run plan or scope"
+          },
+          "404": {
+            "description": "Unknown batch or life event"
+          },
+          "409": {
+            "description": "Conflicting idempotent replay (also a ContractError in the offline stub)"
+          },
+          "501": {
+            "description": "Required production adapter is not implemented; never claim success"
+          },
+          "503": {
+            "description": "Dependency failure; use the always-available advisor handover"
+          }
+        }
+      }
+    },
+    "/design/v1/adoption/search_approved_content": {
+      "post": {
+        "operationId": "search_approved_content",
+        "summary": "search approved content",
+        "x-design-depth-only": true,
+        "x-writes": false,
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchNextSteps"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline stub result only; no deployed administrator effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NextStep"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed contract, version or idempotency-key violation"
+          },
+          "401": {
+            "description": "Production adapter must authenticate callers"
+          },
+          "403": {
+            "description": "Unapproved operation, run plan or scope"
+          },
+          "404": {
+            "description": "Unknown batch or life event"
+          },
+          "409": {
+            "description": "Conflicting idempotent replay (also a ContractError in the offline stub)"
+          },
+          "501": {
+            "description": "Required production adapter is not implemented; never claim success"
+          },
+          "503": {
+            "description": "Dependency failure; use the always-available advisor handover"
+          }
+        }
+      }
+    },
+    "/design/v1/adoption/escalate_to_advisor": {
+      "post": {
+        "operationId": "escalate_to_advisor",
+        "summary": "escalate to advisor",
+        "x-design-depth-only": true,
+        "x-writes": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Escalate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline stub result only; no deployed administrator effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EscalationRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed contract, version or idempotency-key violation"
+          },
+          "401": {
+            "description": "Production adapter must authenticate callers"
+          },
+          "403": {
+            "description": "Unapproved operation, run plan or scope"
+          },
+          "404": {
+            "description": "Unknown batch or life event"
+          },
+          "409": {
+            "description": "Conflicting idempotent replay (also a ContractError in the offline stub)"
+          },
+          "501": {
+            "description": "Required production adapter is not implemented; never claim success"
+          },
+          "503": {
+            "description": "Dependency failure; use the always-available advisor handover"
+          }
+        }
+      }
+    },
+    "/design/v1/adoption/next_step": {
+      "post": {
+        "operationId": "next_step",
+        "summary": "next step",
+        "x-design-depth-only": true,
+        "x-writes": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectNextStep"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline stub result only; no deployed administrator effect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextStep"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed contract, version or idempotency-key violation"
+          },
+          "401": {
+            "description": "Production adapter must authenticate callers"
+          },
+          "403": {
+            "description": "Unapproved operation, run plan or scope"
+          },
+          "404": {
+            "description": "Unknown batch or life event"
+          },
+          "409": {
+            "description": "Conflicting idempotent replay (also a ContractError in the offline stub)"
+          },
+          "501": {
+            "description": "Required production adapter is not implemented; never claim success"
+          },
+          "503": {
+            "description": "Dependency failure; use the always-available advisor handover"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "entraToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "ScheduleConversion": {
+        "additionalProperties": false,
+        "properties": {
+          "run_plan_id": {
+            "title": "Run Plan Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "rule_set_version": {
+            "title": "Rule Set Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "member_refs": {
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "title": "Member Refs",
+            "type": "array",
+            "minItems": 1
+          },
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer",
+            "minimum": 1
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "run_plan_id",
+          "rule_set_version",
+          "member_refs",
+          "capacity"
+        ],
+        "title": "ScheduleConversion",
+        "type": "object"
+      },
+      "ConversionBatch": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "run_plan_id": {
+            "title": "Run Plan Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "rule_set_version": {
+            "title": "Rule Set Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "member_refs": {
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "title": "Member Refs",
+            "type": "array",
+            "minItems": 1
+          },
+          "status": {
+            "default": "queued",
+            "enum": [
+              "queued",
+              "running",
+              "awaiting_actuary",
+              "exceptions",
+              "released"
+            ],
+            "title": "Status",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "engine_run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Engine Run Id"
+          },
+          "exceptions": {
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "title": "Exceptions",
+            "type": "array"
+          },
+          "actuary_approval_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Actuary Approval Ref"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "batch_id",
+          "run_plan_id",
+          "rule_set_version",
+          "member_refs"
+        ],
+        "title": "ConversionBatch",
+        "type": "object",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "enum": [
+                    "running",
+                    "awaiting_actuary",
+                    "exceptions",
+                    "released"
+                  ]
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "engine_run_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                }
+              },
+              "required": [
+                "engine_run_id"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "released"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "actuary_approval_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "exceptions": {
+                  "maxItems": 0
+                }
+              },
+              "required": [
+                "actuary_approval_ref"
+              ]
+            }
+          }
+        ]
+      },
+      "BatchReference": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "batch_id"
+        ],
+        "title": "BatchReference",
+        "type": "object"
+      },
+      "ReconciliationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "engine_run_id": {
+            "title": "Engine Run Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "rule_set_version": {
+            "title": "Rule Set Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "exceptions": {
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "title": "Exceptions",
+            "type": "array"
+          },
+          "plausibility_passed": {
+            "title": "Plausibility Passed",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "batch_id",
+          "engine_run_id",
+          "rule_set_version",
+          "exceptions",
+          "plausibility_passed"
+        ],
+        "title": "ReconciliationResult",
+        "type": "object"
+      },
+      "RouteException": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "exception_id": {
+            "title": "Exception Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "batch_id",
+          "exception_id"
+        ],
+        "title": "RouteException",
+        "type": "object"
+      },
+      "BuildSample": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer",
+            "minimum": 1
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "batch_id",
+          "size",
+          "seed"
+        ],
+        "title": "BuildSample",
+        "type": "object"
+      },
+      "ActuarySample": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "engine_run_id": {
+            "title": "Engine Run Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "member_refs": {
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "title": "Member Refs",
+            "type": "array"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "batch_id",
+          "engine_run_id",
+          "member_refs"
+        ],
+        "title": "ActuarySample",
+        "type": "object"
+      },
+      "LifeEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "title": "Event Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "member_ref": {
+            "title": "Member Ref",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "event_type": {
+            "enum": [
+              "employment_change",
+              "divorce",
+              "death",
+              "retirement"
+            ],
+            "title": "Event Type",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "document_refs": {
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "title": "Document Refs",
+            "type": "array"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "event_id",
+          "member_ref",
+          "event_type",
+          "document_refs"
+        ],
+        "title": "LifeEvent",
+        "type": "object"
+      },
+      "EventReference": {
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "title": "Event Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "event_id"
+        ],
+        "title": "EventReference",
+        "type": "object"
+      },
+      "DocumentCheck": {
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "title": "Event Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "authentic": {
+            "title": "Authentic",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "event_id",
+          "complete",
+          "authentic"
+        ],
+        "title": "DocumentCheck",
+        "type": "object"
+      },
+      "EventOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "title": "Event Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "route": {
+            "enum": [
+              "submitted",
+              "exception_queue"
+            ],
+            "title": "Route",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "reason_code": {
+            "enum": [
+              "complex_case_human_review",
+              "unknown_event_type",
+              "documents_incomplete",
+              "documents_unverified",
+              "routine_rule_covered",
+              "member_request"
+            ],
+            "title": "Reason Code",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "administrator_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Administrator Ref"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "event_id",
+          "route",
+          "reason_code"
+        ],
+        "title": "EventOutcome",
+        "type": "object",
+        "oneOf": [
+          {
+            "properties": {
+              "route": {
+                "const": "submitted"
+              },
+              "reason_code": {
+                "const": "routine_rule_covered"
+              },
+              "administrator_ref": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "administrator_ref"
+            ]
+          },
+          {
+            "properties": {
+              "route": {
+                "const": "exception_queue"
+              },
+              "reason_code": {
+                "not": {
+                  "const": "routine_rule_covered"
+                }
+              },
+              "administrator_ref": {
+                "type": "null"
+              }
+            }
+          }
+        ]
+      },
+      "RouteEventException": {
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "title": "Event Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "reason_code": {
+            "default": "member_request",
+            "enum": [
+              "member_request",
+              "complex_case_human_review"
+            ],
+            "title": "Reason Code",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "event_id"
+        ],
+        "title": "RouteEventException",
+        "type": "object"
+      },
+      "EmptyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "title": "EmptyRequest",
+        "type": "object"
+      },
+      "JourneyState": {
+        "additionalProperties": false,
+        "properties": {
+          "journey_id": {
+            "title": "Journey Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "journey_stage": {
+            "title": "Journey Stage",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "open_items": {
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "title": "Open Items",
+            "type": "array"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "journey_id",
+          "journey_stage",
+          "open_items"
+        ],
+        "title": "JourneyState",
+        "type": "object"
+      },
+      "RankedStrategy": {
+        "properties": {
+          "strategy_id": {
+            "title": "Strategy Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "strategy_id",
+          "version",
+          "rank"
+        ],
+        "title": "RankedStrategy",
+        "type": "object",
+        "additionalProperties": false
+      },
+      "StrategyResponse": {
+        "properties": {
+          "snapshot_id": {
+            "title": "Snapshot Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "signature_valid": {
+            "title": "Signature Valid",
+            "type": "boolean"
+          },
+          "catalogue_version": {
+            "title": "Catalogue Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "arm": {
+            "title": "Arm",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "ranked": {
+            "items": {
+              "$ref": "#/components/schemas/RankedStrategy"
+            },
+            "title": "Ranked",
+            "type": "array"
+          },
+          "suspended": {
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "title": "Suspended",
+            "type": "array"
+          },
+          "always_available": {
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "title": "Always Available",
+            "type": "array"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "exploration": {
+            "default": false,
+            "title": "Exploration",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "signature_valid",
+          "catalogue_version",
+          "arm",
+          "ranked",
+          "suspended",
+          "always_available",
+          "source"
+        ],
+        "title": "StrategyResponse",
+        "type": "object",
+        "additionalProperties": false
+      },
+      "SearchNextSteps": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "title": "Query",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "SearchNextSteps",
+        "type": "object"
+      },
+      "NextStep": {
+        "additionalProperties": false,
+        "properties": {
+          "step_id": {
+            "enum": [
+              "NS-01",
+              "NS-02",
+              "NS-03",
+              "NS-04",
+              "NS-05"
+            ],
+            "title": "Step Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "content_id": {
+            "title": "Content Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "content_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Content Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "step_id",
+          "title",
+          "content_id"
+        ],
+        "title": "NextStep",
+        "type": "object",
+        "oneOf": [
+          {
+            "properties": {
+              "step_id": {
+                "const": "NS-01"
+              },
+              "title": {
+                "const": "Read your personal transition letter"
+              },
+              "content_id": {
+                "const": "C-004"
+              },
+              "content_version": {
+                "const": "1.0"
+              }
+            }
+          },
+          {
+            "properties": {
+              "step_id": {
+                "const": "NS-02"
+              },
+              "title": {
+                "const": "Check your figures in the fund's online portal"
+              },
+              "content_id": {
+                "const": "C-007"
+              },
+              "content_version": {
+                "const": "1.0"
+              }
+            }
+          },
+          {
+            "properties": {
+              "step_id": {
+                "const": "NS-03"
+              },
+              "title": {
+                "const": "Learn how yearly adjustments work"
+              },
+              "content_id": {
+                "const": "C-003"
+              },
+              "content_version": {
+                "const": "1.0"
+              }
+            }
+          },
+          {
+            "properties": {
+              "step_id": {
+                "const": "NS-04"
+              },
+              "title": {
+                "const": "How to raise a question or an objection"
+              },
+              "content_id": {
+                "const": "C-005"
+              },
+              "content_version": {
+                "const": "1.0"
+              }
+            }
+          },
+          {
+            "properties": {
+              "step_id": {
+                "const": "NS-05"
+              },
+              "title": {
+                "const": "Talk to a human advisor"
+              },
+              "content_id": {
+                "const": "C-006"
+              },
+              "content_version": {
+                "const": "1.0"
+              }
+            }
+          }
+        ]
+      },
+      "Escalate": {
+        "additionalProperties": false,
+        "properties": {
+          "reason_code": {
+            "enum": [
+              "advice_intent",
+              "member_request",
+              "component_failure",
+              "safety"
+            ],
+            "title": "Reason Code",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "reason_code"
+        ],
+        "title": "Escalate",
+        "type": "object"
+      },
+      "EscalationRequest": {
+        "properties": {
+          "journey_id": {
+            "title": "Journey Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "reason_code": {
+            "title": "Reason Code",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "context_summary": {
+            "title": "Context Summary",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "value_ids": {
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "title": "Value Ids",
+            "type": "array"
+          },
+          "callback_preference": {
+            "default": "none",
+            "title": "Callback Preference",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "escalation_id": {
+            "title": "Escalation Id",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "journey_id",
+          "reason_code",
+          "context_summary",
+          "value_ids"
+        ],
+        "title": "EscalationRequest",
+        "type": "object",
+        "additionalProperties": false
+      },
+      "SelectNextStep": {
+        "additionalProperties": false,
+        "properties": {
+          "advice_seeking": {
+            "default": false,
+            "title": "Advice Seeking",
+            "type": "boolean"
+          },
+          "option_level": {
+            "default": false,
+            "title": "Option Level",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "title": "SelectNextStep",
+        "type": "object"
+      }
+    }
+  }
+}

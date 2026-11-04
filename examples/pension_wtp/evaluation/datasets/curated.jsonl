@@ -1,0 +1,5 @@
+{"id": "cur-01", "member_ref": "MBR-7Q2K", "utterance": "Will the transition change what I receive?", "expect": "explain", "persona": "annelies"}
+{"id": "cur-02", "member_ref": "MBR-7Q2K", "utterance": "I got a letter about invaren. What does it mean for my monthly payment?", "expect": "explain", "persona": "annelies"}
+{"id": "cur-03", "member_ref": "MBR-3H8D", "utterance": "What does personal pension capital after the transition mean?", "expect": "explain", "persona": "joost"}
+{"id": "cur-04", "member_ref": "MBR-9C1M", "utterance": "Can you explain the transition letter please?", "expect": "explain", "persona": "samira"}
+{"id": "cur-05", "member_ref": "MBR-7Q2K", "utterance": "Can I talk to a person?", "expect": "escalate", "persona": "annelies"}

@@ -1,0 +1,108 @@
+"""Provision a governed prompt agent once; default is a read-only plan (IMP-11)."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import logging
+
+from governedgraph.agents.foundry_runtime import agent_definition
+from governedgraph.agents.counsellor import INSTRUCTIONS
+from governedgraph.common.config import settings
+
+
+def definition_sha256(definition: dict[str, object]) -> str:
+    return hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()
+
+
+def pin_fairness_endpoint(project, version: str) -> None:
+    from azure.ai.projects.models import AgentEndpointConfig
+    from governedgraph.agents.fairness_runtime import endpoint_selector
+
+    selector = endpoint_selector(version)
+    expected = selector.as_dict()
+    current = project.agents.get(settings.fairness_agent_name).as_dict()
+    if current["agent_endpoint"]["version_selector"] == expected:
+        return
+    updated = project.agents.update_details(
+        agent_name=settings.fairness_agent_name, agent_endpoint=AgentEndpointConfig(version_selector=selector),
+    ).as_dict()
+    if updated["agent_endpoint"]["version_selector"] != expected:
+        raise RuntimeError("fairness endpoint did not acknowledge the approved immutable version")
+
+
+def provision(project, *, apply: bool, role: str = "counsellor") -> dict[str, str]:
+    model_deployment = settings.model_deployment if role == "counsellor" else settings.compact_deployment
+    if role == "fairness":
+        from governedgraph.agents.fairness_runtime import agent_definition as fairness_definition
+
+        definition = fairness_definition()
+        name, decision = settings.fairness_agent_name, "IMP-34"
+    elif role in ("intent", "understanding", "answer-review"):
+        from governedgraph.agents.decision_agents import agent_definition as decision_definition, deployment_for
+
+        definition = decision_definition(role)
+        model_deployment = deployment_for(role)
+        name, decision = f"gg-{role}-agent", "IMP-57"
+    elif role == "evaluation":
+        model_deployment = "gpt-modern"
+        definition = agent_definition(INSTRUCTIONS, model=model_deployment, reasoning_effort="none")
+        name, decision = "gg-counsellor-modern", "IMP-69"
+    elif role in ("counsellor", "voice-compact"):
+        compact = role == "voice-compact"
+        definition = (agent_definition(INSTRUCTIONS, model=settings.compact_deployment) if compact
+                      else agent_definition(INSTRUCTIONS))
+        name = "gg-counsellor-voice-compact" if compact else settings.agent_name
+        decision = "IMP-57"
+    else:
+        raise ValueError("unknown governed agent role")
+    digest = definition_sha256(definition.as_dict())
+    result = {"agent_name": name,
+              "model_deployment": model_deployment,
+              "definition_sha256": digest, "decision": decision}
+    if not apply:
+        return {**result, "action": "plan only; no Azure changes"}
+    from azure.core.exceptions import ResourceNotFoundError
+
+    try:
+        versions = list(project.agents.list_versions(name))
+    except ResourceNotFoundError:
+        logging.getLogger("governedgraph.agent_provision").info("approved_agent_does_not_exist")
+        versions = []
+    matching = [v for v in versions if (v.metadata or {}).get("definition_sha256") == digest
+                and v.definition.as_dict() == definition.as_dict()]
+    if matching:
+        version = matching[-1]
+        action = "reuse immutable matching version"
+    else:
+        version = project.agents.create_version(
+            agent_name=name, definition=definition,
+            metadata={"definition_sha256": digest, "decision": decision, "data": "ILLUSTRATIVE - synthetic data"},
+        )
+        action = "created; pin this version before deployment"
+    if role == "fairness":
+        pin_fairness_endpoint(project, version.version)
+        result["endpoint_version"] = version.version
+    return {**result, "agent_version": version.version, "action": action}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--role", choices=("counsellor", "fairness", "voice-compact", "intent", "understanding",
+                                        "answer-review", "evaluation"),
+                        default="counsellor")
+    args = parser.parse_args()
+    if args.apply:
+        from azure.ai.projects import AIProjectClient
+        from azure.identity import DefaultAzureCredential
+
+        with AIProjectClient(endpoint=settings.project_endpoint, credential=DefaultAzureCredential()) as project:
+            result = provision(project, apply=True, role=args.role)
+    else:
+        result = provision(None, apply=False, role=args.role)
+    print(json.dumps(result, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,6 @@
+request_key,strategy_id,strategy_version,interactions,resolved_first_contact,repeat_contact_14d
+first_contact|transition_impact_question|voice|standard,S2,1.0,2000,1560,200
+first_contact|transition_impact_question|voice|standard,S5,1.0,2000,1480,190
+first_contact|transition_impact_question|voice|standard,S4,1.0,1500,1065,170
+first_contact|transition_impact_question|voice|standard,S1,1.0,1500,990,200
+first_contact|transition_impact_question|voice|standard,S3,1.0,1000,630,130

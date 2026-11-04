@@ -1,0 +1,62 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "GovernedGraph read-only member values facade",
+    "version": "1.0.0",
+    "description": "ILLUSTRATIVE - synthetic data. Official values come only from the deterministic administrator. Never calculate, round, estimate, or write values on the AI side."
+  },
+  "servers": [{"url": "https://{gateway}.azure-api.net", "variables": {"gateway": {"default": "apim-gg-dev"}}}],
+  "security": [{"memberToken": []}],
+  "paths": {
+    "/members/{memberRef}/values": {
+      "get": {
+        "operationId": "getMemberValues",
+        "summary": "Read the step-up-verified member's official values",
+        "description": "Requires RS256 signature, configured issuer, audience gg-apim, member_ref, acr=stepup, iat and exp. Lifetime must be positive and at most 900 seconds. APIM overwrites X-Authenticated-Member from the validated claim, never the client header. A path/claim mismatch raises an incident and returns 403. Every non-GET method returns 405. Only idempotent GET is retried; circuit-open or unavailable values must cause human escalation, never estimation.",
+        "parameters": [
+          {"name": "memberRef", "in": "path", "required": true, "schema": {"type": "string", "minLength": 1}},
+          {"name": "X-Journey-ID", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1}, "description": "Pseudonymous journey correlation, never member attributes or conversation text."},
+          {"name": "traceparent", "in": "header", "required": true, "schema": {"type": "string", "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$"}, "description": "W3C Trace Context; trace and parent identifiers must be nonzero."}
+        ],
+        "responses": {
+          "200": {"description": "Official values, verbatim administrator display strings", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MemberValues"}}}},
+          "401": {"description": "Missing, invalid, expired, overlong, wrong issuer/audience, or missing step-up member token"},
+          "403": {"description": "Path member differs from verified member; incident logged with journey correlation"},
+          "404": {"description": "Unknown member"},
+          "429": {"description": "Rate limit exceeded"},
+          "500": {"description": "Administrator failure; escalate and never estimate"},
+          "503": {"description": "Administrator unavailable or circuit open; escalate and never estimate"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"memberToken": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
+    "schemas": {
+      "MemberValues": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["member_ref", "values"],
+        "properties": {
+          "member_ref": {"type": "string", "minLength": 1},
+          "values": {"type": "array", "items": {"$ref": "#/components/schemas/MemberValue"}}
+        }
+      },
+      "MemberValue": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["value_id", "label", "value", "unit", "source_system", "calculation_run_id", "as_of", "display"],
+        "properties": {
+          "value_id": {"type": "string"},
+          "label": {"type": "string"},
+          "value": {"type": "number", "description": "Official administrator value; never computed or reformatted by AI."},
+          "unit": {"type": "string"},
+          "source_system": {"type": "string"},
+          "calculation_run_id": {"type": "string"},
+          "as_of": {"type": "string", "format": "date"},
+          "display": {"type": "string", "description": "Verbatim system-of-record display; bind by value_id only."}
+        }
+      }
+    }
+  }
+}
