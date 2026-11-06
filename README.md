@@ -84,7 +84,7 @@ administrator, contact-centre and content-governance adapters.
 ## The ten boundaries
 
 These are the framework's contract. Each has a code enforcement point and a regression test
-([traceability](docs/boundaries-traceability.md)); treat weakening any of them as a defect.
+(see [architecture](docs/architecture.md)); treat weakening any of them as a defect.
 
 | ID | Boundary |
 |---|---|
@@ -120,9 +120,7 @@ integration or production acceptance. See the [limits to state with any result](
 | [Administration console](docs/administration.md) | Rankings, vetoes, suspensions, decisions, conversations; protective actions and access control |
 | [Deploying](docs/deploying.md) | Staged Azure deployment and teardown |
 | [Evaluation method](docs/evaluation.md) | Hard gates, model comparison and what a result can claim |
-| [Boundary traceability](docs/boundaries-traceability.md) | B1-B10 enforcement points and tests |
 | [Agent workflow diagram](docs/diagrams/agent-workflow.md) | The detailed agents-and-gates diagram, step-by-step explanation and editable Mermaid sources |
-| [Contributor guide](docs/build-with-copilot.md) | Development workflow and documentation conventions |
 
 | The sample | |
 |---|---|

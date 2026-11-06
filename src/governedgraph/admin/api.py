@@ -160,7 +160,7 @@ def create_app(service: StrategyService | None = None, run_dir: Path | None = No
 
     @application.get("/assets/{name}", dependencies=[Depends(enabled)])
     def asset(name: str):
-        if name not in {"admin.css", "admin.js"}:
+        if name not in {"admin.css", "admin.js", "guide.js"}:
             raise HTTPException(404)
         return FileResponse(STATIC / name, media_type="text/css" if name.endswith(".css") else "text/javascript")
 

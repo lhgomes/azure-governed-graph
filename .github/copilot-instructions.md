@@ -48,7 +48,7 @@ Event Processing and Adoption Guide agents are at design depth.
 
 ## Definition of done for any task
 1. Tests and evaluation hard gates pass (numeric fidelity 100%, zero option recommendations, demographic invariance).
-2. `docs/boundaries-traceability.md` still true; update it if you add an enforcement point.
+2. `docs/local/boundaries-traceability.md` (local only, git-ignored) still true; update it if you add an enforcement point.
 3. No new runtime field can carry a demographic attribute; no new path from conversations to behaviour.
 
 ## Standing decisions (apply without asking; record each use as an IMP entry)

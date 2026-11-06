@@ -68,7 +68,7 @@ def test_blank_groups_leave_access_open_and_say_so(tmp_path, monkeypatch):
     assert freeze(web, {}).status_code == 200
     assert read_lines(tmp_path / "admin" / "actions.jsonl")[0]["actor"] == "local-loopback-operator"
     assert "login.microsoftonline.com" not in web.get("/").headers["content-security-policy"]
-    assert "Access control is off" in web.get("/").text
+    assert "Sign-in is off" in web.get("/").text
     assert "GOVERNEDGRAPH_ADMIN_READER_GROUP_ID" in web.get("/").text
 
 

@@ -275,6 +275,7 @@ def test_hosted_page_uses_the_gateway_base_path_and_needs_no_loopback(hosted):
     assert page.status_code == 200 and '<base href="/admin/">' in page.text and 'href="assets/admin.css"' in page.text
     assert web.get("/healthz").json() == {"ok": True}
     assert web.get("/assets/admin.js").status_code == 200 and web.get("/assets/other.js").status_code == 404
+    assert web.get("/assets/guide.js").status_code == 200 and web.get("/assets/guide.json").status_code == 404
     assert "frame-ancestors 'none'" in page.headers["content-security-policy"] and page.headers["cache-control"] == "no-store"
 
 

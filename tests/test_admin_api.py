@@ -48,6 +48,8 @@ def test_admin_is_opt_in_loopback_session_and_same_origin_only(console, monkeypa
     assert client.get("/").headers["cache-control"] == "no-store"
     assert "frame-ancestors 'none'" in client.get("/").headers["content-security-policy"]
     assert client.get("/assets/admin.js").status_code == 200
+    assert client.get("/assets/guide.js").status_code == 200
+    assert client.get("/assets/unknown.js").status_code == 404
     monkeypatch.delenv("GOVERNEDGRAPH_ADMIN_ENABLED")
     assert client.get("/").status_code == 404
     monkeypatch.setenv("GOVERNEDGRAPH_ADMIN_ENABLED", "true")

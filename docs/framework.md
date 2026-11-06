@@ -1,8 +1,8 @@
 # GovernedGraph framework concepts
 
 GovernedGraph separates **what may be said** (deterministic and approved) from **how it is explained**
-(generative, learned within bounds). This page describes the model; the boundaries it enforces are in
-[boundaries-traceability](boundaries-traceability.md), the Azure realisation in [architecture](architecture.md).
+(generative, learned within bounds). This page describes the model; the boundaries it enforces are listed in the
+[README](../README.md#the-ten-boundaries), the Azure realisation in [architecture](architecture.md).
 
 ## The idea in one paragraph
 

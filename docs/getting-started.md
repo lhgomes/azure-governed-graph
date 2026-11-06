@@ -81,7 +81,7 @@ code imports a sample or carries sample-domain wording.
 ## Where next
 
 - **Build on your domain:** [adopting](adopting.md).
-- **Understand the rules the framework enforces:** the ten boundaries in the [README](../README.md#the-ten-boundaries) and their
-  [enforcement points and tests](boundaries-traceability.md).
+- **Understand the rules the framework enforces:** the ten boundaries in the [README](../README.md#the-ten-boundaries); each has an
+  enforcement point in the code and a regression test in `tests/`.
 - **Deploy it:** [deploying](deploying.md) (one command), then the [administration console](administration.md).
 - **Architecture on Azure:** [architecture](architecture.md).

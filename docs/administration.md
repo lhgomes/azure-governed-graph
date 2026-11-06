@@ -33,19 +33,39 @@ Changing local state does **not** change Azure state. A running local Strategy S
 same directory and refresh its store to observe changes; restart a previously started local service
 that does not refresh its store.
 
-The workspace provides:
+The workspace provides these pages. The menu uses everyday words; the second column gives the technical
+name used elsewhere in these documents.
 
-| View | Actual source |
-|---|---|
-| Approved strategies | Configured versioned catalogue, including eligibility and template references |
-| Rankings | Selected profile's verified current snapshot, retained last good snapshot and static expert priors |
-| Vetoes and suspensions | Global Strategy Service suspension overlay, audit/case/threshold references |
-| Governance cases | Local `governance/cases.jsonl`, projected without demographic or cohort identities |
-| Assurance decisions | Local `governance/evidence_packs.jsonl`, verdicts and notification status |
-| Learning evidence | Selected profile's `learning-aggregates/current.json` and its digest-verified immutable CSV |
-| Journeys and evidence | Selected profile's local append-only explainability records, grouped by journey and response |
-| Admin activity | Console-only write-ahead `admin/actions.jsonl`, not a complete service audit history |
-| Configuration | Effective local versions, bounds, control arm share and explicit authority limits |
+| Page in the menu | Technical name | Actual source |
+|---|---|---|
+| Explanation styles | Approved strategies | Configured versioned catalogue, including eligibility and template references |
+| Style order | Rankings | Selected profile's verified current snapshot, retained last good snapshot and static expert priors |
+| Paused styles | Vetoes and suspensions | Global Strategy Service suspension overlay, audit/case/threshold references |
+| Fairness reviews | Governance cases | Local `governance/cases.jsonl`, projected without demographic or cohort identities |
+| Review outcomes | Assurance decisions | Local `governance/evidence_packs.jsonl`, verdicts and notification status |
+| Learning data | Learning evidence | Selected profile's `learning-aggregates/current.json` and its digest-verified immutable CSV |
+| Member journeys | Journeys and evidence | Selected profile's local append-only explainability records, grouped by journey and response |
+| Action history | Admin activity | Console-only write-ahead `admin/actions.jsonl`, not a complete service audit history |
+| Rules & settings | Configuration | Effective local versions, bounds, control arm share and explicit authority limits |
+
+### Built-in help for new users
+
+The console explains itself, so a first-time user needs no other document:
+
+- **About this page** (top of every page): what you are looking at, what to look for, what you can do, and the
+  words used on that page. It starts open and remembers if you close it.
+- **? buttons** on every column heading and at-a-glance number, and blue word buttons in the guide. They open a short
+  definition that names the technical equivalent ("Called a strategy in the technical documents").
+- **Help & glossary** (top bar): the pages at a glance, five common tasks with steps, what the console will never do,
+  and every term in plain words. A one-time welcome note on the Overview offers it.
+- **Plain-language details.** Selecting a row opens a short explanation and a list of facts. The raw record sits
+  behind **Technical details (for support)**.
+- **Safety controls** say when to use them, what each one does, and where to find each reference to type.
+
+All wording lives in `src/governedgraph/admin/static/guide.js`, so it can be reviewed and changed without touching
+the logic. `tests/test_admin_guidance.py` keeps it honest: every page has guidance, every word used is defined, no
+technical terms appear in the plain text, and sentences stay short. The required `ILLUSTRATIVE - synthetic data`
+label stays on every view.
 
 Search filters the selected view; results are paginated. Select a linked strategy, context, case,
 decision or journey to inspect its evidence. Empty evidence is labelled absent, not approved or healthy.
@@ -272,7 +292,7 @@ human-governed workflow, and no governance group is configured).
 | `GOVERNEDGRAPH_ADMIN_ALLOW_OPEN_ACTIONS` | Allow protective actions while access control is off | `false` |
 | `GOVERNEDGRAPH_ADMIN_MEMBER_ID` | Object ID to add instead of the deploying user | the deploying user |
 
-If you opt out, the console shows the "Access control is off" banner, evidence is viewable by anyone who can reach the URL,
+If you opt out, the console shows the "Sign-in is off" banner, evidence is viewable by anyone who can reach the URL,
 and **protective actions are disabled** unless `GOVERNEDGRAPH_ADMIN_ALLOW_OPEN_ACTIONS=true`.
 
 Review the plan without changing anything: `PYTHONPATH=. python -m scripts.configure_admin_console` after exporting the azd
