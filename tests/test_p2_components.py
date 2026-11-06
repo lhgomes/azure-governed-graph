@@ -334,17 +334,18 @@ def test_protective_retry_never_undoes_static_kill_switch(tmp_path):
 
 def test_production_image_does_not_embed_cohorts_or_personas():
     dockerfile = (REPO_ROOT / "Dockerfile").read_text()
-    copies = [line for line in dockerfile.splitlines() if line.startswith("COPY examples/pension_wtp/data")]
+    sample = "examples/${GOVERNEDGRAPH_SAMPLE}"
+    copies = [line for line in dockerfile.splitlines() if line.startswith(f"COPY {sample}/data")]
     assert copies == [
-        "COPY examples/pension_wtp/data/catalogue ./examples/pension_wtp/data/catalogue",
-        "COPY examples/pension_wtp/data/content ./examples/pension_wtp/data/content",
-        "COPY examples/pension_wtp/data/fairness/thresholds_v1.json ./examples/pension_wtp/data/fairness/thresholds_v1.json",
+        f"COPY {sample}/data/catalogue ./{sample}/data/catalogue",
+        f"COPY {sample}/data/content ./{sample}/data/content",
+        f"COPY {sample}/data/fairness/thresholds_v1.json ./{sample}/data/fairness/thresholds_v1.json",
     ]
     assert "FROM base AS p2" in dockerfile
     assert "pip install --no-cache-dir -r requirements-p2.txt && pip check" in dockerfile
     p2_base = dockerfile.split("FROM base AS runtime")[0]
     assert "members.json" not in p2_base
-    assert "COPY --chown=10001:10001 examples/pension_wtp/data/synthetic/members.json" in dockerfile
+    assert f"COPY --chown=10001:10001 {sample}/data/synthetic/members.json" in dockerfile
 
 
 def test_watchdog_fails_closed_on_failed_or_missing_component_metadata():

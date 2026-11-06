@@ -7,6 +7,7 @@ param tags object
 param token string
 param deployDevIssuer bool = false
 param deploySyntheticContactCentre bool = false
+param deployAdminConsole bool = false
 param privateEndpointSubnetId string
 param virtualNetworkId string
 
@@ -53,6 +54,12 @@ resource contactCentreId 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-
   name: 'id-gg-contact-centre-${token}'
   location: location
   tags: union(tags, { purpose: 'dev-only-synthetic-contact-centre' })
+}
+// Administration console: reads governed evidence and applies protective actions only; no signing, no publishing.
+resource adminId 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (deployAdminConsole) {
+  name: 'id-gg-admin-${token}'
+  location: location
+  tags: union(tags, { purpose: 'administration-console' })
 }
 
 resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
@@ -150,3 +157,6 @@ output devIssuerClientId string = deployDevIssuer ? devIssuerId!.properties.clie
 output contactCentreIdentityId string = deploySyntheticContactCentre ? contactCentreId!.id : ''
 output contactCentreClientId string = deploySyntheticContactCentre ? contactCentreId!.properties.clientId : ''
 output contactCentrePrincipalId string = deploySyntheticContactCentre ? contactCentreId!.properties.principalId : ''
+output adminIdentityId string = deployAdminConsole ? adminId!.id : ''
+output adminClientId string = deployAdminConsole ? adminId!.properties.clientId : ''
+output adminPrincipalId string = deployAdminConsole ? adminId!.properties.principalId : ''

@@ -22,7 +22,7 @@ In Copilot Chat type `/` and pick the prompt (or open the file and press the run
 | 02 | member-values-facade | read-only APIM facade with member scoping |
 | 03 | approved-content-index | hybrid/semantic index, approved versions only |
 | 04 | strategy-service-azure | Key Vault-verified snapshots, overlay, roles |
-| 05 | foundry-pension-counsellor | counsellor on Foundry Agent Service, Prompt Shields, tracing |
+| 05 | foundry-counsellor | counsellor on Foundry Agent Service, Prompt Shields, tracing |
 | 06 | orchestrator-durable | durable journey state, Service Bus, escalation on every failure |
 | 07 | explainability-store | WORM records, queue fallback, reconciliation |
 | 08 | p2-azureml-pipeline | bounded learning, Fairlearn audit, veto, tiers, uplift, kill switch |

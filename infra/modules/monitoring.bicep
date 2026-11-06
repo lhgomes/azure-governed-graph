@@ -22,6 +22,8 @@ resource appi 'Microsoft.Insights/components@2020-02-02' = {
 }
 
 output logAnalyticsId string = law.id
+output logAnalyticsName string = law.name
+output logAnalyticsCustomerId string = law.properties.customerId
 module workbook 'observability-workbook.bicep' = {
   name: 'observability-workbook'
   params: { location: location, tags: tags, logAnalyticsId: law.id }

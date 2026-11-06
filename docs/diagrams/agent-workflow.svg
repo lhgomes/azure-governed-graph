@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-labelledby="title description">
   <title id="title">Agent workflow and coordination</title>
-  <desc id="description">A host-controlled member journey coordinates intent routing, understanding assessment, a Pension Counsellor and an independent Answer Quality Judge. Deterministic gates and durable audit precede every released answer. A separate aggregate-only learning loop bounds ranking changes, applies universal fairness vetoes and publishes governed signed snapshots. Human help is always available; material change requires human approval.</desc>
+  <desc id="description">A host-controlled member journey coordinates intent routing, understanding assessment, a Counsellor and an independent Answer Quality Judge. Deterministic gates and durable audit precede every released answer. A separate aggregate-only learning loop bounds ranking changes, applies universal fairness vetoes and publishes governed signed snapshots. Human help is always available; material change requires human approval. An administration console lets people observe the evidence and apply protective freeze or suspend actions only. Content and official values come from the adopter's domain pack and system of record.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
       <path d="M1 1 L9 5 L1 9 Z" fill="#536780"/>
@@ -31,11 +31,11 @@
   <rect width="1920" height="1080" fill="#ffffff"/>
   <rect x="0" y="0" width="12" height="1080" fill="#087f82"/>
   <text x="64" y="76" class="title">Agent workflow and coordination</text>
-  <text x="66" y="117" class="subtitle">Learning Member Journey Graph  |  Learns how to explain, never what to decide</text>
+  <text x="66" y="117" class="subtitle">Learning Member Journey Graph  |  AI that improves with use and stays safe: bounded, auditable, fair</text>
 
   <rect x="40" y="151" width="1840" height="517" rx="22" fill="#f5f8fc" stroke="#dce5ef"/>
   <text x="65" y="187" class="lane">01 / MEMBER JOURNEY</text>
-  <text x="1853" y="187" text-anchor="end" class="small">Host-controlled workflow  /  Microsoft Agent Framework + Foundry agents</text>
+  <text x="1853" y="187" text-anchor="end" class="small">Host-controlled workflow  /  reference build: Microsoft Agent Framework + Foundry agents</text>
 
   <!-- Main member journey. -->
   <path d="M285 324 H328" class="flow"/>
@@ -46,8 +46,8 @@
   <rect x="887" y="207" width="312" height="28" rx="8" fill="#f5f8fc"/>
   <text x="1043" y="227" text-anchor="middle" class="label" style="fill:#946014">At most one repair + recheck</text>
 
-  <rect x="65" y="254" width="220" height="149" rx="16" fill="#ffffff" stroke="#c5d2e1" stroke-width="2"/>
-  <text x="87" y="283" class="tag" style="fill:#52657d">CHANNEL</text>
+  <rect x="65" y="254" width="220" height="149" rx="16" fill="#fdf0f3" stroke="#d99aab" stroke-width="2"/>
+  <text x="87" y="283" class="tag" style="fill:#a13d5c">PERSON</text>
   <text x="87" y="319" class="heading">Member</text>
   <text x="87" y="350" class="body">Chat or voice</text>
   <text x="87" y="380" class="small">AI disclosure first</text>
@@ -60,7 +60,7 @@
 
   <rect x="715" y="254" width="290" height="149" rx="16" fill="#f2edfc" stroke="#a58ace" stroke-width="2"/>
   <text x="737" y="283" class="tag" style="fill:#7044a5">AGENT</text>
-  <text x="737" y="319" class="heading">Pension Counsellor</text>
+  <text x="737" y="319" class="heading">Counsellor</text>
   <text x="737" y="350" class="body">Draft grounded answer</text>
   <text x="737" y="380" class="small">Evidence + value placeholders</text>
 
@@ -110,9 +110,20 @@
   <text x="1442" y="519" class="heading">Human advisor handover</text>
   <text x="1442" y="550" class="body">Member request, advice or service failure</text>
   <text x="1442" y="580" class="small">Host-controlled escalation; audited response</text>
+
+  <!-- Content and values come from the adopter's domain pack and system of record. -->
+  <rect x="723" y="460" width="424" height="134" rx="12" fill="none" stroke="#d3ad69" stroke-width="2.5" stroke-dasharray="8 6"/>
+
+  <!-- People watch the evidence and may apply protective actions only. -->
+  <rect x="55" y="452" width="243" height="150" rx="16" fill="#fdf0f3" stroke="#d99aab" stroke-width="2"/>
+  <text x="75" y="483" class="tag" style="fill:#a13d5c">OBSERVE + PROTECT</text>
+  <text x="75" y="516" class="heading" style="font-size:20px">Admin console</text>
+  <text x="75" y="548" class="small" style="font-size:15px">Rankings, vetoes,</text>
+  <text x="75" y="570" class="small" style="font-size:15px">decisions, journeys.</text>
+  <text x="75" y="592" class="small" style="font-size:15px">Freeze or suspend only.</text>
   <path d="M640 403 H687 V631 H1637 V604" class="exception"/>
   <rect x="718" y="616" width="652" height="29" rx="8" fill="#f5f8fc"/>
-  <text x="1044" y="637" text-anchor="middle" class="label" style="fill:#946014">Human help from every state; no pension-option recommendations</text>
+  <text x="1044" y="637" text-anchor="middle" class="label" style="fill:#946014">Human help from every state; no option recommendations</text>
 
   <rect x="40" y="714" width="1840" height="250" rx="22" fill="#f0f9f8" stroke="#cce4e1"/>
 
@@ -169,5 +180,9 @@
   <text x="243" y="1039" class="small">Host / deterministic control</text>
   <path d="M505 1032 H550" class="feedback"/>
   <text x="563" y="1039" class="small">Aggregate / control feedback</text>
+  <rect x="830" y="1024" width="16" height="16" rx="4" fill="#fff7e9" stroke="#d3ad69" stroke-dasharray="4 3"/>
+  <text x="856" y="1039" class="small">You supply</text>
+  <rect x="990" y="1024" width="16" height="16" rx="4" fill="#fdf0f3" stroke="#d99aab"/>
+  <text x="1016" y="1039" class="small">People</text>
   <text x="1855" y="1039" text-anchor="end" class="small">ILLUSTRATIVE - synthetic data  |  Reference implementation, not a production service</text>
 </svg>

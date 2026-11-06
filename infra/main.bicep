@@ -73,6 +73,19 @@ param contactCentreImage string = 'mcr.microsoft.com/azuredocs/containerapps-hel
 param contactCentreApiClientId string = ''
 param contactCentreAudience string = ''
 param contactCentreUrl string = ''
+@description('Deploy the administration console: its own identity, an internal app behind the gateway at /admin, and container-scoped evidence access.')
+param deployAdminConsole bool = false
+param adminImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+@description('Optional Entra group object ID allowed to view the console. Blank leaves read access control off.')
+param adminReaderGroupId string = ''
+@description('Optional Entra group object ID allowed to apply protective actions. Blank disables actions once any group is set.')
+param adminOperatorGroupId string = ''
+@description('Client ID of the Entra single-page app used for console sign-in; required when a group ID is set.')
+param adminClientId string = ''
+@description('Allow protective actions while access control is off. Off by default on Azure; the console is publicly reachable.')
+param adminAllowOpenActions bool = false
+@description('Let the console read captured synthetic conversation spans (Log Analytics Reader on the workspace). Review before enabling.')
+param adminTraceLookup bool = false
 @description('Dev on-call destination supplied through environment configuration; never a code literal.')
 param onCallEmail string
 param promptShieldsFailureThreshold int = 3
@@ -82,6 +95,10 @@ param resourceGroupName string = ''
 @description('Persisted random seed for fresh deployments. Empty preserves existing legacy resource names.')
 @maxLength(32)
 param namingSeed string = ''
+@description('Python package under examples/ whose values API the member-values app runs. Must match the image build SAMPLE argument.')
+@minLength(1)
+@maxLength(64)
+param sampleName string = 'pension_wtp'
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: empty(resourceGroupName) ? 'rg-${environmentName}' : resourceGroupName
@@ -128,6 +145,7 @@ module security 'modules/security.bicep' = {
     token: token
     deployDevIssuer: deployDevIssuer
     deploySyntheticContactCentre: deploySyntheticContactCentre
+    deployAdminConsole: deployAdminConsole
     privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
     virtualNetworkId: network.outputs.virtualNetworkId
   }
@@ -144,6 +162,7 @@ module data 'modules/data.bicep' = {
     privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
     virtualNetworkId: network.outputs.virtualNetworkId
     deploySyntheticContactCentre: deploySyntheticContactCentre
+    deployAdminConsole: deployAdminConsole
   }
 }
 
@@ -190,8 +209,34 @@ module compute 'modules/compute.bicep' = {
     contactCentreAudience: empty(contactCentreAudience) ? 'api://${contactCentreApiClientId}' : contactCentreAudience
     contactCentreUrl: contactCentreUrl
     contactCentreStorageUrl: data.outputs.contentBlobEndpoint
+    deployAdminConsole: deployAdminConsole
+    adminImage: adminImage
+    adminIdentityId: security.outputs.adminIdentityId
+    adminClientId: security.outputs.adminClientId
+    adminPrincipalId: security.outputs.adminPrincipalId
+    adminEnv: {
+      AZURE_ENV_NAME: environmentName
+      GOVERNEDGRAPH_ADMIN_ENABLED: 'true'
+      GOVERNEDGRAPH_ADMIN_PUBLIC_ORIGIN: 'https://apim-gg-${token}.azure-api.net'
+      GOVERNEDGRAPH_ADMIN_BASE_PATH: '/admin/'
+      GOVERNEDGRAPH_ADMIN_READER_GROUP_ID: adminReaderGroupId
+      GOVERNEDGRAPH_ADMIN_OPERATOR_GROUP_ID: adminOperatorGroupId
+      GOVERNEDGRAPH_ADMIN_CLIENT_ID: adminClientId
+      GOVERNEDGRAPH_ADMIN_TENANT_ID: subscription().tenantId
+      GOVERNEDGRAPH_ADMIN_ALLOW_OPEN_ACTIONS: adminAllowOpenActions ? 'true' : 'false'
+      STRATEGY_ADMIN_URL: 'https://apim-gg-${token}.azure-api.net/strategy-admin'
+      STRATEGY_API_CLIENT_ID: strategyApiClientId
+      STRATEGY_TENANT_ID: subscription().tenantId
+      EXPLAINABILITY_STORAGE_URL: data.outputs.blobEndpoint
+      EXPLAINABILITY_CONTAINER: 'explainability-records'
+      RANKING_STORAGE_URL: data.outputs.contentBlobEndpoint
+      GOVERNEDGRAPH_ADMIN_TRACE_WORKSPACE: adminTraceLookup ? monitoring.outputs.logAnalyticsCustomerId : ''
+      GOVERNEDGRAPH_ADMIN_TRACE_PROJECT: adminTraceLookup ? ai.outputs.projectResourceId : ''
+      GOVERNEDGRAPH_ADMIN_TRACE_ENVIRONMENT: environmentName
+    }
     strategyEnv: {
       AZURE_ENV_NAME: environmentName
+      STRATEGY_ADMIN_PRINCIPAL_ID: security.outputs.adminPrincipalId
       STRATEGY_RECOVERY_OPERATOR_ID: environmentName == 'gg-dev' ? strategyRecoveryOperatorId : ''
       P2_FAIRNESS_JOB_ID: empty(p2ContainerImage) ? '' : '${rg.id}/providers/Microsoft.App/jobs/job-gg-p2-fairness'
       GOVERNEDGRAPH_P2_IMAGE: p2ContainerImage
@@ -225,6 +270,7 @@ module compute 'modules/compute.bicep' = {
     orchestratorImage: orchestratorImage
     strategyServiceImage: strategyServiceImage
     memberValuesImage: memberValuesImage
+    sampleName: sampleName
     env: {
       GOVERNEDGRAPH_MODE: 'azure'
       MEMBER_TOKEN_ISSUER: memberTokenIssuer
@@ -288,6 +334,8 @@ module gateway 'modules/gateway.bicep' = {
     memberTokenIssuer: memberTokenIssuer
     memberTokenAudience: memberTokenAudience
     memberTokenPublicJwk: memberTokenPublicJwk
+    deployAdminConsole: deployAdminConsole
+    adminBackendUrl: compute.outputs.adminUrl
   }
 }
 
@@ -440,6 +488,17 @@ module rbac 'modules/rbac.bicep' = {
     devIssuerPrincipalId: security.outputs.devIssuerPrincipalId
     deploySyntheticContactCentre: deploySyntheticContactCentre
     contactCentrePrincipalId: security.outputs.contactCentrePrincipalId
+    deployAdminConsole: deployAdminConsole
+    adminPrincipalId: security.outputs.adminPrincipalId
+  }
+}
+
+module adminTraceRbac 'modules/admin-trace-rbac.bicep' = if (deployAdminConsole && adminTraceLookup) {
+  name: 'admin-trace-access'
+  scope: rg
+  params: {
+    workspaceName: monitoring.outputs.logAnalyticsName
+    adminPrincipalId: security.outputs.adminPrincipalId
   }
 }
 
@@ -521,6 +580,12 @@ output RANKING_STORAGE_URL string = data.outputs.contentBlobEndpoint
 output STRATEGY_TENANT_ID string = subscription().tenantId
 output STRATEGY_API_CLIENT_ID string = strategyApiClientId
 output STRATEGY_ADMIN_URL string = '${gateway.outputs.gatewayUrl}/strategy-admin'
+// Workspace customer GUID (an identifier, not a credential), so local tools can query traces without manual input.
+output LOG_ANALYTICS_WORKSPACE_ID string = monitoring.outputs.logAnalyticsCustomerId
+output ADMIN_CONSOLE_URL string = deployAdminConsole ? '${gateway.outputs.gatewayUrl}/admin/' : ''
+output STRATEGY_ADMIN_PRINCIPAL_ID string = security.outputs.adminPrincipalId
+output ADMIN_IDENTITY_ID string = security.outputs.adminIdentityId
+output ADMIN_CLIENT_ID string = security.outputs.adminClientId
 output VOICE_DEMO_ORIGIN string = 'https://apim-gg-${token}.azure-api.net'
 output JOURNEY_STORAGE_URL string = data.outputs.contentBlobEndpoint
 output STRATEGY_PUBLISHER_PRINCIPAL_ID string = security.outputs.pipelinePrincipalId

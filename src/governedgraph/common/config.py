@@ -3,17 +3,24 @@ AZURE mode wires the same components to the provisioned Azure resources."""
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-# The domain pack (catalogue, templates, approved content, aggregates, personas). Defaults to the bundled sample.
-DATA_DIR = Path(os.getenv("GOVERNEDGRAPH_DATA_DIR", str(REPO_ROOT / "examples" / "pension_wtp" / "data")))
-# Dotted "module:callable" for the deterministic values source used in local mode; the sample is the default.
+# The one place the repository names the sample it runs by default. A sample is a package under examples/ with the
+# layout data/, member_values_api/data.py and demo/run_demo.py. Set GOVERNEDGRAPH_SAMPLE to your own package to switch
+# all three defaults below; each can still be overridden individually.
+SAMPLE = os.getenv("GOVERNEDGRAPH_SAMPLE", "pension_wtp")
+if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", SAMPLE):
+    raise ValueError("GOVERNEDGRAPH_SAMPLE must be the name of a Python package under examples/")
+# The domain pack (catalogue, templates, approved content, aggregates, personas).
+DATA_DIR = Path(os.getenv("GOVERNEDGRAPH_DATA_DIR", str(REPO_ROOT / "examples" / SAMPLE / "data")))
+# Dotted "module:callable" for the deterministic values source used in local mode.
 LOCAL_VALUES_PROVIDER = os.getenv("GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER",
-                                  "pension_wtp.member_values_api.data:get_member_values")
+                                  f"{SAMPLE}.member_values_api.data:get_member_values")
 # Module run by the offline text fallback (`python -m <module>`).
-TEXT_DEMO_MODULE = os.getenv("GOVERNEDGRAPH_TEXT_DEMO_MODULE", "pension_wtp.demo.run_demo")
+TEXT_DEMO_MODULE = os.getenv("GOVERNEDGRAPH_TEXT_DEMO_MODULE", f"{SAMPLE}.demo.run_demo")
 
 
 @dataclass(frozen=True)
@@ -54,6 +61,7 @@ class Settings:
     strategy_publisher_id: str = os.getenv("STRATEGY_PUBLISHER_PRINCIPAL_ID", "")
     strategy_fairness_id: str = os.getenv("STRATEGY_FAIRNESS_PRINCIPAL_ID", "")
     strategy_runtime_id: str = os.getenv("STRATEGY_RUNTIME_PRINCIPAL_ID", "")
+    strategy_admin_id: str = os.getenv("STRATEGY_ADMIN_PRINCIPAL_ID", "")
     strategy_governance_group: str = os.getenv("STRATEGY_GOVERNANCE_GROUP_ID", "")
     strategy_recovery_operator_id: str = os.getenv("STRATEGY_RECOVERY_OPERATOR_ID", "")
     p2_fairness_job_id: str = os.getenv("P2_FAIRNESS_JOB_ID", "")

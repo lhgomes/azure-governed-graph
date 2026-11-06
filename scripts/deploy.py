@@ -4,16 +4,18 @@
     python -m scripts.deploy --plan          # show the questions' answers and the steps; runs nothing
     python -m scripts.deploy --status        # what has completed so far
 
-It asks whether to start fresh, redeploy or resume, then for the subscription, region, resource group name,
-an on-call email and whether to enable the browser presenter,
-then runs, in order: preflight checks, azd environment, first provision, Search private-link approval, Entra app
-registrations, Foundry agents, service deployment, second provision, member-token key bootstrap, final provision and
-verification. Every step is idempotent and its completion is recorded in `.run/deploy-state.json`, so after a failure you
+It asks whether to start fresh, redeploy or resume, then for the subscription, region, resource group name and
+an on-call email. The browser presenter, synthetic-conversation capture and the admin console (with its Entra sign-in,
+groups and conversation view) are on by default; --no-voice-demo turns off the presenter, capture and conversation view.
+It then runs, in order: preflight checks, azd environment, first provision, Search private-link approval, Entra app
+registrations (including the console's groups and sign-in), Foundry agents, service deployment, second provision,
+member-token key bootstrap, final provision, learning, verification and a final admin console check. Every step is
+idempotent and its completion is recorded in `.run/deploy-state.json`, so after a failure you
 fix the cause and run with --mode resume: it resumes where it stopped.
 Fresh deployments persist a random naming seed; redeploy and resume keep it unchanged.
 
 Non-interactive use: pass every answer as a flag (--subscription, --location, --resource-group, --on-call-email,
---voice-demo/--no-voice-demo) together with --yes.
+optionally --no-voice-demo) together with --yes.
 
 The environment is always `gg-dev`: the dev token issuer, synthetic contact centre, voice presenter and proof scripts are
 enabled only there. This is a dev/reference deployment, not a production one. No secret is read, created or printed; the
@@ -40,12 +42,15 @@ from uuid import UUID, uuid4
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STATE_FILE = REPO_ROOT / ".run" / "deploy-state.json"
 ENV_NAME = "gg-dev"
-DEFAULT_SAMPLE_DEFINITION = "examples/pension_wtp/deployment.json"
+SAMPLE_NAME = os.getenv("GOVERNEDGRAPH_SAMPLE", "pension_wtp")
+if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", SAMPLE_NAME):
+    raise SystemExit("GOVERNEDGRAPH_SAMPLE must be the name of a Python package under examples/")
+DEFAULT_SAMPLE_DEFINITION = f"examples/{SAMPLE_NAME}/deployment.json"
 LEARNING_CHECKS = ("p2-cycle", "fairness-agent")
 WRITERS = {"counsellor": "gg-counsellor", "voice-compact": "gg-counsellor-voice-compact"}
 APPROVAL_ENV = "GOVERNEDGRAPH_WRITER_APPROVAL_JSON"
 FIXTURES_JOB = "job-gg-dev-learning-fixtures"
-SERVICES = ("orchestrator", "strategy-service", "member-values", "contact-centre")
+SERVICES = ("orchestrator", "strategy-service", "member-values", "contact-centre", "admin")
 DEFAULT_LOCATION = "swedencentral"
 # EU regions supporting semantic ranker, ordered for the Sweden Central reference deployment.
 SEARCH_REGIONS = ("swedencentral", "germanywestcentral", "northeurope", "westeurope", "francecentral",
@@ -95,7 +100,7 @@ class Answers:
     preferred_search_location: str = ""
     resource_group: str = f"rg-{ENV_NAME}"
     on_call_email: str = ""
-    voice_demo: bool = False
+    voice_demo: bool = True
     member_token_issuer: str = DEFAULT_ISSUER
     naming_seed: str = ""
     sample_definition: str = DEFAULT_SAMPLE_DEFINITION
@@ -199,6 +204,14 @@ class SampleDefinition:
             raise DeployError("sample must keep its release approval record inside the sample")
         return cls(path, raw["name"], data, tuple(checks), tuple(deployed),
                    learning["fixtures"], tuple(learning["checks"]), approval)
+
+    @property
+    def package(self) -> str:
+        """The Python package under examples/ this definition belongs to; the container build and Bicep take it as SAMPLE."""
+        package = self.path.relative_to(REPO_ROOT / "examples").parts[0]
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", package):
+            raise DeployError("a sample must be a Python package under examples/ (letters, digits and underscores)")
+        return package
 
     def fingerprint(self) -> str:
         paths = {self.path, REPO_ROOT / "Dockerfile", REPO_ROOT / "requirements-azure.txt",
@@ -353,21 +366,40 @@ def placeholder_jwk() -> dict:
     return jwk
 
 
+def http_request(url: str, headers: dict | None = None, timeout: int = 30) -> tuple[int, str]:
+    """A small stdlib GET so acceptance checks need no extra dependency; tests replace it."""
+    import urllib.error
+    import urllib.request
+
+    request = urllib.request.Request(url, headers=headers or {})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, response.read(200_000).decode("utf-8", "replace")
+    except urllib.error.HTTPError as error:
+        return error.code, error.read(200_000).decode("utf-8", "replace")
+    except (urllib.error.URLError, OSError) as error:
+        raise DeployError(f"could not reach {url}: {error}") from error
+
+
+CAPTURE_QUERY = ('AppDependencies | where TimeGenerated > ago(3h) '
+                 '| where Name == "invoke_agent governedgraph.synthetic_conversation" | summarize spans=count()')
+
 STEP_TITLES = {
     "sample": "Run the selected sample's tests, evaluation gates and offline rehearsal",
     "preflight": "Check tools, sign-in, permissions, providers, quota and the resource group",
     "environment": f"Create the azd environment `{ENV_NAME}` and set its inputs",
     "provision-1": "Provision the infrastructure (first pass; slowest step, API Management)",
     "private-link": "Approve the Search private link on the content storage account",
-    "entra": "Register the Strategy API and contact-centre Entra apps",
+    "entra": "Register the Strategy API, contact-centre and admin console Entra apps (and the console's access groups)",
     "recovery-access": "Configure delegated recovery access for this deployment's operator",
     "agents": "Create and pin the Foundry agents (prompts come from the domain pack)",
-    "deploy": "Build and deploy the four services (remote builds, no local Docker)",
+    "deploy": "Build and deploy the five services (remote builds, no local Docker)",
     "provision-2": "Provision again: real images, client IDs, agent pins, issuer and publisher jobs, content publication",
     "member-key": "Bootstrap the real member-token public key from the dev issuer job",
     "provision-3": "Final provision with the real key (and the presenter, if chosen)",
     "learning": "Build the P2 image, publish synthetic learning inputs, run the learning and fairness proofs, enable the schedule",
     "verify": "Run every in-network acceptance proof declared by the sample",
+    "admin-console": "Check the admin console: page, required sign-in, closed routes and recorded synthetic conversations",
 }
 STEPS = list(STEP_TITLES)
 
@@ -416,7 +448,7 @@ class Deployer:
         return self.run.run(["azd", *args, *flags], env=env, **kw)
 
     def az(self, *args, **kw) -> str:
-        tenant_command = args[0] in ("ad", "login") or args[:2] == ("account", "list")
+        tenant_command = args[0] in ("ad", "login", "extension") or args[:2] == ("account", "list")
         scope = (["--subscription", self.answers.subscription_id]
                  if self.answers.subscription_id and not tenant_command
                  and "--subscription" not in args and "-s" not in args else [])
@@ -541,8 +573,9 @@ class Deployer:
                                       args.resource_group or a.resource_group, validate_rg)
         a.on_call_email = p.question("On-call email for alerts (you must confirm its verification email)",
                                      args.on_call_email or "", validate_email)
-        a.voice_demo = (args.voice_demo if args.voice_demo is not None
-                        else p.confirm("Enable the browser voice presenter (extra app registration and a hosted proof channel)?"))
+        # The presenter, synthetic-conversation capture and the console's conversation view ship together; opt out
+        # of all three with --no-voice-demo.
+        a.voice_demo = args.voice_demo if args.voice_demo is not None else True
         a.member_token_issuer = args.member_token_issuer or a.member_token_issuer
         if args.reconfigure:
             self.state.search_capacity_regions.clear()
@@ -568,11 +601,14 @@ class Deployer:
         self.say(f"  naming seed      {a.naming_seed or '(legacy names preserved)'}")
         self.say(f"  soft-delete      {'explicit recovery enabled' if self.recover_soft_deleted else 'stop; recovery is opt-in'}")
         self.say(f"  on-call email    {a.on_call_email}")
-        self.say(f"  voice presenter  {'yes' if a.voice_demo else 'no'}")
+        self.say(f"  voice presenter  {'yes' if a.voice_demo else 'no'}"
+                 + ("  (with synthetic conversation capture and the console's conversation view)" if a.voice_demo else ""))
+        self.say("  admin console    yes: Entra sign-in; reader and operator groups are created and you join both"
+                 " (opt out: GOVERNEDGRAPH_ADMIN_ACCESS_CONTROL=false)")
         self.say("  Search fallback  automatic on confirmed capacity failure; supported EU regions only, no existing-service move")
         self.say("  duration         typically 45-90 minutes, mostly the two provisioning passes")
         self.say("  cost             not free tier: API Management StandardV2, AI Search, two registries, always-on Container Apps,")
-        self.say("                   an Azure ML workspace and model deployments. Remove with `azd down --purge`.\n")
+        self.say("                   an Azure ML workspace and model deployments. Remove with `python -m scripts.teardown`.\n")
 
     # ---- steps -------------------------------------------------------------------------------------------------
     def _check_local_tools(self) -> None:
@@ -710,9 +746,11 @@ class Deployer:
         for key, value in {
             "AZURE_LOCATION": a.location, "AZURE_SEARCH_LOCATION": a.search_location,
             "GOVERNEDGRAPH_RESOURCE_GROUP_NAME": a.resource_group, "ON_CALL_EMAIL": a.on_call_email,
-            "GOVERNEDGRAPH_NAMING_SEED": a.naming_seed,
+            "GOVERNEDGRAPH_NAMING_SEED": a.naming_seed, "GOVERNEDGRAPH_SAMPLE": self.sample.package,
             "GOVERNEDGRAPH_ENABLE_DEV_MEMBER_ISSUER": "true", "MEMBER_TOKEN_ISSUER": a.member_token_issuer,
             "GOVERNEDGRAPH_SYNTHETIC_CONTACT_CENTRE": "true",
+            "GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS": "true" if a.voice_demo else "false",
+            "GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP": "true" if a.voice_demo else "false",
             "STRATEGY_RECOVERY_OPERATOR_ID": self.state.operator_id, "VOICE_DEMO_OPERATOR_ID": self.state.operator_id,
         }.items():
             if current.get(key) != value:
@@ -973,6 +1011,7 @@ class Deployer:
         out = self.run.run([self.python, "-m", "governedgraph.strategy_service.provision_auth", "--environment", ENV_NAME,
                             "--pipeline", v["STRATEGY_PUBLISHER_PRINCIPAL_ID"], "--fairness", v["STRATEGY_FAIRNESS_PRINCIPAL_ID"],
                             "--runtime", v["STRATEGY_RUNTIME_PRINCIPAL_ID"],
+                            *(["--admin", v["STRATEGY_ADMIN_PRINCIPAL_ID"]] if v.get("STRATEGY_ADMIN_PRINCIPAL_ID") else []),
                             "--naming-seed", self.answers.naming_seed, "--apply"], env=env)
         match = re.search(r"^STRATEGY_API_CLIENT_ID=([0-9a-fA-F-]{36})\s*$", out, re.M)
         if not match:
@@ -987,6 +1026,26 @@ class Deployer:
         except (ValueError, KeyError) as error:
             raise DeployError("the contact-centre registration did not report its client ID and audience") from error
         for key, value in (("CONTACT_CENTRE_CLIENT_ID", client_id), ("CONTACT_CENTRE_AUDIENCE", audience)):
+            self.setenv(key, value)
+        self.register_admin_console(v, env)
+
+    def register_admin_console(self, v: dict, env: dict) -> None:
+        """Same step as the other registrations: groups, the deploying user and the sign-in app, recorded in the azd env."""
+        if (not self.admin_enabled() or v.get("GOVERNEDGRAPH_ADMIN_ACCESS_CONTROL", "true").strip().lower() == "false"
+                or not v.get("APIM_GATEWAY_URL")):
+            self.say("  Admin console sign-in skipped; the console stays open with an access-control banner.")
+            return
+        out = self.run.run([self.python, "-m", "scripts.configure_admin_console", "--environment", ENV_NAME,
+                            "--origin", v["APIM_GATEWAY_URL"].rstrip("/"), "--member", self.state.operator_id,
+                            "--naming-seed", self.answers.naming_seed, "--apply"], env=env)
+        try:
+            registration = json.loads(out)
+            settings = {"GOVERNEDGRAPH_ADMIN_CLIENT_ID": registration["client_id"],
+                        "GOVERNEDGRAPH_ADMIN_READER_GROUP_ID": registration["reader_group_id"],
+                        "GOVERNEDGRAPH_ADMIN_OPERATOR_GROUP_ID": registration["operator_group_id"]}
+        except (ValueError, KeyError) as error:
+            raise DeployError("the admin console registration did not report its client and group IDs") from error
+        for key, value in settings.items():
             self.setenv(key, value)
 
     def step_recovery_access(self) -> None:
@@ -1156,7 +1215,11 @@ class Deployer:
         if duplicates:
             raise DeployError(f"multiple Container Apps have the same azd-service-name: {', '.join(duplicates)}; "
                               "resolve ambiguous targets before deploying")
-        return [service for service, count in counts.items() if count == 0]
+        return [service for service, count in counts.items()
+                if count == 0 and (service != "admin" or self.admin_enabled())]
+
+    def admin_enabled(self) -> bool:
+        return self.values().get("GOVERNEDGRAPH_DEPLOY_ADMIN_CONSOLE", "true").strip().lower() != "false"
 
     def step_deploy(self) -> None:
         missing = self.missing_service_targets()
@@ -1168,7 +1231,12 @@ class Deployer:
                 raise DeployError(f"provisioning finished but azd service targets are still missing: {', '.join(missing)}; "
                                   "check the Container Apps' azd-service-name tags before resuming")
         try:
-            self.azd("deploy", "--no-prompt", stream=True)
+            services = [service for service in SERVICES if service != "admin" or self.admin_enabled()]
+            if len(services) == len(SERVICES):
+                self.azd("deploy", "--no-prompt", stream=True)
+            else:
+                for service in services:
+                    self.azd("deploy", service, "--no-prompt", stream=True)
         except CommandError as error:
             raise DeployError("azd deploy failed; read the build error above, fix it and re-run this script") from error
         if "SERVICE_ORCHESTRATOR_IMAGE_NAME" not in self.values():
@@ -1228,7 +1296,7 @@ class Deployer:
             raise DeployError("invalid registry or repository for an acceptance image")
         tag = self.state.sample_fingerprint[:16] or "unversioned"
         image = f"{repository}:{tag}"
-        self.az("acr", "build", "--registry", registry, "--file", "Dockerfile",
+        self.az("acr", "build", "--registry", registry, "--file", "Dockerfile", "--build-arg", f"SAMPLE={self.sample.package}",
                 "--target", target, "--image", image, ".", stream=True)
         digest = self.az("acr", "repository", "show", "--name", registry, "--image", image,
                          "--query", "digest", "-o", "tsv", quiet=True).strip()
@@ -1341,6 +1409,75 @@ class Deployer:
         self.state.sample_proof_executions = proofs
         self.state.channel_proof_execution = proofs["channel"]
 
+    def expect_status(self, what: str, url: str, expected: int, headers: dict | None = None) -> str:
+        """Fetch with a few retries: the gateway can lag a fresh revision by a minute."""
+        status, body = 0, ""
+        for attempt in range(6):
+            status, body = http_request(url, headers)
+            if status == expected:
+                return body
+            if attempt < 5:
+                self.sleep(10)
+        raise DeployError(f"admin console check failed: {what} returned HTTP {status}, expected {expected} ({url})")
+
+    def step_admin_console(self) -> None:
+        v = self.values()
+        if not self.admin_enabled():
+            self.say("  Admin console not deployed; nothing to check.")
+            return
+        gateway = v.get("APIM_GATEWAY_URL", "").rstrip("/")
+        if not gateway:
+            raise DeployError("the gateway URL is missing from the azd environment; cannot check the admin console")
+        self.expect_status("the console health route", f"{gateway}/health/admin/healthz", 200)
+        page = self.expect_status("the console page", f"{gateway}/admin/", 200)
+        session = re.search(r'name="admin-session" content="([^"]+)"', page)
+        if not session:
+            raise DeployError("admin console check failed: the page did not issue a session capability")
+        for route in ("docs", "openapi.json", "api/actions-list"):
+            self.expect_status(f"the unlisted route /{route}", f"{gateway}/admin/{route}", 404)
+        signed_in = bool(v.get("GOVERNEDGRAPH_ADMIN_CLIENT_ID")) and (
+            v.get("GOVERNEDGRAPH_ADMIN_ACCESS_CONTROL", "true").strip().lower() != "false")
+        headers = {"X-Admin-Session": session[1]}
+        self.expect_status("evidence without a sign-in", f"{gateway}/admin/api/overview",
+                           401 if signed_in else 200, headers)
+        mode = "sign-in required" if signed_in else "open, read-only"
+        self.say(f"  Admin console: page, health and closed routes verified; evidence access is {mode}.")
+        if self.answers.voice_demo:
+            self.verify_conversation_capture(v)
+        else:
+            self.say("  Conversation capture skipped: the voice presenter was not chosen.")
+
+    def verify_conversation_capture(self, v: dict[str, str]) -> None:
+        """The channel proof runs synthetic journeys; their text must reach the workspace the console reads."""
+        group = v["AZURE_RESOURCE_GROUP"]
+        workspace = v.get("LOG_ANALYTICS_WORKSPACE_ID", "").strip()
+        if not workspace:
+            workspace = self.az("monitor", "log-analytics", "workspace", "list", "-g", group, "--query",
+                                "[0].customerId", "-o", "tsv", quiet=True).strip()
+        if not re.fullmatch(r"[0-9a-fA-F-]{36}", workspace):
+            raise DeployError("could not determine the Log Analytics workspace to check conversation capture")
+        try:
+            self.az("extension", "show", "--name", "log-analytics", "-o", "none", quiet=True)
+        except DeployError:
+            self.az("extension", "add", "--name", "log-analytics", "--yes")
+        spans = ""
+        for attempt in range(15):
+            try:
+                spans = self.az("monitor", "log-analytics", "query", "-w", workspace, "--analytics-query",
+                                CAPTURE_QUERY, "--query", "[0].spans", "-o", "tsv", quiet=True).strip()
+            except DeployError as error:
+                raise DeployError("could not read the Log Analytics workspace to check conversation capture; the "
+                                  "deploying user needs read access to it. Re-run this step once that is granted: "
+                                  f"{str(error)[-200:]}") from error
+            if spans.isdigit() and int(spans) > 0:
+                self.say(f"  Conversation capture verified: {spans} synthetic conversation turns reached the workspace.")
+                return
+            if attempt < 14:
+                self.say(f"  Waiting for log ingestion (attempt {attempt + 1}/15)...")
+                self.sleep(60)
+        raise DeployError("no synthetic conversations reached the workspace within 15 minutes. Check that the "
+                          "orchestrator has GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS=true and re-run this step")
+
     def verify_execution(self, mode: str, execution: str, v: dict[str, str]) -> None:
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", execution):
             raise DeployError(f"the {mode} proof did not report a valid execution name")
@@ -1363,7 +1500,8 @@ class Deployer:
     def execute(self, only: str | None = None, from_step: str | None = None, force: bool = False) -> None:
         fingerprint = self.sample.fingerprint()
         if self.state.sample_fingerprint != fingerprint:
-            affected = {"sample", "recovery-access", "agents", "deploy", "provision-2", "provision-3", "learning", "verify"}
+            affected = {"sample", "recovery-access", "agents", "deploy", "provision-2", "provision-3", "learning", "verify",
+                        "admin-console"}
             self.state.completed = [step for step in self.state.completed if step not in affected]
             self.state.channel_proof_execution = ""
             self.state.sample_proof_executions = {}
@@ -1410,11 +1548,15 @@ class Deployer:
         for label, key in (("Resource group", "AZURE_RESOURCE_GROUP"), ("Orchestrator", "ORCHESTRATOR_URL"),
                            ("Gateway", "APIM_GATEWAY_URL")):
             self.say(f"  {label:15} {v.get(key, '(not reported)')}")
+        if v.get("ADMIN_CONSOLE_URL"):
+            self.say(f"  {'Admin console':15} {v['ADMIN_CONSOLE_URL']}")
+            if v.get("GOVERNEDGRAPH_ADMIN_CLIENT_ID"):
+                self.say(f"  {'':15} sign in as the deploying user; add others to the console's reader and operator groups in Entra")
         if self.answers.voice_demo and v.get("VOICE_DEMO_ORIGIN"):
             self.say(f"  {'Presenter':15} {v['VOICE_DEMO_ORIGIN'].rstrip('/')}/voice-demo/")
         self.say("\nStill manual: open the verification email sent to the on-call address and confirm it. Then follow the runbook:")
         self.say("  examples/pension_wtp/docs/demo-runbook.md   (every command reads its values from the azd environment)")
-        self.say("Learning runs on its approved four-hourly schedule. Remove everything with: azd down --purge")
+        self.say("Learning runs on its approved four-hourly schedule. Remove everything with: python -m scripts.teardown")
 
     def sample_proofs_complete(self) -> bool:
         return (bool(self.state.channel_proof_execution)
@@ -1506,7 +1648,7 @@ def main(argv: list[str] | None = None, *, runner: Runner | None = None, prompte
                 a.search_location = args.search_location or a.location
                 a.resource_group = args.resource_group or f"rg-{ENV_NAME}-<new suffix>"
                 a.on_call_email = args.on_call_email or "<asked interactively>"
-                a.voice_demo = bool(args.voice_demo)
+                a.voice_demo = args.voice_demo is not False
             elif deployer.mode == "redeploy":
                 deployer.state.completed = []
             print_plan(deployer, args)

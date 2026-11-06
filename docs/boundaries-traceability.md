@@ -1,5 +1,32 @@
 # Boundaries B1-B10 -> enforcement point -> test
 
+## Local administration (IMP-104)
+
+- **B3/B6/B9/B10:** `admin/data.py` reads verified Strategy Service state and projects effective
+  eligible rankings after universal suspension overlays. `admin/api.py` delegates only freeze,
+  revert-to-static and suspension to existing protection methods; it rejects S6 suspension.
+- **B4/B7:** governance cases omit cohort identities/dimensions; learning evidence is read only
+  from digest-verified published aggregates. Journey drill-down reads existing reference-only
+  explainability records. On Azure the console reads only `explainability-records`, `learning-aggregates`
+  and `learning-evidence` (reader, container scope) plus its own `admin-actions` journal; it has no
+  cohort-zone, content, journey-state, member-value or signing access (`test_admin_deployment.py`).
+  `admin/traces.py` queries only exact-project/journey synthetic `gg-dev`
+  captures with a time/row bound; it neither enables capture nor writes transcripts or learning inputs.
+- **B8:** administration is opt-in. Locally it is loopback/session/same-origin restricted. On Azure it is an
+  internal app behind eight explicit gateway routes, with its own identity, container-scoped read access and an
+  immutable write-once journal, and it acts only through the Strategy API's existing role checks: the identity holds
+  `Strategy.Freeze` and `Strategy.Suspend` and no publish, reinstate or recovery path (`auth.py`, `provision_auth.py`).
+  An open Azure console is read-only unless actions are explicitly allowed. In gg-dev the deployment creates the
+  reader and operator groups, adds only the deploying user and registers a secretless sign-in app
+  (`scripts/configure_admin_console.py`; `test_admin_registration.py`). Optional Entra group access control (reader and operator groups) verifies an Admin.Access access token
+  server-side on every data and action route, fails closed on misconfiguration, never grants action
+  rights from a blank group, and shows a banner when it is off. Closed action requests reject unknown
+  fields and widening actions. Actions require a reviewed state revision and a write-ahead journal;
+  completion failure never reports success.
+  No human approval, reinstatement or freeze-recovery bypass is introduced.
+  Tests: `test_admin_api.py`, `test_admin_access.py`, `test_admin_azure.py`, `test_admin_deployment.py`,
+  `test_admin_data.py`, `test_admin_traces.py`.
+
 ## Fail-closed deployment verification (IMP-84)
 
 - **B8/B9:** `scripts/run_dev_proof.py` resolves the public APIM journey output to the unique tagged private orchestrator
@@ -87,7 +114,7 @@
   source IDs and a generated meaning-check question. `_assemble_answer`
   includes the question only for the served strategy's teach-back setting;
   the runtime `AnswerDraft` contract remains `text`/`content_ids`.
-  S5's step-by-step organization uses host-rendered English/Dutch labels without
+  S5's step-by-step organization uses host-rendered localized labels (English and Dutch in the sample) without
   adding a fact or a figure. The generated meaning question stays model-authored.
   The assembled answer passes the same independent meaning judge and final
   gates. A question marker is a necessary format check, not semantic acceptance.
@@ -466,7 +493,7 @@ catalogue, ranking or model is updated from evaluation results (B4/B5/B8).
 
 - **Latency correction, no weaker exit:** template set 1.1 adds only the
   explicitly approved figure-free acknowledgement. `VoiceBridge` validates and
-  caches it before input; it is not counted as a substantive pension answer.
+  caches it before input; it is not counted as a substantive answer.
   `_parallel_preflight` joins all screen/classifier/read futures before drafting,
   retains step-up/member scoping and document screening, and fails closed for
   every failure domain. Complete `_post_process` plus audit still precede
@@ -669,8 +696,8 @@ not a claim that new operations have been deployed.
 
 | ID | Boundary (owner-defined) | Enforcement in code | Test |
 |---|---|---|---|
-| B1 | Calculations, eligibility, entitlements and official values stay in deterministic systems | `member_values_api` read-only, the only value source; APIM GET-only facade validates short-lived member tokens and step-up, overwrites member headers from claims, rejects mismatched paths with a correlated incident (`infra/policies/member-values.xml`); orchestrator verifies token-derived journey ownership; explicit non-GET routes reach 405 | `test_counsellor_local.py::test_member_scoping_on_values_api`, `test_azure_preparation.py::test_b1_apim_member_identity_comes_only_from_validated_claim`, `::test_b1_apim_uses_explicit_methods_for_read_only_rejections`, `test_member_values_facade.py` (token, scope, incident, retry, circuit-open, step-up and telemetry tests) |
-| B2 | GenAI explains but never calculates or modifies | placeholders + `guardrails/binding.py`; `guardrails/numeric_fidelity.py` 100% gate; template-only fallback, then escalate | `test_numeric_fidelity.py` (all), evals hard gate |
+| B1 | Authoritative values and determinations (calculations, rule-based outcomes, official records) stay in deterministic systems | `member_values_api` read-only, the only value source; APIM GET-only facade validates short-lived member tokens and step-up, overwrites member headers from claims, rejects mismatched paths with a correlated incident (`infra/policies/member-values.xml`); orchestrator verifies token-derived journey ownership; explicit non-GET routes reach 405 | `test_counsellor_local.py::test_member_scoping_on_values_api`, `test_azure_preparation.py::test_b1_apim_member_identity_comes_only_from_validated_claim`, `::test_b1_apim_uses_explicit_methods_for_read_only_rejections`, `test_member_values_facade.py` (token, scope, incident, retry, circuit-open, step-up and telemetry tests) |
+| B2 | GenAI may explain an authoritative value but never calculates, rounds, estimates or writes one | placeholders + `guardrails/binding.py`; `guardrails/numeric_fidelity.py` 100% gate; template-only fallback, then escalate | `test_numeric_fidelity.py` (all), evals hard gate |
 | B3 | Runtime selects only from approved, versioned catalogue | `StrategyService.load_snapshot` verifies signature + active versions; tools reject unserved strategies; hybrid search always pre-filters approved status/language/state, validates returned approval evidence and replaces stale passage context; `search/corpus.py` rejects missing approval and mutable version IDs; `search/ingest.py` retires predecessors before indexing under an exclusive publication lease; runtime Key Vault role permits verification only | `test_strategy_service.py::test_tampered_or_foreign_snapshot_rejected`, `::test_snapshot_referencing_inactive_version_rejected`, `test_azure_preparation.py::test_b3_key_vault_verification_does_not_require_key_read`, `::test_b3_runtime_key_vault_role_allows_only_verification`, `test_approved_content.py` (approval, retirement, hybrid filtering, language, stale context, explicit failures and isolated source storage) |
 | B4 | Raw conversations never retrain or change behaviour | P2 reads aggregates only; the closed aggregate column allowlist rejects transcripts and demographics; Azure cohort audits run separately as fairness and P2 reads only the outcome-digest-bound demographic-free veto projection; no path from conversations to prompts, templates, catalogue or models | `test_ranking_bounds.py::test_runtime_aggregates_reject_cohort_columns`, `test_strategy_azure.py::test_b7_p2_reads_only_closed_aggregate_audit_projection`, `::test_b7_outcomes_reject_any_extra_column` + review by `@guardrail-reviewer` |
 | B5 | Bounded continuous ranking from expert priors, live from day one | `ranking_pipeline.py`: min sample, max rank shift, reorder-only; shared `pipeline_steps.previous_rankings` restores only missing approved-prior keys while preserving learned and explicit empty orders | `test_ranking_bounds.py` (including sparse signed snapshot, no-evidence chat priors and universal veto) |

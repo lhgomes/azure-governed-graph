@@ -13,6 +13,8 @@ param appInsightsName string
 param memberTokenIssuer string
 param memberTokenAudience string
 param memberTokenPublicJwk object
+param deployAdminConsole bool = false
+param adminBackendUrl string = ''
 
 resource apim 'Microsoft.ApiManagement/service@2024-05-01' = {
   name: 'apim-gg-${token}'
@@ -207,6 +209,40 @@ resource strategyAdminOps 'Microsoft.ApiManagement/service/apis/operations@2024-
   properties: { displayName: op.name, method: op.method, urlTemplate: op.path }
 }]
 
+// Administration console: every route is listed explicitly, so anything else returns 404 at the gateway.
+// Authentication is enforced by the app (Entra group membership, when configured) and the Strategy API's own roles.
+resource adminApi 'Microsoft.ApiManagement/service/apis@2024-05-01' = if (deployAdminConsole) {
+  parent: apim
+  name: 'administration-console'
+  properties: {
+    displayName: 'Administration console'
+    path: 'admin'
+    protocols: [ 'https' ]
+    subscriptionRequired: false
+    serviceUrl: adminBackendUrl
+  }
+}
+var adminOperations = [
+  { name: 'page', method: 'GET', path: '/', parameters: [] }
+  { name: 'asset', method: 'GET', path: '/assets/{name}', parameters: [ 'name' ] }
+  { name: 'access', method: 'GET', path: '/api/access', parameters: [] }
+  { name: 'overview', method: 'GET', path: '/api/overview', parameters: [] }
+  { name: 'journeys', method: 'GET', path: '/api/journeys', parameters: [] }
+  { name: 'journey', method: 'GET', path: '/api/journeys/{journeyId}', parameters: [ 'journeyId' ] }
+  { name: 'trace', method: 'GET', path: '/api/traces/{journeyId}', parameters: [ 'journeyId' ] }
+  { name: 'action', method: 'POST', path: '/api/actions', parameters: [] }
+]
+resource adminOps 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = [for op in adminOperations: if (deployAdminConsole) {
+  parent: adminApi
+  name: op.name
+  properties: {
+    displayName: op.name
+    method: op.method
+    urlTemplate: op.path
+    templateParameters: [for parameter in op.parameters: { name: parameter, type: 'string', required: true }]
+  }
+}]
+
 resource journeysApi 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
   parent: apim
   name: 'journeys'
@@ -264,11 +300,11 @@ resource journeyTurn 'Microsoft.ApiManagement/service/apis/operations@2024-05-01
   }
 }
 
-var healthBackends = [
+var healthBackends = concat([
   { name: 'orchestrator', url: orchestratorBackendUrl }
   { name: 'strategy-service', url: strategyServiceBackendUrl }
   { name: 'member-values', url: memberValuesBackendUrl }
-]
+], deployAdminConsole ? [ { name: 'admin', url: adminBackendUrl } ] : [])
 
 resource healthApis 'Microsoft.ApiManagement/service/apis@2024-05-01' = [for backend in healthBackends: {
   parent: apim

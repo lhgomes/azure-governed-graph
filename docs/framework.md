@@ -8,7 +8,7 @@ GovernedGraph separates **what may be said** (deterministic and approved) from *
 
 A member asks a question during a journey. Official values come only from a deterministic system of record.
 Knowledge comes only from approved, versioned content. A generative agent drafts an explanation
-around a **placeholder** (`{{value:<id>}}`) and never a figure. The host binds the official value, checks
+around a **placeholder** (`{{value:<id>}}`) and never the value itself. The host binds the official value, checks
 numeric fidelity and advice-steering, records an explainability record and only then releases the answer.
 Which *explanation strategy* (style, structure, teach-back) the agent uses is chosen from a small **approved
 catalogue** by a **signed ranking snapshot** that offline learning may reorder within hard limits and a
@@ -42,3 +42,36 @@ the content, the data used or the decisions made requires human approval and, fo
 
 See [adopting](adopting.md). In short: an approved strategy catalogue, templates with placeholders, approved
 content, expert priors, fairness thresholds and cohort dimensions, a deterministic values source, and the counsellor prompt.
+Anything beyond that (for example domain-specific agents or back-office integrations) is the domain's own addition and stays
+outside the framework, as the pension sample's design-depth agents do.
+
+## Components and where they run
+
+The framework defines two business agents, not two deployed model definitions: the member-facing counsellor and the
+Fairness & Explainability Agent. A domain adds its own agents on top; the pension sample adds three design-depth ones
+(Transition Calculation, Event Processing, Adoption Guide), which are **not deployed administrator integrations**.
+
+| Component | Implementation / hosting (Azure reference) |
+|---|---|
+| Member Communication / Counsellor | Foundry prompt agents; Agent Framework orchestration |
+| Intent, understanding and answer review | Separate, tool-free Foundry semantic roles supporting the counsellor |
+| Fairness & Explainability Agent | Protective Foundry agent plus segregated aggregate cohort audit |
+| Journey, values facade and Strategy Service | Container Apps, APIM, private Blob state and Service Bus |
+| Approved content and response evidence | Azure AI Search; append-only explainability records in immutable Blob storage |
+| P2 bounded learning | Identity-isolated scheduled Container Apps Jobs |
+| Administration console | Container App behind the gateway at `/admin/`; see [administration](administration.md) |
+
+Locally the same components run in one process on synthetic files with no Azure dependency. See [architecture](architecture.md)
+for the Azure design.
+
+## Limits to state with any result
+
+- Passing local gates is not evidence of full conversational quality, live integration or production acceptance.
+- Conversational quality requires representative evaluation and human review.
+- Voice text-channel checks do not certify microphone behaviour or end-to-end audio latency.
+- Production cost and service-level targets require workload-specific validation.
+- The synthetic handover demonstrates the integration contract, not a real callback; the contact-centre and member-token issuer are
+  development stand-ins for real adapters.
+- The console shows conversation text only for synthetic `gg-dev` members, from existing traces; raw conversations are never retained
+  or fed back into behaviour (B4). Its access control is a demo-grade optional group check, not a production administrator model.
+- The bundled sample is a synthetic reference, **not a production service**.

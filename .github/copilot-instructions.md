@@ -12,8 +12,8 @@ Each one has a code enforcement point and a test in `tests/` - never delete, ski
 
 | ID | Rule | Enforcement point in code |
 |---|---|---|
-| B1 | Calculations, eligibility, entitlements and official values stay in deterministic systems | the values source (sample: `member_values_api`) is the only value source, read-only (GET), behind APIM |
-| B2 | Generative AI may explain values but NEVER calculates, rounds, estimates or writes a figure | placeholders `{{value:<id>}}` + `guardrails/binding.py`; `guardrails/numeric_fidelity.py` = 100% hard gate |
+| B1 | Authoritative values and determinations (calculations, rule-based outcomes, official records) stay in deterministic systems | the values source (sample: `member_values_api`) is the only value source, read-only (GET), behind APIM |
+| B2 | Generative AI may explain authoritative values but NEVER calculates, rounds, estimates or writes one | placeholders `{{value:<id>}}` + `guardrails/binding.py`; `guardrails/numeric_fidelity.py` = 100% hard gate |
 | B3 | Runtime selects only from the approved, versioned strategy catalogue | signed Ranking Snapshot verified in `strategy_service/service.py`; `CounsellorTools.write_explainability_record` rejects strategies not served |
 | B4 | Raw conversations never retrain a model or change behaviour | no code path from transcripts/telemetry to prompts, templates, models or catalogue; P2 reads aggregates only |
 | B5 | Learning = bounded continuous ranking of approved strategies only, from expert priors, live from day one | `learning/ranking_pipeline.py`: min sample, max rank shift, reorder-only |
@@ -32,7 +32,7 @@ Channels (chat, Voice Live) -> **orchestrator** (journey state machine, `orchest
 Microsoft Foundry Agent Service (`agents/counsellor.py`, tools in `agents/tools.py`) -> APIM facade -> mock deterministic
 **member values API** (sample: `examples/pension_wtp/member_values_api`); **Strategy Service** serves the signed snapshot; **Azure AI Search** serves approved content; an append-only
 **explainability store** records every answer. Offline plane P2 (`learning/`) re-ranks from aggregates, the **Fairness &
-Explainability Agent** audits cohorts and vetoes, the **Agentic Assurance Committee** approves Tier 1 moves. Transition Calculation,
+Explainability Agent** audits cohorts and vetoes, the **Agentic Assurance Committee** approves Tier 1 moves. The sample's Transition Calculation,
 Event Processing and Adoption Guide agents are at design depth.
 
 ## How to work in this repo
@@ -43,7 +43,7 @@ Event Processing and Adoption Guide agents are at design depth.
 - Identity: managed identity / `DefaultAzureCredential` only. No keys, connection strings or secrets in code, config or Bicep outputs.
 - Infra: Bicep in `infra/`, deployed with `azd`. Run `az bicep build --file infra/main.bicep` after every infra change.
 - Every behaviour change ships with a test. Run `pytest`, `python evals/run_evals.py` and `PYTHONPATH=src:examples python -m pension_wtp.demo.run_demo` before you finish.
-- All data is synthetic and must stay labelled `ILLUSTRATIVE - synthetic data`. Never add real member, fund or personal data.
+- All data is synthetic and must stay labelled `ILLUSTRATIVE - synthetic data`. Never add real member, organisation or personal data.
 - Record any design choice you make in the local decision log `docs/local/decision-log.md` (ID, decision, alternatives, boundary served). It is ignored by Git and must never be committed.
 
 ## Definition of done for any task

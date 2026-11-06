@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="940" viewBox="0 0 1600 940" role="img" aria-labelledby="title description">
+  <title id="title">How GovernedGraph works</title>
+  <desc id="description">A member's question enters a governed journey with three steps: an orchestrator that authenticates, screens and routes with human handover from any state; an AI counsellor that drafts around placeholders using only approved strategies; and a release gate that binds the real values, checks numbers and advice, and logs before answering. The adopter supplies a domain pack and a values source. A separate offline learning loop turns outcome counts into a bounded ranking, applies a fairness veto, needs human approval for anything wider, and serves a signed ranking back to every journey. An administration console lets people observe and apply protective actions.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 L11 6 L1 11 Z" fill="#536780"/>
+    </marker>
+    <marker id="teal-arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 L11 6 L1 11 Z" fill="#087f82"/>
+    </marker>
+    <marker id="gold-arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 L11 6 L1 11 Z" fill="#a76b13"/>
+    </marker>
+    <marker id="rose-arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 L11 6 L1 11 Z" fill="#a13d5c"/>
+    </marker>
+    <marker id="rose-arrow-start" markerWidth="12" markerHeight="12" refX="2" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M11 1 L1 6 L11 11 Z" fill="#a13d5c"/>
+    </marker>
+    <style>
+      text { font-family: "DejaVu Sans", Aptos, "Segoe UI", Arial, sans-serif; fill: #182b45; }
+      .title { font-size: 44px; font-weight: 700; letter-spacing: -1px; }
+      .subtitle { font-size: 23px; fill: #52657d; }
+      .lane { font-size: 19px; font-weight: 700; letter-spacing: 2px; }
+      .heading { font-size: 25px; font-weight: 700; }
+      .heading-s { font-size: 22px; font-weight: 700; }
+      .body { font-size: 19px; fill: #415671; }
+      .body-s { font-size: 17px; fill: #415671; }
+      .small { font-size: 16px; fill: #52657d; }
+      .label { font-size: 16px; font-weight: 600; fill: #52657d; }
+      .tag { font-size: 13px; font-weight: 700; letter-spacing: 1.3px; }
+      .flow { fill: none; stroke: #536780; stroke-width: 3; marker-end: url(#arrow); stroke-linejoin: round; }
+      .supply { fill: none; stroke: #a76b13; stroke-width: 3; stroke-dasharray: 9 6; marker-end: url(#gold-arrow); stroke-linejoin: round; }
+      .people { fill: none; stroke: #a13d5c; stroke-width: 3; marker-end: url(#rose-arrow); stroke-linejoin: round; }
+      .learning-flow { fill: none; stroke: #087f82; stroke-width: 3; marker-end: url(#teal-arrow); stroke-linejoin: round; }
+      .feedback { fill: none; stroke: #087f82; stroke-width: 3; stroke-dasharray: 9 6; marker-end: url(#teal-arrow); stroke-linejoin: round; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="940" fill="#ffffff"/>
+  <rect x="0" y="0" width="12" height="940" fill="#087f82"/>
+  <text x="48" y="68" class="title">How GovernedGraph works</text>
+  <text x="50" y="106" class="subtitle">Your systems hold the facts. The framework governs the explanation. People stay in charge.</text>
+
+  <!-- Lane 1: the governed journey. -->
+  <rect x="300" y="146" width="1260" height="282" rx="22" fill="#f5f8fc" stroke="#dce5ef"/>
+  <text x="324" y="196" class="lane" style="fill:#275d9b">THE FRAMEWORK: EVERY ANSWER PASSES THE SAME GATES</text>
+
+  <rect x="40" y="218" width="230" height="178" rx="16" fill="#fdf0f3" stroke="#d99aab" stroke-width="2"/>
+  <text x="62" y="250" class="tag" style="fill:#a13d5c">PERSON</text>
+  <text x="62" y="288" class="heading">Member</text>
+  <text x="62" y="322" class="body">Chat or voice</text>
+
+  <rect x="320" y="218" width="380" height="178" rx="16" fill="#edf4ff" stroke="#7ea5d9" stroke-width="2"/>
+  <text x="342" y="250" class="tag" style="fill:#275d9b">1 / HOST, NOT AN AI MODEL</text>
+  <text x="342" y="288" class="heading">Journey orchestrator</text>
+  <text x="342" y="324" class="body">Authenticate, screen, route.</text>
+  <text x="342" y="352" class="body">Human handover from any</text>
+  <text x="342" y="378" class="body">state.</text>
+
+  <rect x="740" y="218" width="380" height="178" rx="16" fill="#f2edfc" stroke="#a58ace" stroke-width="2"/>
+  <text x="762" y="250" class="tag" style="fill:#7044a5">2 / AI</text>
+  <text x="762" y="288" class="heading">Counsellor</text>
+  <text x="762" y="324" class="body">Drafts around placeholders,</text>
+  <text x="762" y="352" class="body">using only approved</text>
+  <text x="762" y="378" class="body">strategies.</text>
+
+  <rect x="1160" y="218" width="380" height="178" rx="16" fill="#edf4ff" stroke="#7ea5d9" stroke-width="2"/>
+  <text x="1182" y="250" class="tag" style="fill:#275d9b">3 / HOST, NOT AN AI MODEL</text>
+  <text x="1182" y="288" class="heading">Release gate</text>
+  <text x="1182" y="324" class="body">Binds the real values, checks</text>
+  <text x="1182" y="352" class="body">numbers and advice, logs the</text>
+  <text x="1182" y="378" class="body">answer before releasing it.</text>
+
+  <path d="M272 307 H318" class="flow"/>
+  <path d="M702 307 H738" class="flow"/>
+  <path d="M1122 307 H1158" class="flow"/>
+  <!-- Checked answer returns to the member. -->
+  <path d="M1350 218 V166 H155 V216" class="flow"/>
+  <rect x="610" y="150" width="190" height="30" rx="8" fill="#ffffff"/>
+  <text x="705" y="172" text-anchor="middle" class="label">Checked answer</text>
+
+  <!-- Lane 2: people who watch, and what you supply. -->
+  <rect x="320" y="470" width="380" height="140" rx="16" fill="#fdf0f3" stroke="#d99aab" stroke-width="2"/>
+  <text x="342" y="502" class="tag" style="fill:#a13d5c">PEOPLE: OBSERVE + PROTECT</text>
+  <text x="342" y="538" class="heading-s">Administration console</text>
+  <text x="342" y="568" class="body-s">See rankings, vetoes, decisions.</text>
+  <text x="342" y="592" class="body-s">Freeze or suspend, nothing wider.</text>
+
+  <rect x="740" y="470" width="380" height="140" rx="16" fill="#fff7e9" stroke="#d3ad69" stroke-width="2.5" stroke-dasharray="9 6"/>
+  <text x="762" y="502" class="tag" style="fill:#946014">YOU SUPPLY</text>
+  <text x="762" y="538" class="heading-s">Domain pack</text>
+  <text x="762" y="568" class="body-s">Approved strategies, content,</text>
+  <text x="762" y="592" class="body-s">prompts, fairness limits.</text>
+
+  <rect x="1160" y="470" width="380" height="140" rx="16" fill="#fff7e9" stroke="#d3ad69" stroke-width="2.5" stroke-dasharray="9 6"/>
+  <text x="1182" y="502" class="tag" style="fill:#946014">YOU SUPPLY</text>
+  <text x="1182" y="538" class="heading-s">Values source</text>
+  <text x="1182" y="568" class="body-s">Your system of record: read-only,</text>
+  <text x="1182" y="592" class="body-s">scoped to the member.</text>
+
+  <path d="M930 468 V398" class="supply"/>
+  <path d="M1350 468 V398" class="supply"/>
+  <!-- The console reads evidence from the learning loop and applies protective actions there. -->
+  <path d="M510 612 V652" class="people" style="marker-start:url(#rose-arrow-start)"/>
+  <text x="528" y="637" class="label" style="fill:#a13d5c">evidence in, freeze or suspend out</text>
+
+  <!-- Lane 3: bounded learning. -->
+
+  <rect x="40" y="654" width="1520" height="214" rx="22" fill="#f0f9f8" stroke="#cce4e1"/>
+  <text x="200" y="692" class="lane" style="fill:#087f82">THE LEARNING LOOP: OFFLINE, BOUNDED, NEVER READS CONVERSATIONS</text>
+
+  <rect x="65" y="712" width="268" height="140" rx="16" fill="#ffffff" stroke="#84beb5" stroke-width="2"/>
+  <text x="85" y="742" class="tag" style="fill:#087f82">1</text>
+  <text x="85" y="774" class="heading-s">Outcome counts</text>
+  <text x="85" y="803" class="body-s">Aggregates only,</text>
+  <text x="85" y="827" class="body-s">no transcripts.</text>
+
+  <rect x="365" y="712" width="268" height="140" rx="16" fill="#ffffff" stroke="#84beb5" stroke-width="2"/>
+  <text x="385" y="742" class="tag" style="fill:#087f82">2</text>
+  <text x="385" y="774" class="heading-s">Bounded ranking</text>
+  <text x="385" y="803" class="body-s">Reorders approved</text>
+  <text x="385" y="827" class="body-s">strategies only.</text>
+
+  <rect x="665" y="712" width="268" height="140" rx="16" fill="#f2edfc" stroke="#a58ace" stroke-width="2"/>
+  <text x="685" y="742" class="tag" style="fill:#7044a5">3 / AI</text>
+  <text x="685" y="774" class="heading-s">Fairness veto</text>
+  <text x="685" y="803" class="body-s">Can remove a winning</text>
+  <text x="685" y="827" class="body-s">strategy for everyone.</text>
+
+  <rect x="965" y="712" width="268" height="140" rx="16" fill="#fdf0f3" stroke="#d99aab" stroke-width="2"/>
+  <text x="985" y="742" class="tag" style="fill:#a13d5c">4 / PEOPLE</text>
+  <text x="985" y="774" class="heading-s">Human approval</text>
+  <text x="985" y="803" class="body-s">Anything that widens</text>
+  <text x="985" y="827" class="body-s">what it may say or use.</text>
+
+  <rect x="1265" y="712" width="268" height="140" rx="16" fill="#ffffff" stroke="#84beb5" stroke-width="2"/>
+  <text x="1285" y="742" class="tag" style="fill:#087f82">5</text>
+  <text x="1285" y="774" class="heading-s">Signed ranking</text>
+  <text x="1285" y="803" class="body-s">Back to every journey;</text>
+  <text x="1285" y="827" class="body-s">must beat a control arm.</text>
+
+  <path d="M335 782 H363" class="learning-flow"/>
+  <path d="M635 782 H663" class="learning-flow"/>
+  <path d="M935 782 H963" class="learning-flow"/>
+  <path d="M1235 782 H1263" class="learning-flow"/>
+
+  <!-- Outcome counts leave the journey; the signed ranking returns to it. -->
+  <path d="M155 398 V710" class="feedback"/>
+  <text x="176" y="470" class="label" style="fill:#087f82">Outcomes as</text>
+  <text x="176" y="492" class="label" style="fill:#087f82">counts only</text>
+  <path d="M1535 782 H1582 V307 H1562" class="feedback"/>
+
+  <text x="48" y="906" class="small">Colour:</text>
+  <rect x="110" y="892" width="16" height="16" rx="4" fill="#edf4ff" stroke="#7ea5d9"/>
+  <text x="134" y="906" class="small">Framework control</text>
+  <rect x="290" y="892" width="16" height="16" rx="4" fill="#f2edfc" stroke="#a58ace"/>
+  <text x="314" y="906" class="small">AI</text>
+  <rect x="362" y="892" width="16" height="16" rx="4" fill="#fff7e9" stroke="#d3ad69" stroke-dasharray="4 3"/>
+  <text x="386" y="906" class="small">You supply</text>
+  <rect x="510" y="892" width="16" height="16" rx="4" fill="#fdf0f3" stroke="#d99aab"/>
+  <text x="534" y="906" class="small">People</text>
+  <path d="M630 900 H672" class="feedback" style="stroke-width:2.5"/>
+  <text x="684" y="906" class="small">Learning feedback</text>
+  <text x="1555" y="906" text-anchor="end" class="small">Synthetic reference, not a production service</text>
+</svg>

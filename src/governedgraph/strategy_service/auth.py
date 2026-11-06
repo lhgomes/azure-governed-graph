@@ -61,8 +61,10 @@ def authorize(action: str, authorization: str) -> dict:
         return claims
     principals = {
         "publish": {settings.strategy_publisher_id},
-        "suspend": {settings.strategy_fairness_id},
-        "freeze": {settings.strategy_publisher_id, settings.strategy_fairness_id, settings.strategy_runtime_id},
+        # The administration console's own identity may only apply the protective actions below.
+        "suspend": {settings.strategy_fairness_id, settings.strategy_admin_id},
+        "freeze": {settings.strategy_publisher_id, settings.strategy_fairness_id, settings.strategy_runtime_id,
+                   settings.strategy_admin_id},
     }
     roles = {"publish": "Strategy.Publish", "suspend": "Strategy.Suspend", "freeze": "Strategy.Freeze"}
     if (claims.get("idtyp") != "app" or claims.get("scp")

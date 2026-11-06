@@ -29,10 +29,40 @@ SUB = "00000000-0000-4000-8000-0000000000aa"
 OPERATOR = "00000000-0000-4000-8000-0000000000bb"
 PRINCIPALS = {"STRATEGY_PUBLISHER_PRINCIPAL_ID": "00000000-0000-4000-8000-000000000001",
               "STRATEGY_FAIRNESS_PRINCIPAL_ID": "00000000-0000-4000-8000-000000000002",
-              "STRATEGY_RUNTIME_PRINCIPAL_ID": "00000000-0000-4000-8000-000000000003"}
+              "STRATEGY_RUNTIME_PRINCIPAL_ID": "00000000-0000-4000-8000-000000000003",
+              "STRATEGY_ADMIN_PRINCIPAL_ID": "00000000-0000-4000-8000-000000000004"}
 PUBLIC_JWK = {"kty": "RSA", "alg": "RS256", "use": "sig", "n": "abc", "e": "AQAB"}
 ARGS = ["--yes", "--non-interactive", "--subscription", SUB, "--location", "swedencentral",
-        "--resource-group", "rg-demo", "--on-call-email", "ops@example.com"]
+        "--resource-group", "rg-demo", "--on-call-email", "ops@example.com", "--no-voice-demo"]
+DEFAULT_ARGS = [a for a in ARGS if a != "--no-voice-demo"]   # the runner's real default: presenter, capture and lookup on
+GATEWAY = "https://apim-gg-x.azure-api.net"
+WORKSPACE = "00000000-0000-4000-8000-0000000000e1"
+
+
+class FakeGateway:
+    """The deployed console as the gateway shows it; tests change fields to simulate a broken deployment."""
+
+    def __init__(self):
+        self.page_status, self.overview_status, self.unlisted_status, self.health_status = 200, 401, 404, 200
+        self.requests = []
+
+    def __call__(self, url, headers=None, timeout=30):
+        self.requests.append((url, dict(headers or {})))
+        path = url.removeprefix(GATEWAY)
+        if path == "/health/admin/healthz":
+            return self.health_status, '{"ok":true}'
+        if path == "/admin/":
+            return self.page_status, '<meta name="admin-session" content="capability">'
+        if path == "/admin/api/overview":
+            return self.overview_status, "{}"
+        return self.unlisted_status, "{}"
+
+
+@pytest.fixture(autouse=True)
+def gateway(monkeypatch):
+    fake = FakeGateway()
+    monkeypatch.setattr(deploy, "http_request", fake)
+    return fake
 
 
 class FakeAzure:
@@ -53,6 +83,7 @@ class FakeAzure:
         self.environment_path = None
         self.service_targets = []
         self.proof_status = "Succeeded"
+        self.capture_spans, self.capture_queries = "7", []
         self.proof_output = "job-gg-dev-member-issuer-proof1\n"
         self.voice_proof_output = "job-gg-dev-member-issuer-voiceproof1\n"
         self.voice_proof_status = "Succeeded"
@@ -81,13 +112,19 @@ class FakeAzure:
         if tool == "azd":
             return self.azd(args[1:])
         if tool == "az":
-            if "--subscription" in args and (args[1] == "ad" or args[1:3] == ["account", "list"]):
+            if "--subscription" in args and (args[1] in ("ad", "extension") or args[1:3] == ["account", "list"]):
                 raise CommandError(args, 2, "unrecognized arguments: --subscription")
             return self.az(args[1:])
         if "provision_auth" in text:
+            assert args[args.index("--admin") + 1] == PRINCIPALS["STRATEGY_ADMIN_PRINCIPAL_ID"]
             return json.dumps({"application": "x"}) + "\nSTRATEGY_API_CLIENT_ID=00000000-0000-4000-8000-0000000000c1\n"
         if "configure_contact_centre" in text:
             return json.dumps({"client_id": "00000000-0000-4000-8000-0000000000c2", "audience": "api://cc"}, indent=2)
+        if "configure_admin_console" in text:
+            assert args[args.index("--member") + 1] == OPERATOR and args[args.index("--origin") + 1] == "https://apim-gg-x.azure-api.net"
+            return json.dumps({"apply": True, "client_id": "00000000-0000-4000-8000-0000000000c4",
+                               "reader_group_id": "00000000-0000-4000-8000-0000000000d4",
+                               "operator_group_id": "00000000-0000-4000-8000-0000000000d5"}, indent=2)
         if "configure_strategy_recovery" in text:
             assert "--apply" in args
             api = args[args.index("--api-client-id") + 1]
@@ -144,6 +181,8 @@ class FakeAzure:
             self.env[a[2]] = a[3]
         elif a[0] == "provision":
             services = ["orchestrator", "strategy-service", "member-values"]
+            if self.env.get("GOVERNEDGRAPH_DEPLOY_ADMIN_CONSOLE", "true") != "false":
+                services.append("admin")
             if self.env.get("GOVERNEDGRAPH_SYNTHETIC_CONTACT_CENTRE") == "true":
                 services.append("contact-centre")
             self.service_targets = [{"azd-env-name": "gg-dev", "azd-service-name": service} for service in services]
@@ -151,7 +190,8 @@ class FakeAzure:
                             CONTENT_STORAGE_RESOURCE_ID="/subscriptions/s/storageAccounts/content",
                             AZURE_AI_PROJECT_ENDPOINT="https://x.services.ai.azure.com/api/projects/p",
                             ORCHESTRATOR_URL="https://ca-gg-orchestrator-x.y.swedencentral.azurecontainerapps.io",
-                            APIM_GATEWAY_URL="https://apim-gg-x.azure-api.net", VOICE_DEMO_ORIGIN="https://apim-gg-x.azure-api.net")
+                            APIM_GATEWAY_URL="https://apim-gg-x.azure-api.net", VOICE_DEMO_ORIGIN="https://apim-gg-x.azure-api.net",
+                            LOG_ANALYTICS_WORKSPACE_ID=WORKSPACE)
             self.env["AZURE_CONTAINER_REGISTRY_ENDPOINT"] = "registry.azurecr.io"
             self.env.update(
                 AZURE_ML_REGISTRY_ID="/subscriptions/s/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/crmlsynthetic",
@@ -160,7 +200,10 @@ class FakeAzure:
             if self.env.get("DEPLOY_VOICE_DEMO") == "true":
                 self.env.setdefault("VOICE_DEMO_CLIENT_ID", "00000000-0000-4000-8000-0000000000c3")
         elif a[0] == "deploy":
-            for service in deploy.SERVICES:
+            required = [s for s in deploy.SERVICES
+                        if s != "admin" or self.env.get("GOVERNEDGRAPH_DEPLOY_ADMIN_CONSOLE", "true") != "false"]
+            targets = [a[1]] if not a[1].startswith("-") else required
+            for service in targets:
                 if not any(tags.get("azd-service-name") == service for tags in self.service_targets):
                     raise CommandError(["azd", *a], 1, f"unable to find a resource tagged with 'azd-service-name: {service}'")
             self.env["SERVICE_ORCHESTRATOR_IMAGE_NAME"] = "registry.azurecr.io/orch@sha256:" + "a" * 64
@@ -168,6 +211,14 @@ class FakeAzure:
 
     def az(self, a):
         text = " ".join(a)
+        if a[:2] == ["extension", "show"] or a[:2] == ["extension", "add"]:
+            return ""
+        if a[:3] == ["monitor", "log-analytics", "query"]:
+            self.capture_queries.append(a)
+            assert a[a.index("-w") + 1] == WORKSPACE and "synthetic_conversation" in a[a.index("--analytics-query") + 1]
+            return self.capture_spans
+        if a[:3] == ["monitor", "log-analytics", "workspace"]:
+            return WORKSPACE
         if a[:2] == ["storage", "container-rm"]:
             return json.dumps(["azureml", "azureml-blobstore-ffe1fe22-7acf-4919-bfaf-29f7afc39311", "other-data"])
         if a[:2] == ["acr", "build"]:
@@ -271,6 +322,12 @@ def test_the_whole_flow_runs_in_order_and_ends_with_the_real_key(tmp_path, capsy
     assert json.loads(azure.env["MEMBER_TOKEN_PUBLIC_JWK"]) == PUBLIC_JWK
     assert azure.env["GOVERNEDGRAPH_RESOURCE_GROUP_NAME"] == "rg-demo" and azure.env["ON_CALL_EMAIL"] == "ops@example.com"
     assert azure.env["STRATEGY_API_CLIENT_ID"].endswith("c1") and azure.env["CONTACT_CENTRE_AUDIENCE"] == "api://cc"
+    assert azure.env["GOVERNEDGRAPH_ADMIN_CLIENT_ID"].endswith("c4")
+    assert azure.env["GOVERNEDGRAPH_ADMIN_READER_GROUP_ID"].endswith("d4")
+    assert azure.env["GOVERNEDGRAPH_ADMIN_OPERATOR_GROUP_ID"].endswith("d5")
+    registration = next(i for i, c in enumerate(flat) if "configure_admin_console" in c)
+    assert flat.index(next(c for c in flat if c.startswith("azd provision"))) < registration \
+        < next(i for i, c in enumerate(flat) if "create_agents.py --role counsellor --apply" in c)
     assert azure.env["STRATEGY_RECOVERY_OPERATOR_ID"] == OPERATOR
     assert {azure.env[v] for v in deploy.AGENT_ROLES.values()} == {str(i) for i in range(1, 7)}
     assert "Deployment complete." in capsys.readouterr().out
@@ -286,6 +343,8 @@ def test_the_whole_flow_runs_in_order_and_ends_with_the_real_key(tmp_path, capsy
         i for i, c in enumerate(azure.calls) if c[:2] == ["azd", "provision"])
     builds = {c[c.index("--target") + 1]: c for c in azure.calls if c[:3] == ["az", "acr", "build"]}
     assert set(builds) == {"p2", "dev-fixtures", "dev-voice"}
+    assert all(c[c.index("--build-arg") + 1] == "SAMPLE=pension_wtp" for c in builds.values())
+    assert azure.env["GOVERNEDGRAPH_SAMPLE"] == "pension_wtp"
     voice = next(c for c in azure.calls if "scripts.run_dev_proof" in c and "voice" in c)
     assert voice[voice.index("--image") + 1] == "registry.azurecr.io/sample-voice-proof@" + azure.voice_image_digest
 
@@ -456,6 +515,22 @@ def test_contact_centre_is_enabled_before_the_first_provision(tmp_path):
     assert checks[0][checks[0].index("--subscription") + 1] == SUB
     check_index = azure.calls.index(checks[0])
     assert check_index < next(i for i, args in enumerate(azure.calls) if args[:2] == ["azd", "deploy"])
+
+
+def test_opting_out_of_console_sign_in_makes_no_entra_change_and_still_completes(tmp_path, gateway, capsys):
+    class OptOut(FakeAzure):
+        def azd(self, a):
+            result = super().azd(a)
+            if a[0] == "provision":
+                self.env["GOVERNEDGRAPH_ADMIN_ACCESS_CONTROL"] = "false"
+            return result
+
+    azure = OptOut()
+    gateway.overview_status = 200   # an open console serves evidence read-only
+    assert run(azure, tmp_path) == 0
+    assert not any("configure_admin_console" in " ".join(c) for c in azure.calls)
+    assert "GOVERNEDGRAPH_ADMIN_CLIENT_ID" not in azure.env
+    assert "stays open with an access-control banner" in capsys.readouterr().out
 
 
 def test_service_target_preflight_matches_the_azd_manifest():
@@ -707,7 +782,7 @@ def test_resource_group_names_follow_azure_rules(name, ok):
 
 def test_interactive_questions_drive_the_answers_and_saved_answers_are_reused(tmp_path, capsys):
     azure = FakeAzure()
-    answers = Answers("", "", "swedencentral", "rg-asked", "ops@example.com", "n", "y")  # mode, sub, region, rg, email, presenter, start
+    answers = Answers("", "", "swedencentral", "rg-asked", "ops@example.com", "y")  # mode, sub, region, rg, email, start
     prompter = deploy.Prompter(interactive=True, ask=answers, echo=print)
     assert run(azure, tmp_path, [], prompter=prompter) == 0
     assert azure.env["GOVERNEDGRAPH_RESOURCE_GROUP_NAME"] == "rg-asked"
@@ -777,6 +852,108 @@ def test_the_presenter_gets_a_second_pass_for_its_new_client_id(tmp_path):
     azure = FakeAzure()
     run(azure, tmp_path / "other", ARGS + ["--no-voice-demo"])
     assert "DEPLOY_VOICE_DEMO" not in azure.env and len([c for c in azure.calls if c[:2] == ["azd", "provision"]]) == 5
+
+
+def test_a_fresh_run_by_default_matches_the_running_deployment_including_conversation_text(tmp_path, gateway, capsys):
+    azure = FakeAzure()
+    assert run(azure, tmp_path, DEFAULT_ARGS) == 0
+    assert azure.env["DEPLOY_VOICE_DEMO"] == "true"
+    assert azure.env["GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS"] == "true"
+    assert azure.env["GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP"] == "true"
+    assert azure.env["GOVERNEDGRAPH_ADMIN_CLIENT_ID"].endswith("c4")
+    out = capsys.readouterr().out
+    assert "(with synthetic conversation capture and the console's conversation view)" in out
+    assert "Conversation capture verified: 7 synthetic conversation turns" in out
+    flat = [" ".join(c) for c in azure.calls]
+    assert next(i for i, c in enumerate(flat) if "run_dev_proof" in c) < next(
+        i for i, c in enumerate(flat) if "monitor log-analytics query" in c)
+    state = json.loads((tmp_path / "state.json").read_text())
+    assert "admin-console" in state["completed"] and state["completed"][-1] == "admin-console"
+    urls = [url.removeprefix(GATEWAY) for url, _ in gateway.requests]
+    assert {"/health/admin/healthz", "/admin/", "/admin/api/overview", "/admin/docs"} <= set(urls)
+    assert next(h for u, h in gateway.requests if u.endswith("/admin/api/overview")) == {"X-Admin-Session": "capability"}
+
+
+def test_without_the_presenter_capture_and_lookup_are_off_and_not_checked(tmp_path, capsys):
+    azure = FakeAzure()
+    assert run(azure, tmp_path) == 0
+    assert azure.env["GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS"] == "false"
+    assert azure.env["GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP"] == "false"
+    assert azure.capture_queries == []
+    assert "Conversation capture skipped" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("field,value,message", [
+    ("overview_status", 200, "evidence without a sign-in returned HTTP 200, expected 401"),
+    ("page_status", 500, "the console page returned HTTP 500"),
+    ("health_status", 503, "the console health route returned HTTP 503"),
+    ("unlisted_status", 200, "the unlisted route /docs returned HTTP 200, expected 404"),
+])
+def test_a_console_that_is_down_open_or_exposing_routes_blocks_completion_and_resumes(
+        tmp_path, gateway, capsys, field, value, message):
+    azure = FakeAzure()
+    setattr(gateway, field, value)
+    assert run(azure, tmp_path) == 1
+    assert message in capsys.readouterr().err
+    completed = json.loads((tmp_path / "state.json").read_text())["completed"]
+    assert "verify" in completed and "admin-console" not in completed
+    setattr(gateway, field, {"overview_status": 401, "page_status": 200, "health_status": 200, "unlisted_status": 404}[field])
+    azure.calls.clear()
+    assert run(azure, tmp_path, ["--yes", "--non-interactive", "--mode", "resume"]) == 0
+    assert not any(c[:2] == ["azd", "provision"] or c[:2] == ["azd", "deploy"] for c in azure.calls)
+    assert "Deployment complete." in capsys.readouterr().out
+
+
+def test_an_open_console_without_sign_in_is_read_only_and_checked_as_such(tmp_path, gateway, capsys):
+    class OptOut(FakeAzure):
+        def azd(self, a):
+            result = super().azd(a)
+            if a[0] == "provision":
+                self.env["GOVERNEDGRAPH_ADMIN_ACCESS_CONTROL"] = "false"
+            return result
+
+    azure = OptOut()
+    gateway.overview_status = 200
+    assert run(azure, tmp_path) == 0
+    assert "evidence access is open, read-only" in capsys.readouterr().out
+
+
+def test_conversations_that_never_reach_the_workspace_block_completion_after_fifteen_minutes(tmp_path, capsys):
+    azure = FakeAzure()
+    azure.capture_spans = "0"
+    assert run(azure, tmp_path, DEFAULT_ARGS) == 1
+    err = capsys.readouterr().err
+    assert "within 15 minutes" in err and "GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS=true" in err
+    assert len(azure.capture_queries) == 15
+    assert "admin-console" not in json.loads((tmp_path / "state.json").read_text())["completed"]
+
+
+def test_missing_log_analytics_read_access_is_explained_not_reported_as_missing_conversations(tmp_path, capsys):
+    azure = FakeAzure()
+    azure.fail["monitor log-analytics query"] = (99, "AuthorizationFailed")
+    assert run(azure, tmp_path, DEFAULT_ARGS) == 1
+    err = capsys.readouterr().err
+    assert "needs read access to it" in err and "AuthorizationFailed" in err and "within 15 minutes" not in err
+
+
+def test_the_console_check_is_skipped_when_the_console_is_not_deployed(tmp_path, monkeypatch, gateway, capsys):
+    monkeypatch.setattr(deploy.Deployer, "admin_enabled", lambda self: False)
+    assert run(FakeAzure(), tmp_path, DEFAULT_ARGS) == 0
+    assert "Admin console not deployed; nothing to check." in capsys.readouterr().out
+    assert gateway.requests == []
+
+
+def test_a_resumed_older_deployment_without_the_workspace_output_looks_it_up(tmp_path):
+    azure = FakeAzure()
+    assert run(azure, tmp_path, DEFAULT_ARGS) == 0
+    state = json.loads((tmp_path / "state.json").read_text())
+    state["completed"].remove("admin-console")
+    (tmp_path / "state.json").write_text(json.dumps(state))
+    azure.env.pop("LOG_ANALYTICS_WORKSPACE_ID")
+    azure.calls.clear()
+    assert run(azure, tmp_path, ["--yes", "--non-interactive", "--mode", "resume"]) == 0
+    assert any(c[:4] == ["az", "monitor", "log-analytics", "workspace"] for c in azure.calls)
+    assert azure.capture_queries
 
 
 def test_a_provision_failure_tells_the_operator_to_fix_and_rerun(tmp_path, capsys):

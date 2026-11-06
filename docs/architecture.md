@@ -3,9 +3,9 @@
 This page describes the reference architecture on Azure, using the bundled pension sample as the worked domain.
 The domain-neutral model is in [framework concepts](framework.md).
 
-**Scope:** all five agents; build depth on the Member Communication Agent (Counsellor), the Fairness &
-Explainability Agent and the Learning Member Journey Graph; Transition Calculation, Event Processing and the Transition
-Adoption Guide at design depth. **Delivery:** one release, all features and learning live from day one.
+**Scope:** build depth on the Member Communication Agent (Counsellor), the Fairness &
+Explainability Agent and the Learning Member Journey Graph. The pension sample adds Transition Calculation, Event
+Processing and the Transition Adoption Guide at design depth. **Delivery:** one release, all features and learning live from day one.
 
 **Evidence.** Statements here describe the design and what the code enforces. They are not a live-state check of any deployment:
 verify yours with the [runbook](../examples/pension_wtp/docs/demo-runbook.md) procedures and record the results in your own
@@ -21,6 +21,15 @@ distinguish local queue receipts and synthetic submissions from production
 administrator effects.
 
 ## Runtime sequence (P1)
+
+The separate [administration console](administration.md) projects strategy, governance and response-audit
+evidence and exposes audited protective controls. Locally it is loopback-only over synthetic files. On Azure it is
+an internal Container App with its own identity behind the APIM gateway at `/admin/`: it reads three immutable
+evidence containers and its own write-once journal at container scope, and acts only through the role-protected
+Strategy API (`Strategy.Freeze` and `Strategy.Suspend`, never publish or reinstate). It is not a member channel or a
+learning input. Optional conversation drill-down reads only previously captured, watermarked synthetic `gg-dev`
+traces and is off by default on Azure; no transcript retention is added.
+
 1. Member -> channel (Voice Live or chat): AI disclosure (Art. 50)
 2. Orchestrator: create/resume journey; step-up verification before personal values
 3. Content Safety Prompt Shields screens the utterance (fail closed)
@@ -157,7 +166,7 @@ No Azure service, data-bearing resource or identity has been removed. The
 aggregate-writer grant deployed under IMP-47 is container-scoped only.
 
 ## Offline ranking cycle (P2)
-aggregates -> bounded ranking (min sample, max shift) -> cohort audit (age, gender, salary cohort; min cell size) -> veto gate
+aggregates -> bounded ranking (min sample, max shift) -> cohort audit (the domain pack's cohort dimensions, e.g. age, gender or income band; min cell size) -> veto gate
 -> sign (Key Vault) -> Tier 0 auto-publish / Tier 1 Agentic Assurance Committee -> Strategy Service. Control arm keeps static priors.
 
 ### Azure ML component packaging (IMP-33, live pipeline acceptance pending)
@@ -298,7 +307,7 @@ Tier 2 routing and a host-only member report, without releasing the freeze.
 The Container Apps orchestrator uses a private Blob journey store with a
 renewable per-journey lease. The state machine remains pure Python. State and
 outbox commit atomically; request-scoped counsellors never persist values,
-utterances, tokens or rendered answers. `MemberAuthenticator` is the fund-auth
+utterances, tokens or rendered answers. `MemberAuthenticator` is the member-authentication
 port; the signed-claim reference adapter and direct values tool both enforce
 current-request step-up. Each request forwards its original bearer token to APIM.
 
@@ -322,7 +331,7 @@ own Entra audience/identity, runtime-only app-role access and an isolated privat
 handover container. It records governed references and `synthetic_pending`
 status, never member utterances or figures. A read-only member-scoped advisor
 queue is exposed through the orchestrator, with JSON or HTML selected by Accept.
-Production replaces the stand-in with Dynamics 365 Contact Center or the fund's
+Production replaces the stand-in with Dynamics 365 Contact Center or the operator's
 existing platform, behind the same idempotent adapter. **No live callbacks
 are claimed.** An action group parameterizes on-call email; alerts cover DLQ,
 escalation age, explainability/queue failures, safety outages and frozen/
@@ -515,7 +524,7 @@ audio. Azure SDK imports stay in `voice/azure_voice.py`.
 
 Voice Live uses GA API `2026-04-10`, pinned SDK
 `azure-ai-voicelive[aiohttp]==1.3.1`, manual PCM16/24-kHz input commits and
-`azure-speech` transcription with the Dutch legal phrase list. Automatic turn
+`azure-speech` transcription with the sample's Dutch legal phrase list. Automatic turn
 responses and tools are disabled. Output uses only
 `response.create.pre_generated_assistant_message`: this explicitly bypasses
 model text inference and receives the final bound, guarded, audited HTTP text.
@@ -615,7 +624,7 @@ avoid forcing an extra tool round while preserving journey-bound host execution.
 ### DORA third-party register note
 
 Add **Microsoft Azure AI Content Safety, S0, France Central**, as a dependency of
-member guidance screening in the fund's ICT third-party register. Data categories:
+member guidance screening in the operator's ICT third-party register. Data categories:
 transient member utterances and approved retrieved passages; synthetic only in
 this reference implementation. No blocklists, payload diagnostics or application
 screening storage. Entra/managed identity only, with runtime-only resource-scoped
@@ -624,7 +633,7 @@ Assess EU inter-region transit, additional screening/turn latency, availability,
 Microsoft service concentration and exit/manual-advisor continuity together with
 the existing Swedish Foundry and French Search dependencies. Contract identifiers,
 legal-entity identifiers, subcontractors and critical-function classification must
-be completed by the fund's DORA owner, not invented by this implementation.
+be completed by the operator's DORA owner, not invented by this implementation.
 Regional/privacy documentation was checked on 2026-10-22; see IMP-12's linked sources.
 
 ## Strategy Service persistence and authorization
@@ -815,7 +824,7 @@ closed. Each retrieval replaces the tools' previous passage context so subsequen
 do not reuse retired cached passages.
 
 Member-selected accessibility `standard`, `plain_language`, `slower_pace` and `large_text`
-retrieve Dutch (`nl`); `english` retrieves English (`en`). This is content retrieval locale,
+retrieve the domain pack's default language (Dutch, `nl`, in the sample); `english` retrieves English (`en`). This is content retrieval locale,
 not a demographic inference or permission to translate approved templates automatically.
 The pure-Python local path uses the same version, approval and locale rules with lexical
 retrieval, without Azure imports or model calls.

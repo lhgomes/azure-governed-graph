@@ -27,21 +27,26 @@ def graph(method: str, path: str, body: dict | None = None):
     return az(*args)
 
 
-def role_assignments(pipeline: str, fairness: str, runtime: str) -> set[tuple[str, str]]:
-    for principal in (pipeline, fairness, runtime):
+def role_assignments(pipeline: str, fairness: str, runtime: str, admin: str = "") -> set[tuple[str, str]]:
+    principals = (pipeline, fairness, runtime, *([admin] if admin else []))
+    for principal in principals:
         UUID(principal)
-    if len({pipeline, fairness, runtime}) != 3:
-        raise ValueError("runtime, P2 and fairness identities must be distinct")
-    return {
+    if len(set(principals)) != len(principals):
+        raise ValueError("runtime, P2, fairness and administration identities must be distinct")
+    assignments = {
         (pipeline, ROLES["Strategy.Publish"]), (fairness, ROLES["Strategy.Suspend"]),
         (pipeline, ROLES["Strategy.Freeze"]), (fairness, ROLES["Strategy.Freeze"]),
         (runtime, ROLES["Strategy.Freeze"]),
     }
+    if admin:
+        # Protective actions only: the console can never publish a snapshot or reinstate a strategy.
+        assignments |= {(admin, ROLES["Strategy.Suspend"]), (admin, ROLES["Strategy.Freeze"])}
+    return assignments
 
 
 def configure(environment: str, pipeline: str, fairness: str, runtime: str, *, apply: bool = False,
-              naming_seed: str = "") -> str | None:
-    expected = role_assignments(pipeline, fairness, runtime)
+              naming_seed: str = "", admin: str = "") -> str | None:
+    expected = role_assignments(pipeline, fairness, runtime, admin)
     suffix = "-" + UUID(naming_seed).hex if naming_seed else ""
     name = "gg-strategy-" + environment + suffix
     apps = az("ad", "app", "list", "--display-name", name)
@@ -106,10 +111,12 @@ def main() -> None:
     parser.add_argument("--pipeline", required=True)
     parser.add_argument("--fairness", required=True)
     parser.add_argument("--runtime", required=True)
+    parser.add_argument("--admin", default="", help="Optional administration console identity (freeze and suspend only)")
     parser.add_argument("--naming-seed", default=os.getenv("GOVERNEDGRAPH_NAMING_SEED", ""))
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
-    configure(args.environment, args.pipeline, args.fairness, args.runtime, apply=args.apply, naming_seed=args.naming_seed)
+    configure(args.environment, args.pipeline, args.fairness, args.runtime, apply=args.apply,
+              naming_seed=args.naming_seed, admin=args.admin)
 
 
 if __name__ == "__main__":

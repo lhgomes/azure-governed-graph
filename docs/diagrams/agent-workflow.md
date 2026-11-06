@@ -1,5 +1,8 @@
 # Agent workflow and coordination
 
+New to the project? Start with the simpler [overview diagram](overview.svg) ([PNG](overview.png)), which the README uses:
+the framework, what you supply, the people involved and the learning loop in one picture. This page is the detail behind it.
+
 [Vector SVG](agent-workflow.svg): 1920 x 1080, 16:9, white background. It scales
 without loss and can be inserted into documents. The
 [3840 x 2160 PNG](agent-workflow.png) is a font-independent alternative.
@@ -7,6 +10,9 @@ without loss and can be inserted into documents. The
 The diagram presents the implemented member-guidance workflow and separate
 governed learning loop, not an unrestricted agent-to-agent conversation.
 All examples and data are **ILLUSTRATIVE - synthetic data**.
+Boxes outlined in dashed gold (the approved-content and official-values columns) are what **your domain supplies**:
+the domain pack's content and your read-only system of record. The rose box is the [administration console](../administration.md),
+where people observe the evidence and can only freeze or suspend.
 
 ## How to read the diagram
 
@@ -14,7 +20,7 @@ All examples and data are **ILLUSTRATIVE - synthetic data**.
   The host owns authentication, input screening, state, authorization and release.
 - **Agents have bounded roles.** Intent Routing selects a closed branch;
   Understanding Assessment evaluates the actual taught concepts.
-  The Pension Counsellor explains approved content and official-value references.
+  The Counsellor explains approved content and official-value references.
   The independent Answer Quality Judge may request one repair and recheck.
 - **AI never calculates official values.** The host binds placeholders to the
   read-only deterministic Values API, checks numeric fidelity and advice
@@ -38,7 +44,7 @@ All examples and data are **ILLUSTRATIVE - synthetic data**.
 - **Publication is not proof of uplift.** The control arm retains expert ranking;
   uplift monitoring can return treatment to static ranking.
 
-Scope: Transition Calculation, Event Processing and Transition Adoption Guide
+Scope: the pension sample's Transition Calculation, Event Processing and Transition Adoption Guide
 remain design-depth contracts/offline stubs. They are intentionally not drawn as
 live participants in this workflow.
 
@@ -116,7 +122,7 @@ flowchart LR
     subgraph Semantic["Bounded agent roles"]
         intent["Intent Routing"]
         understanding["Understanding Assessment"]
-        writer["Pension Counsellor"]
+        writer["Counsellor"]
         judge["Answer Quality Judge"]
     end
     subgraph Tools["Governed data access"]
@@ -155,7 +161,7 @@ flowchart LR
 | Journey Orchestrator | Runtime host | Authenticate, screen, maintain state and execute explicit branches |
 | Intent Routing | Semantic agent | Return a closed routing decision |
 | Understanding Assessment | Semantic agent | Assess only concepts targeted by the accepted teach-back |
-| Pension Counsellor | Explanation agent | Draft from approved evidence and value placeholders |
+| Counsellor | Explanation agent | Draft from approved evidence and value placeholders |
 | Answer Quality Judge | Independent semantic agent | Check grounding, relevance and language; bound repair |
 | Host gates and evidence commit | Deterministic host | Bind values, enforce safety and audit before release |
 | Approved read surfaces | Data-access contracts | Serve approved knowledge, official values and signed strategies |

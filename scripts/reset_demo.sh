@@ -12,4 +12,4 @@ cd "$repo"
 export GOVERNEDGRAPH_MODE=local
 export PYTHONPATH="$repo/src:$repo/examples${PYTHONPATH:+:$PYTHONPATH}"
 printf 'ILLUSTRATIVE - synthetic data. Local rehearsal only; Azure state is unchanged.\n'
-exec "$python" -m pension_wtp.demo.run_demo "$@"
+exec "$python" -m "${GOVERNEDGRAPH_SAMPLE:-pension_wtp}.demo.run_demo" "$@"

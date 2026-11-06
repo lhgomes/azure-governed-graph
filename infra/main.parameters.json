@@ -42,8 +42,16 @@
     "contactCentreApiClientId": { "value": "${CONTACT_CENTRE_CLIENT_ID=}" },
     "contactCentreAudience": { "value": "${CONTACT_CENTRE_AUDIENCE=}" },
     "contactCentreUrl": { "value": "${CONTACT_CENTRE_PRODUCTION_URL=}" },
+    "deployAdminConsole": { "value": "${GOVERNEDGRAPH_DEPLOY_ADMIN_CONSOLE=true}" },
+    "adminImage": { "value": "${SERVICE_ADMIN_IMAGE_NAME=mcr.microsoft.com/azuredocs/containerapps-helloworld:latest}" },
+    "adminReaderGroupId": { "value": "${GOVERNEDGRAPH_ADMIN_READER_GROUP_ID=}" },
+    "adminOperatorGroupId": { "value": "${GOVERNEDGRAPH_ADMIN_OPERATOR_GROUP_ID=}" },
+    "adminClientId": { "value": "${GOVERNEDGRAPH_ADMIN_CLIENT_ID=}" },
+    "adminAllowOpenActions": { "value": "${GOVERNEDGRAPH_ADMIN_ALLOW_OPEN_ACTIONS=false}" },
+    "adminTraceLookup": { "value": "${GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP=false}" },
     "onCallEmail": { "value": "${ON_CALL_EMAIL}" },
     "promptShieldsFailureThreshold": { "value": "${PROMPT_SHIELDS_FAILURE_THRESHOLD=3}" },
-    "resourceGroupName": { "value": "${GOVERNEDGRAPH_RESOURCE_GROUP_NAME=}" }
+    "resourceGroupName": { "value": "${GOVERNEDGRAPH_RESOURCE_GROUP_NAME=}" },
+    "sampleName": { "value": "${GOVERNEDGRAPH_SAMPLE=pension_wtp}" }
   }
 }

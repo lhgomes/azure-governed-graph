@@ -16,8 +16,9 @@ python -m scripts.deploy
 ```
 
 It first asks whether to **start fresh**, **redeploy/update**, or **resume**. It then asks for the **subscription**, **region**,
-**resource group name**, an **on-call email** and whether to enable the browser
-voice presenter, shows what it is about to do (duration and cost included), and waits for your confirmation. Then it runs:
+**resource group name** and an **on-call email**. The browser voice presenter, synthetic-conversation capture and the
+admin console (Entra sign-in, groups and conversation view) are included by default; `--no-voice-demo` turns off the
+presenter, capture and conversation view. It shows what it is about to do (duration and cost included), and waits for your confirmation. Then it runs:
 the sample's local tests, evaluation hard gates and offline rehearsal, then preflight checks
 (tools, sign-in, permissions, resource providers, model quota, existing resource group), the azd environment, the
 first provision, the Search private-link approval, the Entra app registrations, delegated recovery access for the saved operator,
@@ -36,6 +37,9 @@ second implementation. Framework boundary tests remain in `tests/`, unchanged an
 
 The default command uses this definition automatically. `--plan` shows its checks; `--sample-definition
 examples/pension_wtp/deployment.json` selects it explicitly. A saved deployment cannot silently switch definitions.
+The definition's package (`examples/<package>/`) is also passed to the image builds and to Bicep as `SAMPLE`/`sampleName`
+and stored in the azd environment as `GOVERNEDGRAPH_SAMPLE`, so a different sample deploys without editing the Dockerfile or
+Bicep (see the [Azure image contract](adopting.md#azure-image-contract)).
 Sample, runtime, dependency or verification-input changes invalidate the affected saved deployment steps and previous
 proof receipts. Every declared proof must report `Succeeded` before deployment completion; an old channel-only success
 cannot skip the sample's voice proof. Selecting a repair step does not bypass missing local sample acceptance.
@@ -138,7 +142,7 @@ failure, use `python -m scripts.deploy --mode resume`, not a new fresh deploymen
 | `python -m scripts.deploy --mode redeploy` | Re-runs all steps against the saved deployment, keeping its names, group and seed. |
 | `python -m scripts.deploy --mode resume --recover-soft-deleted` | Explicitly opts into scoped recovery of that deployment's soft-deleted resources; never purges. |
 | `python -m scripts.deploy --from-step agents` / `--only member-key` / `--force` | Re-run a step, a single step, or everything. |
-| `python -m scripts.deploy --mode fresh --yes --non-interactive --subscription <id> --location <region> --resource-group <new-name> --on-call-email <addr> [--voice-demo]` | Unattended fresh deployment. Without an explicit mode, unattended runs default to fresh only when no state exists, otherwise resume. |
+| `python -m scripts.deploy --mode fresh --yes --non-interactive --subscription <id> --location <region> --resource-group <new-name> --on-call-email <addr> [--no-voice-demo]` | Unattended fresh deployment (presenter, capture and the admin console are on by default). Without an explicit mode, unattended runs default to fresh only when no state exists, otherwise resume. |
 
 ### Fresh versus existing deployments
 
@@ -290,22 +294,35 @@ deployed as a separate keyless resource in `francecentral`.
 
 **Cost.** The reference topology includes API Management (StandardV2), Azure AI Search, two Container Registries, Container Apps
 (the orchestrator and Strategy service keep minimum replicas), an Azure ML workspace with private networking, Key Vaults, ZRS storage and
-model deployments. It is not a free-tier deployment. Remove it with `azd down --purge` when finished.
+model deployments. It is not a free-tier deployment. Remove it with `python -m scripts.teardown` when finished.
 
 ### Clean up a previous environment (if you are replacing one)
 
+A fresh deployment never needs this (it gets a new seed and a new resource group), but the old one keeps costing money and
+holding model quota. One command does the whole clean-up:
+
 ```bash
-az group delete -n <old-resource-group> --yes --no-wait   # the old resource group
-# Optional: free model quota and names held by soft-deleted resources
-az cognitiveservices account list-deleted -o table        # purge entries with: az cognitiveservices account purge ...
-az keyvault list-deleted -o table                         # purge entries with: az keyvault purge ...
-# Old Entra registrations (review the list before deleting anything)
-az ad app list --all --query "[?contains(displayName,'<old-name-fragment>')].{name:displayName,appId:appId}" -o table
-rm -rf .azure/<old-environment-name>                      # old local azd environment
+python -m scripts.teardown --plan     # inventory only: resource counts, soft-deleted records, Entra objects; changes nothing
+python -m scripts.teardown            # asks you to type the resource group name, then cleans up and reports progress
 ```
 
-The new environment uses new resource names (they derive from the subscription, resource group and environment name), so nothing from the old
-one collides with it.
+It reads the saved deployment (or `--subscription`, `--resource-group`, `--seed`) and, in order:
+
+1. deletes the resource group (a delete already running is picked up) and prints `N of M resources still to remove` with a
+   per-type breakdown until it is gone; stops with a re-run hint after `--timeout-minutes` (default 120);
+2. purges only this resource group's soft-deleted AI accounts and API Management services, which frees model quota and names
+   (it waits for the records to appear). Key Vaults are purged only when purge protection is off; protected ones are listed with their
+   retention date and left alone. Another group's soft-deleted resources are never touched;
+3. deletes the Entra apps and security groups by the exact names the deployment registered for this naming seed
+   (`--keep-entra` skips this; deleted apps stay recoverable in Entra for 30 days);
+4. archives, never deletes, the local azd environment and deployment state under `.run/deploy-history/<seed>/torn-down/`
+   (`--keep-local` skips this; it is also skipped when an earlier step failed, so a re-run can finish the job).
+
+It refuses a resource group that is not tagged `azd-env-name=gg-dev`, requires `--yes` when unattended, never grants access, and is safe
+to re-run. Entra clean-up needs permission to delete the registrations and groups the deployment created for you. Do not use
+`azd down` for a deployment with a custom `--resource-group`; it can look for the default group name instead.
+
+The new environment uses new resource names (they derive from the naming seed), so nothing from the old one collides with it.
 
 ## 1. Create the azd environment
 

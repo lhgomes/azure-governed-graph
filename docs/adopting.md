@@ -1,8 +1,33 @@
 # Adopting GovernedGraph for your domain
 
-The bundled sample ([examples/pension_wtp](../examples/pension_wtp)) is the template. A domain adopts the
-framework by supplying a **domain pack** and a **deterministic values source**, without touching the
-boundary enforcement points in `src/governedgraph`.
+You supply two things and change nothing in `src/governedgraph`: a **domain pack** (what may be said and how it is
+explained) and a **values source** (where official figures and outcomes come from). New to the project? Read
+[getting started](getting-started.md) first.
+
+## The path
+
+1. **Copy the sample.** `cp -r examples/pension_wtp examples/my_domain`, then replace the package name `pension_wtp` with
+   `my_domain` in the copied `.py` and `.json` files (about twenty references across ten files: imports and `deployment.json`).
+2. **Select it.** `export GOVERNEDGRAPH_SAMPLE=my_domain`. One setting points the data directory, values provider and demo at
+   your package. Each can still be overridden alone (`GOVERNEDGRAPH_DATA_DIR`, `GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER`,
+   `GOVERNEDGRAPH_TEXT_DEMO_MODULE`).
+3. **Replace the domain pack** in `examples/my_domain/data/` (section 1 below): strategies, templates, prompts, vocabulary,
+   approved content, expert priors, fairness thresholds.
+4. **Replace the values source** in `examples/my_domain/member_values_api/data.py` (section 2): read-only, scoped to the
+   authenticated member, returning display strings from your system of record.
+5. **Run the gates:** `python evals/run_evals.py` and `pytest`. Numeric fidelity 100%, zero option recommendations and
+   demographic invariance must all pass (section 4).
+6. **Deploy** with `python -m scripts.deploy --sample-definition examples/my_domain/deployment.json`. The runner builds the
+   images and configures the infrastructure for your package automatically; check the
+   [Azure image contract](#azure-image-contract) first.
+
+This path is exercised: a renamed copy of the sample, selected with `GOVERNEDGRAPH_SAMPLE`, runs the demo and passes the
+evaluation gates.
+
+| You change | You never change |
+|---|---|
+| Everything under `examples/my_domain`: pack, values source, demo, evaluation cases, deployment definition, release approval | Anything under `src/governedgraph`, in particular the enforcement points of boundaries B1-B10 |
+| Your own tests, personas and acceptance expectations | The framework tests in `tests/`; a sample definition cannot remove or weaken them |
 
 ## 1. Domain pack (`GOVERNEDGRAPH_DATA_DIR`)
 
@@ -60,6 +85,24 @@ python evals/run_evals.py
 
 All hard gates must pass: numeric fidelity 100%, zero option recommendations, demographic invariance.
 `tests/test_layering.py` fails if framework code imports a sample or domain module.
+
+## Azure image contract
+
+The container build is sample-agnostic: `SAMPLE` (the package under examples/) is passed to every image build (`azure.yaml`
+`buildArgs`, `az acr build` in the deploy runner) and to Bicep (`sampleName`), and the deploy runner sets it from your
+`--sample-definition`. The images contain only the files below, so your package needs them at these paths (the sample's
+names, which the [Dockerfile](../Dockerfile) copies):
+
+| Image | Files copied from `examples/<your_package>/` |
+|---|---|
+| All | `__init__.py`, `data/catalogue/`, `data/content/`, `data/fairness/thresholds_v1.json` |
+| Runtime (orchestrator, strategy, values, contact centre, console) | `data/synthetic/members.json`, `member_values_api/` (the member-values app starts `<package>.member_values_api.app:app`) |
+| Learning fixtures job | `data/synthetic/outcome_aggregates_illustrative.csv`, `data/synthetic/uplift_window_illustrative.json`, `data/fairness/cohort_aggregates_illustrative.csv` |
+| Voice proof | `data/personas/personas.json` |
+
+A missing file makes the image build fail before anything is deployed. Cohorts and personas stay out of the runtime
+images (tested). To use other file names, edit the Dockerfile; `tests/test_sample_selection.py` expands its `COPY` lines
+and fails if a source does not exist for the bundled sample.
 
 ## Current limits
 

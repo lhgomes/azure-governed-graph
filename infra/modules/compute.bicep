@@ -16,6 +16,7 @@ param orchestratorEnv object
 param orchestratorImage string
 param strategyServiceImage string
 param memberValuesImage string
+param sampleName string = 'pension_wtp'
 param env object
 param deploySyntheticContactCentre bool = false
 param contactCentreImage string
@@ -26,6 +27,12 @@ param contactCentreApiClientId string = ''
 param contactCentreAudience string = ''
 param contactCentreUrl string = ''
 param contactCentreStorageUrl string
+param deployAdminConsole bool = false
+param adminImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+param adminIdentityId string = ''
+param adminClientId string = ''
+param adminPrincipalId string = ''
+param adminEnv object = {}
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
   name: 'crgg${take(token, 16)}'
@@ -59,6 +66,16 @@ resource contactCentreAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-0
   name: guid(acr.id, contactCentrePrincipalId, acrPullRole)
   properties: {
     principalId: contactCentrePrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRole)
+  }
+}
+
+resource adminAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAdminConsole) {
+  scope: acr
+  name: guid(acr.id, adminPrincipalId, acrPullRole)
+  properties: {
+    principalId: adminPrincipalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRole)
   }
@@ -105,7 +122,7 @@ var orchestratorEnvList = concat(orchestratorEnvEntries, [
 var apps = [
   { name: 'orchestrator', image: orchestratorImage, module: 'governedgraph.orchestrator.api:app', external: true, minReplicas: 1 }
   { name: 'strategy-service', image: strategyServiceImage, module: 'governedgraph.strategy_service.api:app', external: true, minReplicas: 2 }
-  { name: 'member-values', image: memberValuesImage, module: 'pension_wtp.member_values_api.app:app', external: true, minReplicas: 1 }
+  { name: 'member-values', image: memberValuesImage, module: '${sampleName}.member_values_api.app:app', external: true, minReplicas: 1 }
 ]
 
 resource ca 'Microsoft.App/containerApps@2024-03-01' = [for a in apps: {
@@ -144,6 +161,43 @@ resource ca 'Microsoft.App/containerApps@2024-03-01' = [for a in apps: {
   }
   dependsOn: [ runtimeAcrPull, strategyAcrPull ]
 }]
+
+var adminEnvList = [for k in items(adminEnv): { name: k.key, value: k.value }]
+
+// Administration console: its own identity and a minimal environment; a single replica because the
+// per-process session capability must match the replica that served the page.
+resource admin 'Microsoft.App/containerApps@2024-03-01' = if (deployAdminConsole) {
+  name: 'ca-gg-admin-${take(token, 6)}'
+  location: location
+  tags: union(tags, { 'azd-service-name': 'admin', 'gg-agent-role': 'admin' })
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: { '${adminIdentityId}': {} }
+  }
+  properties: {
+    managedEnvironmentId: cae.id
+    configuration: {
+      ingress: { external: true, targetPort: 8000, transport: 'auto', allowInsecure: false }
+      registries: [ { server: acr.properties.loginServer, identity: adminIdentityId } ]
+    }
+    template: {
+      containers: [ {
+        name: 'admin'
+        image: adminImage
+        env: concat([
+          { name: 'GOVERNEDGRAPH_MODE', value: 'azure' }
+          { name: 'APP_MODULE', value: 'governedgraph.admin.api:app' }
+          { name: 'AZURE_CLIENT_ID', value: adminClientId }
+          { name: 'GOVERNEDGRAPH_SERVICE_NAME', value: 'gg-admin' }
+        ], adminEnvList)
+        resources: { cpu: json('0.5'), memory: '1Gi' }
+        probes: [ { type: 'Liveness', httpGet: { path: '/healthz', port: 8000 } } ]
+      } ]
+      scale: { minReplicas: 1, maxReplicas: 1 }
+    }
+  }
+  dependsOn: [ adminAcrPull ]
+}
 
 resource contact 'Microsoft.App/containerApps@2024-03-01' = if (deploySyntheticContactCentre) {
   name: 'ca-gg-contact-centre-${take(token, 6)}'
@@ -188,4 +242,5 @@ output registryLoginServer string = acr.properties.loginServer
 output orchestratorUrl string = 'https://${ca[0].properties.configuration.ingress.fqdn}'
 output strategyServiceUrl string = 'https://${ca[1].properties.configuration.ingress.fqdn}'
 output memberValuesUrl string = 'https://${ca[2].properties.configuration.ingress.fqdn}'
+output adminUrl string = deployAdminConsole ? 'https://${admin!.properties.configuration.ingress.fqdn}' : ''
 output contactCentreEndpoint string = deploySyntheticContactCentre ? 'https://${contact!.properties.configuration.ingress.fqdn}' : contactCentreUrl

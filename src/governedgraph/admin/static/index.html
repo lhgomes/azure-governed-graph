@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="admin-session" content="{{ADMIN_SESSION}}">
+  <base href="{{ADMIN_BASE}}">
+  <title>GovernedGraph | Administration</title>
+  <link rel="stylesheet" href="assets/admin.css">
+  <script defer src="assets/admin.js"></script>
+</head>
+<body>
+  <a class="skip" href="#workspace">Skip to administration workspace</a>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="GovernedGraph administration home">
+      <svg viewBox="0 0 40 40" aria-hidden="true"><path d="M10 10 30 10 20 30Z"/><circle cx="10" cy="10" r="4"/><circle cx="30" cy="10" r="4"/><circle cx="20" cy="30" r="4"/></svg>
+      <span>GovernedGraph<small>Administration</small></span>
+    </a>
+    <nav aria-label="Administration sections">
+      <button data-section="overview" aria-current="page">Overview</button>
+      <button data-section="strategies">Strategy catalogue</button>
+      <button data-section="rankings">Rankings</button>
+      <button data-section="suspensions">Vetoes &amp; suspensions</button>
+      <button data-section="cases">Governance cases</button>
+      <button data-section="decisions">Assurance decisions</button>
+      <button data-section="learning">Learning evidence</button>
+      <button data-section="journeys">Journeys &amp; evidence</button>
+      <button data-section="actions">Admin activity</button>
+      <button data-section="configuration">Boundaries &amp; configuration</button>
+    </nav>
+  </aside>
+  <div class="shell">
+    <header class="topbar">
+      <span class="watermark">ILLUSTRATIVE - synthetic data</span>
+      <div class="refresh-group"><span id="user" hidden></span><span id="updated">Not yet refreshed</span><button id="refresh" class="quiet">Refresh evidence</button><button id="sign-out" class="quiet" hidden>Sign out</button></div>
+    </header>
+    <div id="access-banner" class="access-banner" role="status" hidden>
+      <strong>Access control is off.</strong>
+      <span id="access-banner-text">Anyone who can open this console can view all evidence and apply protective actions.</span>
+      To restrict it, set <code>GOVERNEDGRAPH_ADMIN_READER_GROUP_ID</code> and <code>GOVERNEDGRAPH_ADMIN_OPERATOR_GROUP_ID</code>.
+    </div>
+    <main id="workspace" tabindex="-1">
+      <section id="access-gate" class="access-gate" hidden aria-labelledby="gate-title">
+        <h1 id="gate-title">Sign in to continue</h1>
+        <p id="gate-message">Access to this console is limited to members of the configured Microsoft Entra groups.</p>
+        <button id="sign-in" class="primary" hidden>Sign in with Microsoft</button>
+        <button id="switch-account" class="quiet" hidden>Use a different account</button>
+      </section>
+      <div class="heading gated">
+        <div><h1 id="page-title">Governance overview</h1><p id="page-description">Trace every approved strategy from ranking to protective decision.</p></div>
+        <button id="controls" class="primary" disabled>Protective controls</button>
+      </div>
+      <div id="error" class="notice error" role="alert" hidden></div>
+      <div id="notification" class="notice success" role="status" hidden></div>
+      <div id="state-banner" class="state-banner gated" role="status">Loading verified strategy state...</div>
+      <section id="summary" class="summary gated" aria-label="Governance at a glance"></section>
+      <section class="workspace-panel gated" aria-labelledby="section-title">
+        <div class="panel-heading">
+          <div><h2 id="section-title">Ranking oversight</h2><p id="section-description"></p></div>
+          <div class="filter"><label for="search">Filter this view</label><input id="search" type="search" placeholder="Search IDs, states, strategies..." autocomplete="off"></div>
+        </div>
+        <p id="result-count" class="result-count" aria-live="polite"></p>
+        <form id="trace-lookup" class="trace-lookup" hidden>
+          <div><label for="trace-journey">Captured synthetic journey ID</label><input id="trace-journey" maxlength="100" pattern="[A-Za-z0-9][A-Za-z0-9_\-]{0,99}" placeholder="J-..." required></div>
+          <button type="submit" class="quiet">Inspect captured journey</button>
+          <p>Look up an existing gg-dev journey even when its audit records are not listed here. Requires configured, authorized log access.</p>
+        </form>
+        <div id="content" aria-busy="true"><p class="empty">Reading governance evidence...</p></div>
+        <div class="pagination" id="pagination" hidden>
+          <button id="previous" class="quiet">Previous</button><span id="page-number"></span><button id="next" class="quiet">Next</button>
+        </div>
+      </section>
+      <footer class="gated">Operational evidence is not a learning input. No catalogue editing, rank promotion, model changes or reinstatement from this console.</footer>
+    </main>
+  </div>
+  <dialog id="detail-dialog" aria-labelledby="detail-title">
+    <div class="dialog-heading"><h2 id="detail-title">Evidence details</h2><button id="close-detail" class="quiet" aria-label="Close evidence details">Close</button></div>
+    <div id="detail-body"></div>
+  </dialog>
+  <dialog id="action-dialog" aria-labelledby="action-title">
+    <div class="dialog-heading"><h2 id="action-title">Protective controls</h2><button id="close-action" class="quiet">Cancel</button></div>
+    <p id="action-scope">Changes apply to the strategy state shown here. Every attempt is recorded before execution.</p>
+    <form id="action-form">
+      <label for="action-kind">Protective action</label>
+      <select id="action-kind">
+        <option value="freeze">Freeze ranking updates</option>
+        <option value="revert_to_static">Revert everyone to expert priors and freeze</option>
+        <option value="suspend">Suspend a strategy for all members in a state</option>
+      </select>
+      <p id="action-impact" class="notice"></p>
+      <fieldset id="suspension-fields" hidden disabled>
+        <legend>Recorded suspension evidence</legend>
+        <div class="form-grid">
+          <div><label for="strategy-id">Strategy</label><select id="strategy-id" required></select></div>
+          <div><label for="journey-state">Journey state</label><select id="journey-state" required></select></div>
+          <div><label for="audit-id">Audit reference</label><input id="audit-id" maxlength="150" required></div>
+          <div><label for="case-id">Governance case reference</label><input id="case-id" maxlength="150" required></div>
+          <div><label for="gap-metric">Recorded gap (points)</label><input id="gap-metric" type="number" step="any" min="0" required></div>
+        </div>
+        <p>Use existing audit evidence, not an estimate. S6 human escalation cannot be suspended. Threshold version: <span id="threshold-version"></span>.</p>
+      </fieldset>
+      <label for="action-reason">Operational reason</label>
+      <textarea id="action-reason" minlength="8" maxlength="500" rows="3" placeholder="Explain the protective reason. Do not enter member details or conversation text." required></textarea>
+      <label class="checkbox"><input id="action-confirm" type="checkbox" required> I reviewed the impact and current strategy state.</label>
+      <div id="action-error" class="notice error" role="alert" hidden></div>
+      <button type="submit" class="danger" id="apply-action">Apply protective action</button>
+    </form>
+    <p class="boundary-note">Reinstatement and freeze recovery remain in the existing human-governed workflow. A board reference alone does not grant authorization.</p>
+  </dialog>
+</body>
+</html>

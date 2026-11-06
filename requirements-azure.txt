@@ -17,6 +17,8 @@ azure-keyvault-keys==4.11.3
 # Verified against Learn 7.15.0: recreate a failed sender; bounded retry retains message/session IDs.
 azure-servicebus==7.15.0
 azure-monitor-opentelemetry==1.8.11
+# Admin console synthetic-trace lookup; query_workspace/LogsQueryStatus verified against 2.0.0 (IMP-106).
+azure-monitor-query==2.0.0
 azure-ai-ml==1.35.2
 fairlearn==0.15.0
 # P2-only tracking pins live in requirements-p2.txt; its Azure plugin requires

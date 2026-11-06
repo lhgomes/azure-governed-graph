@@ -5,6 +5,7 @@ param token string
 param privateEndpointSubnetId string
 param virtualNetworkId string
 param deploySyntheticContactCentre bool = false
+param deployAdminConsole bool = false
 
 resource st 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: 'stgg${take(token, 16)}'
@@ -49,6 +50,17 @@ resource learningAggregates 'Microsoft.Storage/storageAccounts/blobServices/cont
 resource governance 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
   parent: blob
   name: 'governance-cases'
+}
+// Administration journal: one create-only blob per action step, immutable like the response audit records.
+resource adminActions 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (deployAdminConsole) {
+  parent: blob
+  name: 'admin-actions'
+  properties: { publicAccess: 'None' }
+}
+resource adminActionsWorm 'Microsoft.Storage/storageAccounts/blobServices/containers/immutabilityPolicies@2023-05-01' = if (deployAdminConsole) {
+  parent: adminActions
+  name: 'default'
+  properties: { immutabilityPeriodSinceCreationInDays: 30, allowProtectedAppendWrites: false }
 }
 resource contentStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: 'ctgg${take(token, 16)}'

@@ -20,6 +20,8 @@ param deployDevIssuer bool = false
 param devIssuerPrincipalId string = ''
 param deploySyntheticContactCentre bool = false
 param contactCentrePrincipalId string = ''
+param deployAdminConsole bool = false
+param adminPrincipalId string = ''
 
 var roles = {
   blobDataContributor: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
@@ -410,6 +412,52 @@ resource p2EvidenceWrite 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
     principalId: pipelinePrincipalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataContributor)
+  }
+}
+
+// --- administration console (container-scoped; no cohort zone, no signing, no content or member state) ---
+resource adminRecordsRead 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAdminConsole) {
+  scope: recordsContainer
+  name: guid(recordsContainer.id, adminPrincipalId, roles.blobDataReader)
+  properties: {
+    principalId: adminPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataReader)
+    description: 'Administration console read-only immutable response audit records.'
+  }
+}
+resource adminOutcomeRead 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAdminConsole) {
+  scope: outcomeContainer
+  name: guid(outcomeContainer.id, adminPrincipalId, roles.blobDataReader)
+  properties: {
+    principalId: adminPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataReader)
+    description: 'Administration console read-only learning aggregates.'
+  }
+}
+resource adminEvidenceRead 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAdminConsole) {
+  scope: learningEvidence
+  name: guid(learningEvidence.id, adminPrincipalId, roles.blobDataReader)
+  properties: {
+    principalId: adminPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataReader)
+    description: 'Administration console read-only committee and uplift evidence.'
+  }
+}
+resource adminActionsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' existing = if (deployAdminConsole) {
+  parent: recordsBlobService
+  name: 'admin-actions'
+}
+resource adminJournalWrite 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAdminConsole) {
+  scope: adminActionsContainer
+  name: guid(adminActionsContainer.id, adminPrincipalId, roles.blobDataContributor)
+  properties: {
+    principalId: adminPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataContributor)
+    description: 'Administration console journal only; the container is immutable once written.'
   }
 }
 
