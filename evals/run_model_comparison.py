@@ -18,7 +18,7 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples"), str(ROOT)]
 from governedgraph.agents.foundry_runtime import FoundryComposer, agent_definition  # noqa: E402
 from governedgraph.agents.counsellor import INSTRUCTIONS, Counsellor  # noqa: E402
 from governedgraph.agents.persona_simulator import (  # noqa: E402
-    FoundryPersona, PersonaBlocked, PersonaScenario, verify_persona_version,
+    FoundryPersona, PersonaBlocked, PersonaScenario, ScriptedPersona, verify_persona_version,
 )
 from governedgraph.common.config import DATA_DIR, settings  # noqa: E402
 from governedgraph.common.io import load_json  # noqa: E402
@@ -102,7 +102,7 @@ def collect_candidate(candidate: str, composer, actor_factory, directory: Path, 
         profile = profiles.get(case.get("persona", ""), profiles[default])
         scenario = PersonaScenario.from_profile({**profile, "opening": case["utterance"]})
         actor = actor_factory(scenario)
-        actor_status = "generated"
+        actor_status = "scripted fixture" if isinstance(actor, ScriptedPersona) else "generated"
         try:
             opening = actor.next_utterance("")
         except PersonaBlocked:
@@ -206,6 +206,8 @@ def score_report(project, report: dict, output: Path, judge: str, cards: dict) -
         if time.monotonic() >= deadline:
             raise TimeoutError("Foundry scoring timed out; remote IDs and draft evidence retained")
         time.sleep(10)
+    remote = evaluator.client.evals.runs.retrieve(eval_id=eval_id, run_id=run_id)
+    report["foundry"].update(status=remote.status, report_url=remote.report_url)
     scores = {row["case_id"]: row["judge_scores"] for row in judged}
     report["summary"] = {}
     for candidate, rows in report["rows"].items():

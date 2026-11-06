@@ -49,6 +49,30 @@ No live deployment or hosted semantic acceptance is claimed by this approval or 
 Evaluator floors (strategy adherence, advice refusal) must also hold. These gates run in CI and in the Definition of Done; a
 change that needs a gate loosened is wrong.
 
+## Foundry results for this deployment
+
+The automated deployment's `evaluations` step creates a **fresh remote evaluation run** in the project selected by the
+`gg-dev` azd environment. It uses the two pinned writers and the pinned intent, understanding and answer-review agents,
+with local deterministic adapters and fixed synthetic openings. It does not mint member tokens or create agents,
+identities, grants or model deployments. These are guarded-output dataset evaluations, not direct-agent or live-channel proofs.
+
+To run it independently, activate the virtualenv installed from `requirements-azure.txt`, then run:
+
+```bash
+python -m scripts.run_foundry_evals --environment gg-dev
+```
+
+The command makes paid model and judge calls. It saves incremental evidence under `.run/foundry-evaluation-*.json` and
+prints the exact project endpoint, remote evaluation/run IDs, completion status and Foundry `report_url`. Open that link
+or the same project's **Evaluations > Runs**; output-only runs need not appear under an individual agent.
+The source versions, dataset digest, deterministic floors and ordinal judge scores are retained. Fixed fixtures are
+labelled as scripted, never as agent-generated personas. Failed gates return a nonzero exit code and block deployment
+completion, but their completed evaluation remains available for diagnosis. Judge scores cannot override hard gates.
+
+The offline CI sweep does **not** create Foundry runs. Historical checked-in reports do not establish that an evaluation
+exists in the current project: recreating a project removes its remote evaluation history, even if its display name is
+unchanged. Never use an old report as evidence of a fresh deployment's acceptance.
+
 ## Comparing models
 
 Model selection is a human decision backed by paired, synthetic, descriptive replays. Nothing in a result changes a runtime pin,

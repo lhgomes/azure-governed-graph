@@ -23,6 +23,9 @@ def specification(tmp_path, monkeypatch):
     (root / "scripts/run_dev_proof.py").write_text("synthetic")
     (root / "scripts/run_p2_container_jobs.py").write_text("synthetic")
     (root / "scripts/configure_strategy_recovery.py").write_text("synthetic")
+    (root / "scripts/run_foundry_evals.py").write_text("synthetic")
+    (root / "evals").mkdir()
+    (root / "evals/run_model_comparison.py").write_text("synthetic")
     (root / "src").mkdir()
     value = {
         "name": "sample", "watermark": "ILLUSTRATIVE - synthetic data", "data_directory": "data",

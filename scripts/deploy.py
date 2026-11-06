@@ -217,7 +217,8 @@ class SampleDefinition:
         paths = {self.path, REPO_ROOT / "Dockerfile", REPO_ROOT / "requirements-azure.txt",
                  REPO_ROOT / "requirements.txt", REPO_ROOT / "requirements-p2.txt", REPO_ROOT / "pyproject.toml",
                  REPO_ROOT / "scripts/deploy.py", REPO_ROOT / "scripts/run_dev_proof.py",
-                 REPO_ROOT / "scripts/run_p2_container_jobs.py", REPO_ROOT / "scripts/configure_strategy_recovery.py"}
+                 REPO_ROOT / "scripts/run_p2_container_jobs.py", REPO_ROOT / "scripts/configure_strategy_recovery.py",
+                 REPO_ROOT / "scripts/run_foundry_evals.py", REPO_ROOT / "evals/run_model_comparison.py"}
         for directory in (self.path.parent, REPO_ROOT / "src"):
             paths.update(path for path in directory.rglob("*")
                          if path.is_file() and path.suffix in (".py", ".json", ".jsonl", ".csv", ".md", ".html"))
@@ -399,6 +400,7 @@ STEP_TITLES = {
     "provision-3": "Final provision with the real key (and the presenter, if chosen)",
     "learning": "Build the P2 image, publish synthetic learning inputs, run the learning and fairness proofs, enable the schedule",
     "verify": "Run every in-network acceptance proof declared by the sample",
+    "evaluations": "Create fresh Foundry evaluations of pinned agents on synthetic cases (paid model and judge calls)",
     "admin-console": "Check the admin console: page, required sign-in, closed routes and recorded synthetic conversations",
 }
 STEPS = list(STEP_TITLES)
@@ -1409,6 +1411,10 @@ class Deployer:
         self.state.sample_proof_executions = proofs
         self.state.channel_proof_execution = proofs["channel"]
 
+    def step_evaluations(self) -> None:
+        self.run.run([self.python, "-m", "scripts.run_foundry_evals", "--environment", ENV_NAME],
+                     env={**self.tool_env(), "GOVERNEDGRAPH_MODE": "local"}, stream=True)
+
     def expect_status(self, what: str, url: str, expected: int, headers: dict | None = None) -> str:
         """Fetch with a few retries: the gateway can lag a fresh revision by a minute."""
         status, body = 0, ""
@@ -1501,7 +1507,7 @@ class Deployer:
         fingerprint = self.sample.fingerprint()
         if self.state.sample_fingerprint != fingerprint:
             affected = {"sample", "recovery-access", "agents", "deploy", "provision-2", "provision-3", "learning", "verify",
-                        "admin-console"}
+                        "evaluations", "admin-console"}
             self.state.completed = [step for step in self.state.completed if step not in affected]
             self.state.channel_proof_execution = ""
             self.state.sample_proof_executions = {}

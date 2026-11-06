@@ -147,6 +147,10 @@ class FakeAzure:
             assert env["GOVERNEDGRAPH_MODE"] == "azure" and "AZURE_AI_PROJECT_ENDPOINT" in env
             return json.dumps({"agent_name": name, "definition_sha256": digest,
                                "agent_version": str(next(self.versions)), "action": "created"}) + "\n"
+        if "scripts.run_foundry_evals" in text:
+            assert args[args.index("--environment") + 1] == "gg-dev"
+            assert env["GOVERNEDGRAPH_MODE"] == "local"
+            return '{"status":"completed","evaluation_passed":true}\n'
         if "scripts.writer_approval" in text:
             record = Path(args[args.index("--file") + 1])
             assert record.stat().st_mode & 0o077 == 0
@@ -339,6 +343,8 @@ def test_the_whole_flow_runs_in_order_and_ends_with_the_real_key(tmp_path, capsy
               or c[:3] == [sys.executable, "-m", "pension_wtp.evaluation.run_evals"]
               or c[:3] == [sys.executable, "-m", "pension_wtp.demo.run_demo"]]
     assert len(checks) == 3
+    evaluation = next(c for c in azure.calls if "scripts.run_foundry_evals" in c)
+    assert max(i for i, c in enumerate(azure.calls) if "scripts.run_dev_proof" in c) < azure.calls.index(evaluation)
     assert max(azure.calls.index(c) for c in checks) < next(
         i for i, c in enumerate(azure.calls) if c[:2] == ["azd", "provision"])
     builds = {c[c.index("--target") + 1]: c for c in azure.calls if c[:3] == ["az", "acr", "build"]}
@@ -347,6 +353,15 @@ def test_the_whole_flow_runs_in_order_and_ends_with_the_real_key(tmp_path, capsy
     assert azure.env["GOVERNEDGRAPH_SAMPLE"] == "pension_wtp"
     voice = next(c for c in azure.calls if "scripts.run_dev_proof" in c and "voice" in c)
     assert voice[voice.index("--image") + 1] == "registry.azurecr.io/sample-voice-proof@" + azure.voice_image_digest
+
+
+def test_foundry_evaluation_failure_prevents_completed_deployment(tmp_path, capsys):
+    azure = FakeAzure()
+    azure.fail["scripts.run_foundry_evals"] = (1, "Foundry evaluation gate failed; retained fresh run IDs")
+    assert run(azure, tmp_path) == 1
+    state = json.loads((tmp_path / "state.json").read_text())
+    assert "evaluations" not in state["completed"]
+    assert "Deployment complete." not in capsys.readouterr().out
 
 
 def test_b1_b2_b7_sample_evaluation_failure_stops_before_azure_provisioning(tmp_path, capsys):

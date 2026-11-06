@@ -20,7 +20,7 @@ from governedgraph.evaluation import (
     DIMENSIONS, FLOORS, HumanRating, TokenRateCard, calibrate, evidence_digest, summarize_candidate, verify_comparison,
 )
 from governedgraph.foundry_evaluation import EVALUATION_HEADERS, FoundryEvaluationClient, JUDGE_OUTPUT, RUBRICS
-from evals.run_model_comparison import UsageRecorder, collect_candidate, report_passed
+from evals.run_model_comparison import UsageRecorder, collect_candidate, report_passed, score_report
 from evals.run_evals import load, persona_cases
 
 
@@ -225,6 +225,31 @@ def test_sdk_rubrics_use_the_verified_version_api_and_canonical_numeric_output()
         assert "query" not in definition["data_schema"]["properties"]
 
 
+def test_scoring_persists_fresh_remote_ids_and_portal_results_link(tmp_path, monkeypatch):
+    report = deepcopy(load_json(REPO_ROOT / "evals/results/model-comparison-2026-10-27.json"))
+    report.pop("foundry", None)
+    remote = Mock()
+    remote.register_rubrics.return_value = dict.fromkeys(RUBRICS, "1")
+    remote.start.return_value = ("fresh-eval", "fresh-run")
+    remote.results.return_value = [
+        {"case_id": row["evidence"]["case_id"], "judge_scores": dict.fromkeys(DIMENSIONS, 4)}
+        for rows in report["rows"].values() for row in rows
+    ]
+    remote.client.evals.runs.retrieve.return_value = SimpleNamespace(
+        status="completed", report_url="https://ai.azure.com/synthetic-evaluation",
+    )
+    monkeypatch.setattr("evals.run_model_comparison.FoundryEvaluationClient", lambda *a, **kw: remote)
+    output = tmp_path / "report.json"
+    score_report(Mock(), report, output, "judge", {})
+    saved = load_json(output)
+    assert saved["foundry"] == {
+        "eval_id": "fresh-eval", "run_id": "fresh-run", "rubric_versions": dict.fromkeys(RUBRICS, "1"),
+        "groundedness_version": "19", "judge": "judge", "status": "completed",
+        "report_url": "https://ai.azure.com/synthetic-evaluation",
+    }
+    remote.client.evals.runs.retrieve.assert_called_once_with(eval_id="fresh-eval", run_id="fresh-run")
+
+
 @pytest.mark.parametrize("outputs", [[], ["case", "case"], ["other"]])
 def test_missing_or_duplicate_remote_judgments_are_not_a_success(outputs):
     project = Mock()
@@ -267,6 +292,7 @@ def test_guarded_replay_runs_every_persona_and_adversarial_variant_without_profi
 
     rows = collect_candidate("fake", Composer(), lambda item: ScriptedPersona(asdict(item)), tmp_path)
     assert len(rows) == 17
+    assert all(row["actor_status"] == "scripted fixture" for row in rows)
     assert sum(row["expectation_met"] for row in rows) == 16
     assert all(row[name] for row in rows for name in FLOORS)
     assert any(row["resolved"] for row in rows)

@@ -24,7 +24,7 @@ the sample's local tests, evaluation hard gates and offline rehearsal, then pref
 first provision, the Search private-link approval, the Entra app registrations, delegated recovery access for the saved operator,
 the Foundry agents, the service deployment, a second
 provision, the member-token key bootstrap, a final provision, the learning plane and the sample's channel and voice-text
-verification.
+verification, fresh Foundry evaluations and the admin console check.
 The voice proof image is remotely built and resolved to an immutable digest automatically; no local Docker or
 separate image-building command is needed. Expect 45-90 minutes plus sample verification/build time.
 
@@ -52,6 +52,18 @@ starting a cloud learning job, not only after provisioning. Voice bridge and hos
 including paraphrased teach-back questions and the unchanged resolved-state acceptance gate.
 These offline checks are not a claim of live Azure acceptance.
 The in-network channel proof's authentication, idempotency, handover and audit regressions also run before provisioning.
+
+### Foundry evaluations (automatic)
+
+The `evaluations` step runs the existing pinned writers and semantic agents on the synthetic corpus with local
+deterministic adapters, then creates a remote guarded-output evaluation in this deployment's Foundry project.
+It prints the results link and retains project-scoped evidence under `.run/`. Model and judge calls incur usage costs;
+no new identity, permission, agent or model is created. Failed deterministic or quality gates block completion.
+See [evaluation visibility and limitations](evaluation.md#foundry-results-for-this-deployment).
+
+For an existing deployment, run `python -m scripts.run_foundry_evals --environment gg-dev` from the project virtualenv
+without redeploying services or rerunning learning. A fresh project starts with no evaluation history; old repository
+reports are not recreated by provisioning and cannot certify the new project.
 
 ### Learning plane (automatic)
 
