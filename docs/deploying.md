@@ -208,7 +208,9 @@ rankings. A runtime source change requires rebuilding the services, even when th
 Use `--mode resume --only deploy` followed by `--mode resume --only provision-2` to apply it without recreating agent versions.
 The script
 never reads, creates or prints a secret: the only key material it touches is a public key, which it refuses to store if it carries any
-private parameter. One thing stays manual: **open the verification email sent to the on-call address and confirm it**.
+private parameter. One thing stays manual: **if Azure sent a verification email to the on-call address, open it and confirm it**. Azure Monitor is
+rolling out one-time-passcode verification of new email recipients region by region, so you may not get one; an alert email
+arriving is proof of delivery either way.
 
 ### Managed-identity image-pull propagation
 
@@ -332,7 +334,7 @@ enabled only there. The resource group is `GOVERNEDGRAPH_RESOURCE_GROUP_NAME`, o
 ```bash
 azd env new gg-dev --subscription <subscription-id> --location swedencentral
 azd env set GOVERNEDGRAPH_RESOURCE_GROUP_NAME <resource-group-name>   # optional; default rg-gg-dev
-azd env set ON_CALL_EMAIL <your-address>                  # alert receiver; you must confirm its verification email
+azd env set ON_CALL_EMAIL <your-address>                  # alert receiver; confirm its verification email if Azure sends one
 azd env set GOVERNEDGRAPH_ENABLE_DEV_MEMBER_ISSUER true   # creates the dev signing key and issuer job
 azd env set MEMBER_TOKEN_ISSUER https://gg-dev.synthetic.invalid
 ```
@@ -480,7 +482,7 @@ python -m scripts.run_dev_proof channel --logs       # optional: re-read the cha
 bash scripts/reset_demo.sh                           # offline rehearsal, no Azure needed
 ```
 
-Then confirm the on-call alert receiver (click the verification email) and follow [Azure acceptance](../examples/pension_wtp/docs/demo-runbook.md#azure-acceptance)
+Then confirm the on-call alert receiver (click the verification email if Azure sent one) and follow [Azure acceptance](../examples/pension_wtp/docs/demo-runbook.md#azure-acceptance)
 in the runbook. Every later operation (presenter, voice proof, explainability, recovery) is in the
 [runbook](../examples/pension_wtp/docs/demo-runbook.md) and reads its values from the azd environment.
 

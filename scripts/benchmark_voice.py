@@ -38,17 +38,17 @@ def run(output: Path, browser_path: str, model: str, origin: str, client_id: str
                                              args=["--no-sandbox"])
         try:
             context = browser.new_context()
-            response = context.request.post(origin + "/voice-demo/authorize", max_redirects=0,
+            response = context.request.post(origin + "/demo/authorize", max_redirects=0,
                                              headers={"Origin": origin,
                                                       "Authorization": "Bearer " + auth["accessToken"]})
             auth.clear()
             if response.status != 200:
                 raise RuntimeError(f"presenter authorization HTTP {response.status}")
             page = context.new_page()
-            page.goto(origin + "/voice-demo/", wait_until="networkidle")
+            page.goto(origin + "/demo/", wait_until="networkidle")
             page.evaluate("""model => {
               window.benchmarkResult=null;window.benchmarkFailed=false;window.benchmarkProgress=0;
-              const socket=new WebSocket(location.origin.replace('https:','wss:')+'/voice-demo-stream');
+              const socket=new WebSocket(location.origin.replace('https:','wss:')+'/demo-stream');
               socket.onopen=()=>socket.send(JSON.stringify({mode:'benchmark',benchmark_model:model}));
               socket.onmessage=event=>{const message=JSON.parse(event.data);
                 if(message.kind==='benchmark_complete')window.benchmarkResult=message;

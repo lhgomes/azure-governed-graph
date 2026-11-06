@@ -82,7 +82,7 @@ def derived(values: dict[str, str]) -> dict[str, str]:
     """Values the deployment implies but azd does not store; computed, never guessed."""
     out = {}
     if origin := values.get("VOICE_DEMO_ORIGIN"):
-        out["PRESENTER_URL"] = origin.rstrip("/") + "/voice-demo/"
+        out["PRESENTER_URL"] = origin.rstrip("/") + "/demo/"
     return out
 
 

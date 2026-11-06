@@ -64,7 +64,7 @@ def configure(environment: str, runtime: str, operator: str, origin: str, *,
     ]
     graph("PATCH", f"applications/{app['id']}", {
         "identifierUris": [f"api://{client_id}"], "signInAudience": "AzureADMyOrg",
-        "spa": {"redirectUris": [origin + "/voice-demo/"]},
+        "spa": {"redirectUris": [origin + "/demo/"]},
         "api": {"requestedAccessTokenVersion": 2, "oauth2PermissionScopes": [{
             "id": scope_id, "value": "VoiceDemo.Access", "isEnabled": True, "type": "User",
             "adminConsentDisplayName": "Use the synthetic voice demo",

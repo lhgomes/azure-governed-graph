@@ -103,21 +103,21 @@ def test_authorization_sets_only_delegated_httponly_session_cookie(presenter_aut
     app.include_router(presenter.router)
     with TestClient(app, base_url="https://demo.example") as client:
         token = presenter_auth()
-        response = client.post("/voice-demo/authorize", headers={
+        response = client.post("/demo/authorize", headers={
             "Authorization": "Bearer " + token, "Origin": "https://demo.example"})
         assert response.json() == {"ok": True}
         cookie = response.headers["set-cookie"].lower()
         assert "httponly" in cookie and "secure" in cookie and "samesite=strict" in cookie
         assert "max-age" not in cookie and "expires" not in cookie
         assert response.headers["cache-control"] == "no-store"
-        assert client.post("/voice-demo/authorize", headers={
+        assert client.post("/demo/authorize", headers={
             "Authorization": "Bearer " + token, "Origin": "https://evil.example"}).status_code == 403
-        assert client.post("/voice-demo/authorize", json={"age_band": "75+"}, headers={
+        assert client.post("/demo/authorize", json={"age_band": "75+"}, headers={
             "Authorization": "Bearer " + token, "Origin": "https://demo.example"}).status_code == 400
-        page = client.get("/voice-demo/")
+        page = client.get("/demo/")
         assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
         assert "'unsafe-inline'" not in page.headers["content-security-policy"]
-        canonical = client.get("/voice-demo", follow_redirects=False)
+        canonical = client.get("/demo", follow_redirects=False)
         assert canonical.status_code == 200 and "location" not in canonical.headers
 
 
@@ -125,9 +125,9 @@ def test_websocket_denies_bad_origin_missing_auth_and_query_credentials(presente
     app = FastAPI()
     app.include_router(presenter.router)
     with TestClient(app, base_url="https://demo.example") as client:
-        for path, origin in (("/voice-demo-stream", "https://evil.example"),
-                             ("/voice-demo-stream", "https://demo.example"),
-                             ("/voice-demo-stream?token=forbidden", "https://demo.example")):
+        for path, origin in (("/demo-stream", "https://evil.example"),
+                             ("/demo-stream", "https://demo.example"),
+                             ("/demo-stream?token=forbidden", "https://demo.example")):
             with pytest.raises(WebSocketDisconnect) as error:
                 with client.websocket_connect(path, headers={"Origin": origin}):
                     pytest.fail("unauthorized socket accepted")
@@ -252,9 +252,9 @@ def test_authenticated_presenter_socket_is_bound_to_assigned_operator(presenter_
     app = FastAPI()
     app.include_router(presenter.router)
     with TestClient(app, base_url="https://demo.example") as client:
-        client.post("/voice-demo/authorize", headers={
+        client.post("/demo/authorize", headers={
             "Authorization": "Bearer " + presenter_auth(), "Origin": "https://demo.example"})
-        with client.websocket_connect("wss://demo.example/voice-demo-stream",
+        with client.websocket_connect("wss://demo.example/demo-stream",
                                       headers={"Origin": "https://demo.example"}) as socket:
             assert socket.receive_json() == {"kind": "test", "ok": True}
     assert len(seen) == 1

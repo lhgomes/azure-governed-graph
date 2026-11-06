@@ -60,7 +60,7 @@ def test_export_emits_quoted_shell_assignments_and_derived_values_only_for_the_t
     path = env_file(tmp_path, {**VALUES, "VOICE_DEMO_ORIGIN": "https://apim-gg-synthetic.azure-api.net"})
     assert azd_env.main(["export", "--task", "presenter", "--env-file", path]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert "export PRESENTER_URL=https://apim-gg-synthetic.azure-api.net/voice-demo/" in out
+    assert "export PRESENTER_URL=https://apim-gg-synthetic.azure-api.net/demo/" in out
     assert not any("STRATEGY" in line for line in out)
     assert azd_env.main(["export", "--task", "reconcile", "--env-file", path]) == 0
     assert "export GOVERNEDGRAPH_MODE=azure" in capsys.readouterr().out

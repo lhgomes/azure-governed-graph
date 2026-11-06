@@ -14,6 +14,10 @@ from governedgraph.learning.feedback import FeedbackManifest, FeedbackSnapshot, 
 from governedgraph.orchestrator.store import atomic_write
 
 
+class BaselinePending(Exception):
+    """The approved baseline is not published yet (fresh deployment); retry later, not an incident."""
+
+
 def snapshot_name(digest: str) -> str:
     if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
         raise ValueError("invalid feedback aggregate digest")
@@ -69,7 +73,12 @@ class BlobFeedbackStore:
         self._etag = None
 
     def baseline_bytes(self) -> bytes:
-        return self.container.get_blob_client("outcomes.csv").download_blob().readall()
+        from azure.core.exceptions import ResourceNotFoundError
+
+        try:
+            return self.container.get_blob_client("outcomes.csv").download_blob().readall()
+        except ResourceNotFoundError as error:
+            raise BaselinePending("learning-aggregates/outcomes.csv is not published yet") from error
 
     def current(self) -> FeedbackManifest | None:
         from azure.core.exceptions import ResourceNotFoundError

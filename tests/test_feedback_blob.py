@@ -9,7 +9,7 @@ import pytest
 
 from governedgraph.learning.azure_inputs import BlobLearningInputs
 from governedgraph.learning.feedback import FeedbackSnapshot, project_feedback
-from governedgraph.learning.feedback_store import BlobFeedbackStore, snapshot_name
+from governedgraph.learning.feedback_store import BaselinePending, BlobFeedbackStore, snapshot_name
 
 
 @pytest.fixture
@@ -97,6 +97,31 @@ def test_b4_stale_producer_cannot_overwrite_a_newer_pointer(blobs):
     with pytest.raises(modified):
         stale.save(first)
     assert json.loads(container.values["current.json"]) == asdict(second.manifest)
+
+
+def test_missing_baseline_is_pending_not_an_incident_and_recovers(blobs, caplog, monkeypatch):
+    import logging
+
+    from governedgraph.learning import feedback_store
+    from governedgraph.orchestrator.service import OrchestratorService
+
+    container, _ = blobs
+    store = BlobFeedbackStore(container=container)
+    with pytest.raises(BaselinePending):
+        store.baseline_bytes()
+    container.values["outcomes.csv"], container.revisions["outcomes.csv"] = b"baseline", 1
+    assert store.baseline_bytes() == b"baseline"
+
+    service = object.__new__(OrchestratorService)
+    service.store, service.worker, service.audit_store, service.feedback_store = SimpleNamespace(ids=lambda: []), None, None, store
+
+    def pending(*_):
+        raise BaselinePending("not yet")
+
+    monkeypatch.setattr(feedback_store, "publish_feedback", pending)
+    with caplog.at_level(logging.INFO, logger="governedgraph.orchestrator"):
+        service.recover()
+    assert [(r.levelno, r.message) for r in caplog.records] == [(logging.WARNING, "feedback_baseline_pending")]
 
 
 def test_b4_existing_content_addressed_snapshot_cannot_be_changed(blobs):

@@ -130,8 +130,8 @@ def require_origin(origin: str) -> None:
         raise HTTPException(403, "demo origin required")
 
 
-@router.get("/voice-demo", response_class=HTMLResponse, include_in_schema=False)
-@router.get("/voice-demo/", response_class=HTMLResponse)
+@router.get("/demo", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/demo/", response_class=HTMLResponse)
 def index():
     if not enabled():
         raise HTTPException(404, "dev voice demo disabled")
@@ -150,7 +150,7 @@ def index():
                                  "X-Content-Type-Options": "nosniff", "Content-Security-Policy": policy})
 
 
-@router.get("/voice-demo/config")
+@router.get("/demo/config")
 def config():
     if not enabled():
         raise HTTPException(404, "dev voice demo disabled")
@@ -160,7 +160,7 @@ def config():
                         headers={"Cache-Control": "no-store"})
 
 
-@router.post("/voice-demo/authorize")
+@router.post("/demo/authorize")
 def authorize(request: Request, authorization: str = Header("")):
     require_origin(request.headers.get("origin", ""))
     if request.headers.get("content-length", "0") != "0" or request.headers.get("transfer-encoding"):
@@ -168,15 +168,15 @@ def authorize(request: Request, authorization: str = Header("")):
     token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
     verify(token)
     response = JSONResponse({"ok": True}, headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
-    response.set_cookie(COOKIE, token, secure=True, httponly=True, samesite="strict", path="/voice-demo-stream")
+    response.set_cookie(COOKIE, token, secure=True, httponly=True, samesite="strict", path="/demo-stream")
     return response
 
 
-@router.delete("/voice-demo/authorize")
+@router.delete("/demo/authorize")
 def logout(request: Request):
     require_origin(request.headers.get("origin", ""))
     response = Response(status_code=204, headers={"Cache-Control": "no-store"})
-    response.delete_cookie(COOKIE, path="/voice-demo-stream", secure=True, httponly=True, samesite="strict")
+    response.delete_cookie(COOKIE, path="/demo-stream", secure=True, httponly=True, samesite="strict")
     return response
 
 
@@ -401,7 +401,7 @@ async def serve(socket: WebSocket, claims: dict):
                             raise
 
 
-@router.websocket("/voice-demo-stream")
+@router.websocket("/demo-stream")
 async def stream(socket: WebSocket):
     try:
         require_origin(socket.headers.get("origin", ""))

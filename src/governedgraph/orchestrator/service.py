@@ -82,12 +82,14 @@ class OrchestratorService:
         if self.worker:
             self.worker.poll()
         if self.feedback_store is not None:
-            from governedgraph.learning.feedback_store import publish_feedback
+            from governedgraph.learning.feedback_store import BaselinePending, publish_feedback
 
             try:
                 self.feedback_manifest = publish_feedback(self.store, self.audit_store, self.feedback_store)
             except JourneyBusy:
                 log.info("feedback_projection_deferred_busy")
+            except BaselinePending:
+                log.warning("feedback_baseline_pending")
 
     @staticmethod
     def _events(record: JourneyRecord, previous_count: int) -> None:

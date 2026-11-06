@@ -72,7 +72,7 @@ def test_chat_upstream_failure_sends_visible_safe_error_frame_and_closes(monkeyp
     app = FastAPI()
     app.include_router(presenter.router)
     with TestClient(app, base_url="https://demo.example") as client:
-        with client.websocket_connect("/voice-demo-stream", headers={
+        with client.websocket_connect("/demo-stream", headers={
             "Origin": "https://demo.example", "Cookie": f"{presenter.COOKIE}=operator",
         }) as socket:
             assert socket.receive_json()["text"] == DISCLOSURE
@@ -190,12 +190,12 @@ def test_chat_disclosure_delivery_idempotency_metadata_and_handover_use_member_a
     app.include_router(presenter.router)
     with TestClient(app, base_url="https://demo.example") as client:
         with pytest.raises(WebSocketDisconnect):
-            with client.websocket_connect("/voice-demo-stream", headers={"Origin": "https://demo.example"}):
+            with client.websocket_connect("/demo-stream", headers={"Origin": "https://demo.example"}):
                 pytest.fail("unauthenticated chat accepted")
-        response = client.post("/voice-demo/authorize",
+        response = client.post("/demo/authorize",
                                headers={"Origin": "https://demo.example", "Authorization": "Bearer operator"})
         assert "httponly" in response.headers["set-cookie"].lower()
-        with client.websocket_connect("wss://demo.example/voice-demo-stream", headers={"Origin": "https://demo.example"}) as socket:
+        with client.websocket_connect("wss://demo.example/demo-stream", headers={"Origin": "https://demo.example"}) as socket:
             assert socket.receive_json() == {"kind": "caption", "role": "counsellor", "text": DISCLOSURE}
             assert socket.receive_json()["kind"] == "chat_ready"
             for index in range(3):

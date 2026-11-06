@@ -57,10 +57,10 @@ resource page 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
   name: 'voice-demo'
   properties: {
     displayName: 'Dev-only assigned presenter channel'
-    path: 'voice-demo'
+    path: 'demo'
     protocols: [ 'https' ]
     subscriptionRequired: false
-    serviceUrl: '${orchestratorUrl}/voice-demo'
+    serviceUrl: '${orchestratorUrl}/demo'
   }
 }
 var operations = [
@@ -80,10 +80,10 @@ resource stream 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
     displayName: 'Dev-only authenticated voice media'
     apiType: 'websocket'
     type: 'websocket'
-    path: 'voice-demo-stream'
+    path: 'demo-stream'
     protocols: [ 'wss' ]
     subscriptionRequired: false
-    serviceUrl: '${replace(orchestratorUrl, 'https://', 'wss://')}/voice-demo-stream'
+    serviceUrl: '${replace(orchestratorUrl, 'https://', 'wss://')}/demo-stream'
   }
 }
 var pageXml = replace(replace(replace(replace(replace(replace(loadTextContent('../policies/voice-demo.xml'), '__TENANT__', subscription().tenantId), '__CLIENT__', clientId), '__OPERATOR__', operatorId), '__ORIGIN__', origin), '__DISABLED__', enabled ? 'false' : 'true'), '\r', '')

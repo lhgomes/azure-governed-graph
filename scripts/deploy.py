@@ -571,7 +571,7 @@ class Deployer:
         a.preferred_search_location = a.search_location
         a.resource_group = p.question("Resource group name (created by the deployment)",
                                       args.resource_group or a.resource_group, validate_rg)
-        a.on_call_email = p.question("On-call email for alerts (you must confirm its verification email)",
+        a.on_call_email = p.question("On-call email for alerts (Azure may send a verification email; confirm it if you get one)",
                                      args.on_call_email or "", validate_email)
         # The presenter, synthetic-conversation capture and the console's conversation view ship together; opt out
         # of all three with --no-voice-demo.
@@ -1553,8 +1553,9 @@ class Deployer:
             if v.get("GOVERNEDGRAPH_ADMIN_CLIENT_ID"):
                 self.say(f"  {'':15} sign in as the deploying user; add others to the console's reader and operator groups in Entra")
         if self.answers.voice_demo and v.get("VOICE_DEMO_ORIGIN"):
-            self.say(f"  {'Presenter':15} {v['VOICE_DEMO_ORIGIN'].rstrip('/')}/voice-demo/")
-        self.say("\nStill manual: open the verification email sent to the on-call address and confirm it. Then follow the runbook:")
+            self.say(f"  {'Presenter':15} {v['VOICE_DEMO_ORIGIN'].rstrip('/')}/demo/")
+        self.say("\nStill manual: if Azure sent a verification email to the on-call address, open it and confirm it.")
+        self.say("  Not every region asks for this yet; any alert email you receive also proves delivery. Then follow the runbook:")
         self.say("  examples/pension_wtp/docs/demo-runbook.md   (every command reads its values from the azd environment)")
         self.say("Learning runs on its approved four-hourly schedule. Remove everything with: python -m scripts.teardown")
 
