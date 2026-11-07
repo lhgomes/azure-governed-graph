@@ -1,6 +1,7 @@
 """ILLUSTRATIVE - synthetic data. Fresh deployment evaluation publication, with no network."""
 from copy import deepcopy
 import json
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
 
@@ -112,3 +113,39 @@ def test_changed_remote_definition_blocks_before_paid_calls(tmp_path):
         run(remote, values(), tmp_path / "report.json")
     remote.get_openai_client.assert_not_called()
     assert not (tmp_path / "report.json").exists()
+
+
+@pytest.mark.parametrize("kind", ["timeout", "grader_error", "connection"])
+def test_unavailable_grader_retains_remote_ids_and_never_claims_a_quality_pass(tmp_path, monkeypatch, kind):
+    from scripts import run_foundry_evals
+
+    from governedgraph.foundry_evaluation import EvaluationUnavailable
+
+    class ProviderError(RuntimeError):
+        pass
+
+    for module, content in (
+        ("azure.ai.projects", SimpleNamespace(AIProjectClient=MagicMock())),
+        ("azure.identity", SimpleNamespace(DefaultAzureCredential=MagicMock())),
+        ("openai", SimpleNamespace(OpenAIError=ProviderError)),
+    ):
+        monkeypatch.setitem(sys.modules, module, content)
+    monkeypatch.setattr(run_foundry_evals, "load", lambda **_: values())
+    failure = {"timeout": TimeoutError, "grader_error": EvaluationUnavailable, "connection": ProviderError}[kind]
+
+    def interrupted(project, selected, output):
+        output.write_text(json.dumps({"foundry": {"eval_id": "retained-eval", "run_id": "retained-run"},
+                                      "rows": {"synthetic": []}}))
+        raise failure("synthetic evaluator unavailable")
+
+    monkeypatch.setattr(run_foundry_evals, "run", interrupted)
+    output = tmp_path / "interrupted.json"
+    assert run_foundry_evals.main(["--output", str(output)]) == 2
+    report = json.loads(output.read_text())
+    assert report["evaluation_passed"] is False and report["evaluation_status"] == "unavailable"
+    assert report["foundry"] == {"eval_id": "retained-eval", "run_id": "retained-run"}
+    assert report["rows"] == {"synthetic": []} and "synthetic evaluator unavailable" in report["error"]
+    before = output.read_bytes()
+    with pytest.raises(SystemExit) as error:
+        run_foundry_evals.main(["--output", str(output)])
+    assert error.value.code == 2 and output.read_bytes() == before

@@ -101,6 +101,7 @@ def run(project, values: dict[str, str], output: Path) -> int:
         and report["summary"][model]["hard_floors"]["demographic_invariance"] is True
         for model, rows in report["rows"].items()
     )
+    report["evaluation_status"] = "passed" if report["evaluation_passed"] else "failed"
     output.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps({
         "project_endpoint": report["project_endpoint"], **report["foundry"],
@@ -114,17 +115,38 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--environment", default="gg-dev")
     parser.add_argument("--output", type=Path, default=ROOT / ".run" / f"foundry-evaluation-{uuid4().hex}.json")
     args = parser.parse_args(argv)
-    values = load(environment=args.environment)
-    validate(values)
+    if args.output.exists():
+        parser.error("--output already exists; use a new path to retain previous evidence")
+    try:
+        values = load(environment=args.environment)
+        validate(values)
+    except EnvError as error:
+        print(f"Evaluation configuration failed: {error}", file=sys.stderr)
+        return 1
     os.environ.update(values)
     os.environ["GOVERNEDGRAPH_MODE"] = "local"
     sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
     from azure.ai.projects import AIProjectClient
     from azure.identity import DefaultAzureCredential
+    from openai import OpenAIError
 
-    with DefaultAzureCredential() as credential, AIProjectClient(
-            endpoint=values["AZURE_AI_PROJECT_ENDPOINT"], credential=credential) as project:
-        return run(project, values, args.output)
+    from governedgraph.foundry_evaluation import EvaluationUnavailable
+
+    try:
+        with DefaultAzureCredential() as credential, AIProjectClient(
+                endpoint=values["AZURE_AI_PROJECT_ENDPOINT"], credential=credential) as project:
+            return run(project, values, args.output)
+    except (OpenAIError, TimeoutError, EvaluationUnavailable) as error:
+        report = json.loads(args.output.read_text()) if args.output.exists() else {
+            "label": "ILLUSTRATIVE - synthetic data", "environment": "gg-dev",
+            "project_endpoint": values["AZURE_AI_PROJECT_ENDPOINT"],
+        }
+        report.update(evaluation_status="unavailable", evaluation_passed=False, error=str(error))
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(report, indent=2) + "\n")
+        print(json.dumps({"evaluation_status": "unavailable", "evaluation_passed": False,
+                          "error": str(error), "output": str(args.output)}), flush=True)
+        return 2
 
 
 if __name__ == "__main__":

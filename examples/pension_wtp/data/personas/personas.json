@@ -41,6 +41,7 @@
       "profile": "45, non-native Dutch speaker, prefers English.",
       "goal": "Understand the invaren letter in English.",
       "opening": "Can you explain the invaren letter in English please?",
+      "evaluation_answer_goal": "personal_letter_context",
       "tests": [
         "English accessibility mode",
         "IORP II-style content variants"

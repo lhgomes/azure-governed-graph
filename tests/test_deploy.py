@@ -1,4 +1,4 @@
-"""The deployment script: questions, ordering, idempotent resume, and refusals, against a simulated Azure."""
+"""Deployment followed by explicit acceptance: ordering, resume and refusals, with simulated Azure."""
 import copy
 import json
 import re
@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts import deploy
+from scripts import acceptance, deploy
 from scripts.deploy import CommandError, DeployError
 
 ORIGINAL_RELEASE_APPROVAL = deploy.Deployer.release_approval
@@ -37,6 +37,14 @@ ARGS = ["--yes", "--non-interactive", "--subscription", SUB, "--location", "swed
 DEFAULT_ARGS = [a for a in ARGS if a != "--no-voice-demo"]   # the runner's real default: presenter, capture and lookup on
 GATEWAY = "https://apim-gg-x.azure-api.net"
 WORKSPACE = "00000000-0000-4000-8000-0000000000e1"
+
+
+def test_quota_accepts_azure_catalogue_gpt41_usage_names_without_weakening_limits():
+    usage = [{"name": {"value": name.replace(".gpt-4.1", ".gpt4.1")}, "limit": needed, "currentValue": 0}
+             for name, needed in deploy.QUOTA_NEEDS.items()]
+    assert deploy.quota_findings(usage) == []
+    usage[0]["currentValue"] = 1
+    assert "of the 50 units needed" in deploy.quota_findings(usage)[0]
 
 
 class FakeGateway:
@@ -150,7 +158,15 @@ class FakeAzure:
         if "scripts.run_foundry_evals" in text:
             assert args[args.index("--environment") + 1] == "gg-dev"
             assert env["GOVERNEDGRAPH_MODE"] == "local"
-            return '{"status":"completed","evaluation_passed":true}\n'
+            report = {
+                "evaluation_passed": True, "evaluation_status": "passed",
+                "project_endpoint": self.env["AZURE_AI_PROJECT_ENDPOINT"],
+                "versions": {name: self.env[key] for name, key in acceptance.PIN_KEYS.items()},
+                "foundry": {"status": "completed", "eval_id": "synthetic-eval", "run_id": "synthetic-run"},
+            }
+            output = Path(args[args.index("--output") + 1])
+            output.write_text(json.dumps(report))
+            return json.dumps(report)
         if "scripts.writer_approval" in text:
             record = Path(args[args.index("--file") + 1])
             assert record.stat().st_mode & 0o077 == 0
@@ -162,7 +178,9 @@ class FakeAzure:
             return self.voice_proof_output if "voice" in args else self.proof_output
         if "run_p2_container_jobs" in text:
             assert "--image" in args and "@sha256:" in args[args.index("--image") + 1]
-            lines = list(self.p2_output)
+            cycle = next((args[args.index(flag) + 1] for flag in ("--cycle-id", "--resume-cycle") if flag in args),
+                         "cycle-synthetic")
+            lines = [line.replace("cycle-synthetic", cycle) for line in self.p2_output]
             if "--fairness-agent-proof" in args:
                 lines += self.fairness_output
             return "\n".join(lines) + "\n"
@@ -305,8 +323,15 @@ class Answers:
 
 def run(azure, tmp_path, argv=ARGS, **kw):
     azure.environment_path = tmp_path / "azd" / "gg-dev"
-    return deploy.main(argv, runner=azure, state_path=tmp_path / "state.json", sleep=lambda s: None,
-                       environment_path=azure.environment_path, **kw)
+    calls = len(azure.calls)
+    result = deploy.main(argv, runner=azure, state_path=tmp_path / "state.json", sleep=lambda s: None,
+                         environment_path=azure.environment_path, **kw)
+    if result or len(azure.calls) == calls or any(flag in argv for flag in ("--only", "--plan", "--status")):
+        return result
+    state = deploy.State.load(tmp_path / "state.json")
+    if state.deployment_status != "succeeded":
+        return result
+    return acceptance.main([], runner=azure, state_path=tmp_path / "state.json", sleep=lambda _: None)
 
 
 def test_the_whole_flow_runs_in_order_and_ends_with_the_real_key(tmp_path, capsys):
@@ -355,13 +380,14 @@ def test_the_whole_flow_runs_in_order_and_ends_with_the_real_key(tmp_path, capsy
     assert voice[voice.index("--image") + 1] == "registry.azurecr.io/sample-voice-proof@" + azure.voice_image_digest
 
 
-def test_foundry_evaluation_failure_prevents_completed_deployment(tmp_path, capsys):
+def test_foundry_evaluation_failure_prevents_acceptance_not_completed_deployment(tmp_path, capsys):
     azure = FakeAzure()
     azure.fail["scripts.run_foundry_evals"] = (1, "Foundry evaluation gate failed; retained fresh run IDs")
     assert run(azure, tmp_path) == 1
     state = json.loads((tmp_path / "state.json").read_text())
     assert "evaluations" not in state["completed"]
-    assert "Deployment complete." not in capsys.readouterr().out
+    assert state["deployment_status"] == "succeeded" and state["acceptance"]["status"] == "failed"
+    assert "Deployment complete." in capsys.readouterr().out
 
 
 def test_b1_b2_b7_sample_evaluation_failure_stops_before_azure_provisioning(tmp_path, capsys):
@@ -467,7 +493,7 @@ def test_learning_and_voice_regressions_are_checked_before_any_cloud_job_or_prov
     assert "no provisioning was attempted" in capsys.readouterr().err
 
 
-def test_b8_sample_voice_failure_is_not_a_complete_deployment(tmp_path, capsys):
+def test_b8_sample_voice_failure_is_not_complete_acceptance(tmp_path, capsys):
     azure = FakeAzure()
     azure.voice_proof_status = "Failed"
     assert run(azure, tmp_path) == 1
@@ -475,7 +501,8 @@ def test_b8_sample_voice_failure_is_not_a_complete_deployment(tmp_path, capsys):
     assert not state["channel_proof_execution"] and not state["sample_proof_executions"]
     assert "verify" not in state["completed"]
     output = capsys.readouterr()
-    assert "voice proof" in output.err and "Deployment complete." not in output.out
+    assert "voice proof" in output.err and "Acceptance: passed." not in output.out
+    assert state["acceptance"]["status"] == "failed"
     azure.voice_proof_status = "Succeeded"
     assert run(azure, tmp_path, ["--yes", "--non-interactive", "--mode", "resume"]) == 0
 
@@ -493,6 +520,7 @@ def test_changed_sample_or_runtime_inputs_invalidate_local_and_live_acceptance(t
     assert run(azure, tmp_path) == 0
     azure.calls.clear()
     monkeypatch.setattr(deploy.SampleDefinition, "fingerprint", lambda self: "c" * 64)
+    monkeypatch.setattr(deploy.SampleDefinition, "runtime_fingerprint", lambda self: "d" * 64)
     assert run(azure, tmp_path, ["--yes", "--non-interactive", "--mode", "resume"]) == 0
     assert any("pension_wtp.evaluation.run_evals" in c for c in azure.calls)
     assert any(c[:2] == ["azd", "deploy"] for c in azure.calls)
@@ -559,7 +587,8 @@ def test_verification_launch_failure_is_not_completion_and_resume_retries_only_t
     azure.fail["scripts.run_dev_proof"] = (1, "proof could not start")
     assert run(azure, tmp_path) == 1
     captured = capsys.readouterr()
-    assert "proof could not start" in captured.err and "Deployment complete." not in captured.out
+    assert "proof could not start" in captured.err and "Acceptance: passed." not in captured.out
+    assert "Deployment complete." in captured.out
     before = json.loads((tmp_path / "state.json").read_text())
     assert "verify" not in before["completed"] and not before["channel_proof_execution"]
     azure.calls.clear()
@@ -577,7 +606,7 @@ def test_unsuccessful_or_timed_out_channel_proofs_block_completion(tmp_path, cap
     azure.proof_status = status
     assert run(azure, tmp_path) == 1
     captured = capsys.readouterr()
-    assert "did not succeed" in captured.err and "Deployment complete." not in captured.out
+    assert "did not succeed" in captured.err and "Acceptance: passed." not in captured.out
     state = json.loads((tmp_path / "state.json").read_text())
     assert "verify" not in state["completed"] and not state["channel_proof_execution"]
     polls = [args for args in azure.calls if args[:5] == ["az", "containerapp", "job", "execution", "show"]
@@ -591,7 +620,7 @@ def test_invalid_proof_execution_output_is_an_explicit_failure(tmp_path, capsys,
     azure.proof_output = output
     assert run(azure, tmp_path) == 1
     captured = capsys.readouterr()
-    assert "valid execution name" in captured.err and "Deployment complete." not in captured.out
+    assert "valid execution name" in captured.err and "Acceptance: passed." not in captured.out
     assert "verify" not in json.loads((tmp_path / "state.json").read_text())["completed"]
 
 
@@ -883,7 +912,9 @@ def test_a_fresh_run_by_default_matches_the_running_deployment_including_convers
     assert next(i for i, c in enumerate(flat) if "run_dev_proof" in c) < next(
         i for i, c in enumerate(flat) if "monitor log-analytics query" in c)
     state = json.loads((tmp_path / "state.json").read_text())
-    assert "admin-console" in state["completed"] and state["completed"][-1] == "admin-console"
+    assert "admin-console" in state["completed"]
+    assert state["completed"].index("admin-console") < state["completed"].index("verify")
+    assert state["acceptance"]["status"] == "passed"
     urls = [url.removeprefix(GATEWAY) for url, _ in gateway.requests]
     assert {"/health/admin/healthz", "/admin/", "/admin/api/overview", "/admin/docs"} <= set(urls)
     assert next(h for u, h in gateway.requests if u.endswith("/admin/api/overview")) == {"X-Admin-Session": "capability"}
@@ -911,7 +942,7 @@ def test_a_console_that_is_down_open_or_exposing_routes_blocks_completion_and_re
     assert run(azure, tmp_path) == 1
     assert message in capsys.readouterr().err
     completed = json.loads((tmp_path / "state.json").read_text())["completed"]
-    assert "verify" in completed and "admin-console" not in completed
+    assert "verify" not in completed and "admin-console" not in completed
     setattr(gateway, field, {"overview_status": 401, "page_status": 200, "health_status": 200, "unlisted_status": 404}[field])
     azure.calls.clear()
     assert run(azure, tmp_path, ["--yes", "--non-interactive", "--mode", "resume"]) == 0
@@ -940,7 +971,9 @@ def test_conversations_that_never_reach_the_workspace_block_completion_after_fif
     err = capsys.readouterr().err
     assert "within 15 minutes" in err and "GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS=true" in err
     assert len(azure.capture_queries) == 15
-    assert "admin-console" not in json.loads((tmp_path / "state.json").read_text())["completed"]
+    state = json.loads((tmp_path / "state.json").read_text())
+    assert "admin-console" in state["completed"]
+    assert state["deployment_status"] == "succeeded" and state["acceptance"]["status"] == "failed"
 
 
 def test_missing_log_analytics_read_access_is_explained_not_reported_as_missing_conversations(tmp_path, capsys):
@@ -1644,7 +1677,7 @@ def test_b4_b5_b6_learning_runs_from_the_main_deployment_and_schedule_follows_ac
     azure = FakeAzure()
     assert run(azure, tmp_path) == 0
     state = json.loads((tmp_path / "state.json").read_text())
-    assert state["learning_receipts"]["p2-cycle"] == "cycle-synthetic"
+    assert re.fullmatch(r"cycle-[0-9a-f]{16}", state["learning_receipts"]["p2-cycle"])
     assert state["learning_receipts"]["fairness-agent"] == "job-gg-p2-fairness-proof1"
     assert state["learning_receipts"]["schedule"] == "enabled"
     assert re.fullmatch(r"crmlsynthetic\.azurecr\.io/governedgraph/p2@sha256:[0-9a-f]{64}", azure.env["P2_CONTAINER_IMAGE"])
@@ -1684,6 +1717,27 @@ def test_b6_b9_the_fairness_agent_proof_is_required_before_recurrence(tmp_path, 
     assert azure.env["P2_SCHEDULE_ENABLED"] == "false"
     assert "fairness-agent proof did not report success" in capsys.readouterr().err
     assert not json.loads((tmp_path / "state.json").read_text())["learning_receipts"]
+
+
+def test_p2_observation_outage_does_not_claim_stage_failure_or_advise_starting_a_new_cycle(
+        tmp_path, monkeypatch, capsys):
+    azure = FakeAzure()
+    original = azure.run
+
+    def unavailable(args, **kwargs):
+        if "scripts/run_p2_container_jobs.py" in args:
+            raise CommandError(args, 3, '{"p2_status":"observation_unavailable"}')
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(azure, "run", unavailable)
+    assert run(azure, tmp_path) == 1
+    state = json.loads((tmp_path / "state.json").read_text())
+    assert "learning" not in state["completed"] and state["learning_receipts"] == {}
+    assert azure.env["P2_SCHEDULE_ENABLED"] == "false"
+    err = capsys.readouterr().err
+    assert "status is unavailable" in err and "Do not start a replacement" in err
+    assert "learning acceptance cycle failed" not in err
+    assert "Fix the cause and resume" not in err
 
 
 def test_b3_learning_images_must_resolve_to_immutable_digests(tmp_path, capsys):

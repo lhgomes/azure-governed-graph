@@ -1,12 +1,13 @@
 {
-  "priors_version": "1.0",
-  "approved_ref": "GB-2026-010 (Tier 2 pre-launch readiness decision, synthetic)",
+  "priors_version": "1.1",
+  "approved_ref": "HR-PENSION-WTP-EVAL-REPAIR-2026-11-06 (Tier 2 synthetic gg-dev repair)",
   "watermark": "ILLUSTRATIVE - synthetic data",
-  "note": "Board-approved static ranking per request key. Used on day one (cold start), as the fallback when no valid snapshot exists, and ALWAYS for the randomised control arm (B10).",
+  "note": "Retains the GB-2026-010 default and existing request-key orders. Human-approved repair explicitly bootstraps chat/english with that default so P2 signs it without borrowing outcomes from another key. Used on day one (cold start), as the fallback when no valid snapshot exists, and ALWAYS for the randomised control arm (B10).",
   "default": ["S1", "S4", "S5", "S2", "S3"],
   "rankings": {
     "first_contact|transition_impact_question|voice|standard": ["S1", "S5", "S2", "S4", "S3"],
     "first_contact|transition_impact_question|chat|standard": ["S1", "S4", "S5", "S2", "S3"],
+    "first_contact|transition_impact_question|chat|english": ["S1", "S4", "S5", "S2", "S3"],
     "values_reviewed|transition_impact_question|voice|standard": ["S2", "S5", "S4", "S1"]
   }
 }

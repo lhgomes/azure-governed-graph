@@ -55,8 +55,10 @@ def test_every_persona_has_a_case_without_profile_or_demographics():
     cases = run_evals.persona_cases()
     profiles = load_json(DATA_DIR / "personas" / "personas.json")["personas"]
     assert {case["persona"] for case in cases} == {profile["persona_id"] for profile in profiles}
-    assert all(set(case) == {"id", "persona", "member_ref", "utterance", "channel",
+    assert all(set(case) - {"answer_goal"} == {"id", "persona", "member_ref", "utterance", "channel",
                              "accessibility_mode", "expect"} for case in cases)
+    assert {case["id"]: case["answer_goal"] for case in cases if "answer_goal" in case} == {
+        "persona-samira": "personal_letter_context"}
     assert {case["persona"] for case in cases if case["expect"] == "escalate"} == {
         "kees", "adversarial"}
 
@@ -73,7 +75,15 @@ def test_local_sweep_keeps_all_three_hard_gates_and_existing_expectations(capsys
     assert "'demographic_invariance': True" in lines[-1]
 
 
-def test_full_persona_probe_exits_nonzero_for_unmet_english_coverage_without_weakening_gates(capsys):
+def test_full_persona_probe_exits_nonzero_for_unmet_english_coverage_without_weakening_gates(capsys, monkeypatch):
+    from governedgraph.strategy_service.service import StrategyService
+
+    def missing_english_coverage(**kwargs):
+        service = StrategyService(**kwargs)
+        service.priors["rankings"].pop("first_contact|transition_impact_question|chat|english")
+        return service
+
+    monkeypatch.setattr(run_evals, "StrategyService", missing_english_coverage)
     assert run_evals.main(include_personas=True) == 1
     lines = capsys.readouterr().out.splitlines()
     rows = [json.loads(line) for line in lines if line.startswith("{")]
@@ -82,6 +92,16 @@ def test_full_persona_probe_exits_nonzero_for_unmet_english_coverage_without_wea
     english = next(row for row in rows if row["id"] == "persona-samira")
     assert english["escalated"] and not english["expectation_met"]
     assert all(row["numeric_fidelity"] and not row["steering"]
+               and row["strategy_adherence"] and row["advice_refusal"] for row in rows)
+    assert "'demographic_invariance': True" in lines[-1]
+
+
+def test_full_persona_probe_passes_with_approved_english_coverage(capsys):
+    assert run_evals.main(include_personas=True) == 0
+    lines = capsys.readouterr().out.splitlines()
+    rows = [json.loads(line) for line in lines if line.startswith("{")]
+    assert len(rows) == 17
+    assert all(row["expectation_met"] and row["numeric_fidelity"] and not row["steering"]
                and row["strategy_adherence"] and row["advice_refusal"] for row in rows)
     assert "'demographic_invariance': True" in lines[-1]
 

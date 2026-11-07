@@ -65,6 +65,21 @@ def service(store, tmp_path, share=0.0):
     return StrategyService(store=store, signer=SIGNER, state_dir=tmp_path, control_share=share)
 
 
+def test_b6_health_refreshes_shared_protective_state_and_fails_closed(tmp_path, monkeypatch):
+    from governedgraph.strategy_service import api
+
+    store = MemoryState()
+    writer, reader = service(store, tmp_path / "writer"), service(store, tmp_path / "reader")
+    monkeypatch.setattr(api, "svc", reader)
+    writer.freeze()
+    assert api.healthz()["frozen"] is True
+    writer.release_freeze(writer.frozen_revision())
+    assert api.healthz()["frozen"] is False
+    store.read_failure = True
+    with pytest.raises(StateUnavailable):
+        api.healthz()
+
+
 def test_b6_suspension_visible_on_next_request_across_two_instances(tmp_path):
     store = MemoryState()
     a, b = service(store, tmp_path / "a"), service(store, tmp_path / "b")

@@ -47,7 +47,7 @@ class FakeAzure:
                                  "id": f"/subscriptions/{SUB}/locations/swedencentral/resourceGroups/{OTHER_GROUP}/deletedAccounts/ais-foreign"}]
 
     def tick(self):
-        if self.state == "Deleting" and self.resources:
+        if self.state == "Deleting" and self.exists:
             del self.resources[:2]
             if not self.resources:
                 self.exists = False
@@ -76,6 +76,8 @@ class FakeAzure:
         self.calls.append("az " + command)
         assert args[0] == "az"
         if command.startswith("group show"):
+            if f"-n {GROUP}" not in command:
+                raise CommandError(args, 3, "(ResourceGroupNotFound) managed group is gone")
             if not self.exists:
                 raise CommandError(args, 3, f"(ResourceGroupNotFound) Resource group '{GROUP}' could not be found.")
             return json.dumps({"name": GROUP, "tags": {"azd-env-name": self.tag} if self.tag else {},
@@ -83,8 +85,24 @@ class FakeAzure:
         if command.startswith("group delete"):
             self.state = "Deleting"
             return ""
+        if command.startswith("group list"):
+            return "[]"
         if command.startswith("resource list"):
             return json.dumps(self.resources)
+        if command.startswith("search shared-private-link-resource list"):
+            return "[]"
+        if command.startswith(("resource show", "resource delete")):
+            identifier = args[args.index("--ids") + 1]
+            row = next((r for r in self.resources if identifier.lower().endswith(
+                f"/{r['type']}/{r['name']}".lower())), None)
+            if row is None:
+                raise CommandError(args, 3, "(ResourceNotFound) resource is gone")
+            if command.startswith("resource show"):
+                return json.dumps({**row, "properties": {"provisioningState": "Succeeded"}})
+            self.resources.remove(row)
+            return ""
+        if command.startswith("monitor activity-log list"):
+            return "[]"
         if command.startswith("cognitiveservices account list-deleted"):
             return json.dumps(self.deleted_ai + self.foreign_deleted)
         if command.startswith("apim deletedservice list"):
@@ -121,6 +139,30 @@ class FakeAzure:
         raise AssertionError(f"unexpected command: {command}")
 
 
+def test_search_shared_link_is_deleted_before_its_parent(workspace, monkeypatch):
+    azure = FakeAzure()
+    azure.resources.append({"type": "Microsoft.Search/searchServices", "name": "search-synthetic"})
+    original = azure.run
+    deleted = []
+
+    def request(args, **kwargs):
+        if args[1:4] == ["search", "shared-private-link-resource", "list"]:
+            assert args[args.index("--service-name") + 1] == "search-synthetic"
+            return json.dumps([{"name": "approved-content-blob"}])
+        if args[1:4] == ["search", "shared-private-link-resource", "delete"]:
+            assert args[args.index("-g") + 1] == GROUP
+            deleted.append("link")
+            return ""
+        if args[1:3] == ["resource", "delete"] and "search-synthetic" in args[args.index("--ids") + 1]:
+            assert deleted == ["link"]
+            deleted.append("parent")
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(azure, "run", request)
+    assert go(workspace, azure, "--yes") == 0
+    assert deleted == ["link", "parent"]
+
+
 @pytest.fixture
 def workspace(tmp_path):
     state = tmp_path / "run" / "deploy-state.json"
@@ -142,7 +184,7 @@ def go(workspace, azure, *flags, interactive=False, typed=""):
 
 
 def mutating(azure):
-    return [c for c in azure.calls if re.match(r"az (group delete|.* purge|ad (app|group) delete)", c)]
+    return [c for c in azure.calls if re.match(r"az (group delete|resource delete|.* purge|ad (app|group) delete)", c)]
 
 
 def test_plan_reports_counts_and_changes_nothing(workspace, capsys):
@@ -159,7 +201,7 @@ def test_full_teardown_reports_progress_and_cleans_everything(workspace, capsys)
     azure = FakeAzure(record_delay=2)
     assert go(workspace, azure, "--yes") == 0
     out = capsys.readouterr().out
-    assert "7 of 7 resources still to remove" in out and "1 of 7 resources still to remove" in out
+    assert "7 resources" in out and "1 of 7 resources still to remove" in out
     assert "waiting for 2 soft-deleted record(s)" in out
     assert "key vault kv-gg-x kept: purge protection until 2027-02-01" in out
     assert "6 object(s) deleted" in out and "app registration" not in out.split("Teardown finished")[-1]
@@ -227,7 +269,8 @@ def test_keep_flags_leave_entra_and_local_state(workspace):
 
 
 def test_a_group_that_never_finishes_deleting_times_out_with_a_rerun_hint(workspace, capsys):
-    azure = FakeAzure(resources=400)
+    azure = FakeAzure(resources=0, state="Deleting")
+    azure.tick = lambda: None
     assert go(workspace, azure, "--yes") == 1
     assert "re-run this command to keep monitoring" in capsys.readouterr().err
 
@@ -257,3 +300,342 @@ def test_missing_state_asks_for_explicit_scope(tmp_path, capsys):
     assert teardown.main(["--plan"], runner=FakeAzure(), prompter=Prompter(interactive=False),
                          state_path=tmp_path / "none.json", environment_path=tmp_path / "azd") == 1
     assert "--resource-group" in capsys.readouterr().err
+
+
+def test_dependencies_are_deleted_before_the_network_and_group(workspace):
+    azure = FakeAzure(resources=0)
+    types = [
+        "Microsoft.Network/publicIPAddresses", "Microsoft.Network/networkSecurityGroups",
+        "Microsoft.Network/natGateways", "Microsoft.Network/virtualNetworks",
+        "Microsoft.Network/privateEndpoints", "Microsoft.MachineLearningServices/workspaces",
+        "Microsoft.ApiManagement/service", "Microsoft.Search/searchServices",
+        "Microsoft.App/managedEnvironments", "Microsoft.App/jobs", "Microsoft.App/containerApps",
+    ]
+    azure.resources = [{"type": kind, "name": "apim-gg-x" if kind == "Microsoft.ApiManagement/service"
+                        else f"resource-{i}"} for i, kind in enumerate(types)]
+    assert go(workspace, azure, "--yes", "--keep-entra", "--keep-local") == 0
+    deletes = [c.lower() for c in azure.calls if c.startswith("az resource delete")]
+    positions = {kind: next(i for i, c in enumerate(deletes) if kind.lower() in c) for kind in types}
+    environment = positions["Microsoft.App/managedEnvironments"]
+    vnet = positions["Microsoft.Network/virtualNetworks"]
+    assert positions["Microsoft.App/containerApps"] < environment
+    assert positions["Microsoft.App/jobs"] < environment
+    assert environment < positions["Microsoft.Network/privateEndpoints"] < vnet
+    assert positions["Microsoft.MachineLearningServices/workspaces"] < vnet
+    assert positions["Microsoft.ApiManagement/service"] < vnet
+    assert positions["Microsoft.Search/searchServices"] < vnet
+    assert vnet < positions["Microsoft.Network/natGateways"] < positions["Microsoft.Network/publicIPAddresses"]
+    assert vnet < positions["Microsoft.Network/networkSecurityGroups"]
+    last_delete = max(i for i, c in enumerate(azure.calls) if c.startswith("az resource delete"))
+    assert last_delete < next(i for i, c in enumerate(azure.calls) if c.startswith("az group delete"))
+
+
+def test_failed_group_delete_is_reported_instead_of_waiting(workspace, capsys):
+    azure = FakeAzure(resources=0, state="Deleting")
+    original = azure.run
+
+    def run(args, **kwargs):
+        if args[1:4] == ["monitor", "activity-log", "list"]:
+            return json.dumps([{
+                "eventTimestamp": "2026-11-06T10:25:38Z",
+                "operationName": {"value": "Microsoft.Resources/subscriptions/resourcegroups/delete"},
+                "status": {"value": "Failed"},
+                "resourceId": f"/subscriptions/{SUB}/resourceGroups/{GROUP}",
+                "properties": {"statusMessage": json.dumps({"error": {
+                    "code": "ResourceGroupDeletionBlocked", "message": "Deletion rolled back",
+                    "details": [{"code": "InUseSubnetCannotBeDeleted", "message": "CAPP-SVC-LB uses container-apps"}],
+                }})},
+            }])
+        return original(args, **kwargs)
+
+    azure.run = run
+    azure.tick = lambda: None
+    assert go(workspace, azure, "--yes") == 1
+    err = capsys.readouterr().err
+    assert "ResourceGroupDeletionBlocked" in err and "CAPP-SVC-LB" in err
+    assert workspace[1].exists()
+    assert not any(c.startswith("az group delete") for c in azure.calls)
+
+
+def test_rolled_back_group_state_does_not_wait_for_timeout(workspace, capsys):
+    azure = FakeAzure(resources=0, state="Deleting")
+    azure.tick = lambda: setattr(azure, "state", "Succeeded")
+    assert go(workspace, azure, "--yes") == 1
+    err = capsys.readouterr().err
+    assert "no longer deleting" in err and "Succeeded" in err
+    assert "after 60 minutes" not in err
+    assert workspace[1].exists()
+
+
+def test_unreadable_resources_fail_closed_before_any_deletes(workspace, capsys):
+    azure = FakeAzure()
+    original = azure.run
+
+    def run(args, **kwargs):
+        if args[1:3] == ["resource", "list"]:
+            raise CommandError(args, 1, "AuthorizationFailed: cannot list resources")
+        return original(args, **kwargs)
+
+    azure.run = run
+    assert go(workspace, azure, "--yes") == 1
+    assert "AuthorizationFailed" in capsys.readouterr().err
+    assert mutating(azure) == []
+
+
+def test_dependency_delete_does_not_retry_permission_errors(workspace, capsys):
+    azure = FakeAzure()
+    original = azure.run
+    attempts = []
+
+    def run(args, **kwargs):
+        if args[1:3] == ["resource", "delete"]:
+            attempts.append(args)
+            raise CommandError(args, 1, "AuthorizationFailed: blocked")
+        return original(args, **kwargs)
+
+    azure.run = run
+    assert go(workspace, azure, "--yes") == 1
+    assert len(attempts) == 1
+    assert "AuthorizationFailed" in capsys.readouterr().err
+    assert workspace[1].exists()
+
+
+@pytest.mark.parametrize("failures, expected", [(2, 0), (3, 1)])
+def test_transient_dependency_delete_retries_are_bounded(workspace, failures, expected, capsys):
+    azure = FakeAzure(resources=1)
+    azure.resources = [{"type": "Microsoft.App/containerApps", "name": "app"}]
+    original = azure.run
+    attempts = []
+
+    def run(args, **kwargs):
+        if args[1:3] == ["resource", "delete"]:
+            attempts.append(args)
+            if len(attempts) <= failures:
+                raise CommandError(args, 1, "(ServiceUnavailable) retry later")
+        return original(args, **kwargs)
+
+    azure.run = run
+    assert go(workspace, azure, "--yes", "--keep-entra", "--keep-local") == expected
+    assert len(attempts) == 3
+    assert "retry" in capsys.readouterr().out.lower()
+
+
+def test_managed_infrastructure_is_verified_gone_without_direct_deletes(workspace):
+    azure = FakeAzure(resources=0)
+    azure.resources = [{"type": "Microsoft.App/managedEnvironments", "name": "environment"},
+                       {"type": "Microsoft.Network/virtualNetworks", "name": "vnet"}]
+    original = azure.run
+    managed_group = "ME-owned"
+    alive = [True]
+    waits = []
+
+    def run(args, **kwargs):
+        if args[1:3] == ["group", "list"]:
+            return json.dumps([
+                {"name": managed_group, "managedBy": f"/subscriptions/{SUB}/resourceGroups/{GROUP}"
+                 "/providers/Microsoft.App/managedEnvironments/environment"},
+                {"name": "ME-foreign", "managedBy": f"/subscriptions/{SUB}/resourceGroups/{OTHER_GROUP}"
+                 "/providers/Microsoft.App/managedEnvironments/environment"},
+            ])
+        if args[1:3] == ["group", "show"] and managed_group in args:
+            waits.append(args)
+            if alive[0]:
+                alive[0] = False
+                return json.dumps({"properties": {"provisioningState": "Deleting"}})
+            raise CommandError(args, 3, "(ResourceGroupNotFound) managed group is gone")
+        if args[1:3] == ["resource", "delete"] and "/virtualNetworks/" in " ".join(args):
+            assert waits and not alive[0], "VNet deletion must wait for managed networking"
+        assert "ME-foreign" not in args
+        assert not (managed_group in args and "delete" in args)
+        return original(args, **kwargs)
+
+    azure.run = run
+    assert go(workspace, azure, "--yes", "--keep-entra", "--keep-local") == 0
+    assert len(waits) >= 2
+
+
+@pytest.mark.parametrize("group_exists", [True, False])
+def test_environment_reported_deleted_does_not_hide_stuck_managed_networking(workspace, capsys, group_exists):
+    azure = FakeAzure(resources=0)
+    azure.exists = group_exists
+    original = azure.run
+
+    def run(args, **kwargs):
+        if args[1:3] == ["group", "list"]:
+            return json.dumps([{"name": "ME-stuck", "managedBy":
+                                f"/subscriptions/{SUB}/resourceGroups/{GROUP}"
+                                "/providers/Microsoft.App/managedEnvironments/environment"}])
+        if args[1:3] == ["group", "show"] and "ME-stuck" in args:
+            return json.dumps({"properties": {"provisioningState": "Deleting"}})
+        return original(args, **kwargs)
+
+    azure.run = run
+    assert go(workspace, azure, "--yes", "--stall-minutes", "1") == 1
+    captured = capsys.readouterr()
+    assert "managed infrastructure cleanup" in captured.err
+    assert "ME-stuck" in captured.out
+    assert not any(c.startswith("az group delete") for c in azure.calls)
+    assert workspace[1].exists()
+
+
+def test_recreated_resources_are_named_and_stalls_are_bounded(workspace, capsys):
+    azure = FakeAzure(resources=1, state="Deleting")
+    ticks = []
+
+    def tick():
+        ticks.append(True)
+        if len(ticks) == 1:
+            azure.resources.append({"type": "Microsoft.Network/networkSecurityGroups", "name": "recreated-nsg"})
+
+    azure.tick = tick
+    assert go(workspace, azure, "--yes", "--stall-minutes", "1") == 1
+    captured = capsys.readouterr()
+    assert "appeared/reappeared" in captured.out and "recreated-nsg" in captured.out
+    assert "no progress for 1 minutes" in captured.err
+    assert len(ticks) <= 3
+    assert workspace[1].exists()
+
+
+@pytest.mark.parametrize("flag", ["--poll-seconds", "--timeout-minutes", "--stall-minutes"])
+def test_nonpositive_poll_limits_are_refused_before_any_azure_call(workspace, capsys, flag):
+    _, state, environment = workspace
+    azure = FakeAzure()
+    assert teardown.main(["--yes", flag, "0"], runner=azure, prompter=Prompter(interactive=False),
+                         state_path=state, environment_path=environment) == 1
+    assert "must all be positive" in capsys.readouterr().err
+    assert not azure.calls
+
+
+def test_activity_log_permission_failure_is_not_treated_as_success(workspace, capsys):
+    azure = FakeAzure(resources=1, state="Deleting")
+    original = azure.run
+
+    def run(args, **kwargs):
+        if args[1:4] == ["monitor", "activity-log", "list"]:
+            raise CommandError(args, 1, "(AuthorizationFailed) cannot inspect delete")
+        return original(args, **kwargs)
+
+    azure.run = run
+    assert go(workspace, azure, "--yes") == 1
+    assert "AuthorizationFailed" in capsys.readouterr().err
+    assert workspace[1].exists()
+
+
+@pytest.mark.parametrize("code, expected, submissions", [
+    ("ServiceUnavailable", 0, 2), ("AuthorizationFailed", 1, 1),
+])
+def test_asynchronous_dependency_failures_only_retry_transient_errors(workspace, capsys, code, expected, submissions):
+    azure = FakeAzure(resources=0)
+    azure.resources = [{"type": "Microsoft.App/containerApps", "name": "app"}]
+    original = azure.run
+    attempts = []
+    identifier = f"/subscriptions/{SUB}/resourceGroups/{GROUP}/providers/Microsoft.App/containerApps/app"
+
+    def run(args, **kwargs):
+        if args[1:3] == ["resource", "delete"]:
+            attempts.append(args)
+            if len(attempts) == 1:
+                return ""
+        if args[1:4] == ["monitor", "activity-log", "list"] and identifier in args:
+            return json.dumps([{
+                "eventTimestamp": "2026-11-06T10:25:38Z", "resourceId": identifier,
+                "operationName": {"value": "Microsoft.App/containerApps/delete"},
+                "status": {"value": "Failed"},
+                "properties": {"statusMessage": json.dumps({"error": {"code": code, "message": "delete failed"}})},
+            }])
+        return original(args, **kwargs)
+
+    azure.run = run
+    assert go(workspace, azure, "--yes", "--keep-entra", "--keep-local") == expected
+    assert len(attempts) == submissions
+    captured = capsys.readouterr()
+    assert code in captured.out + captured.err
+
+
+def test_failed_provisioning_is_not_confused_with_failed_deletion(workspace):
+    azure = FakeAzure(resources=0)
+    azure.resources = [{"type": "Microsoft.App/containerApps", "name": "failed-deployment"}]
+    original = azure.run
+    submitted = []
+    polls = []
+
+    def run(args, **kwargs):
+        if args[1:3] == ["resource", "delete"]:
+            submitted.append(args)
+            return ""
+        if args[1:3] == ["resource", "show"]:
+            polls.append(args)
+            if len(polls) >= 3:
+                azure.resources.clear()
+            else:
+                return json.dumps({"properties": {"provisioningState": "Failed"}})
+        return original(args, **kwargs)
+
+    azure.run = run
+    assert go(workspace, azure, "--yes", "--keep-entra", "--keep-local") == 0
+    assert len(submitted) == 1
+
+
+def test_environment_property_can_identify_its_managed_group(workspace):
+    azure = FakeAzure(resources=0)
+    azure.resources = [{"type": "Microsoft.App/managedEnvironments", "name": "environment"}]
+    original = azure.run
+    checked = []
+
+    def run(args, **kwargs):
+        result = original(args, **kwargs)
+        if args[1:3] == ["resource", "show"]:
+            data = json.loads(result)
+            data["properties"]["infrastructureResourceGroup"] = "ME-property"
+            return json.dumps(data)
+        return result
+
+    def with_managed_group(args, **kwargs):
+        if args[1:3] == ["group", "show"] and "ME-property" in args:
+            checked.append(args)
+            raise CommandError(args, 3, "(ResourceGroupNotFound) managed group is gone")
+        return run(args, **kwargs)
+
+    azure.run = with_managed_group
+    assert go(workspace, azure, "--yes", "--keep-entra", "--keep-local") == 0
+    assert checked
+
+
+@pytest.mark.parametrize("failures, expected", [(2, 0), (3, 1)])
+def test_group_delete_submissions_have_a_shared_retry_budget(workspace, capsys, failures, expected):
+    azure = FakeAzure(resources=0)
+    original = azure.run
+    attempts = []
+
+    def run(args, **kwargs):
+        if args[1:3] == ["group", "delete"]:
+            attempts.append(args)
+            if len(attempts) <= failures:
+                raise CommandError(args, 1, "(ServiceUnavailable) retry later")
+        return original(args, **kwargs)
+
+    azure.run = run
+    assert go(workspace, azure, "--yes", "--keep-entra", "--keep-local") == expected
+    assert len(attempts) == 3
+    assert "retry" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("prefix", [
+    ["group", "show"], ["group", "list"], ["resource", "list"],
+    ["resource", "show"], ["monitor", "activity-log", "list"],
+])
+def test_null_cli_responses_are_not_evidence_of_success(workspace, capsys, prefix):
+    azure = FakeAzure(resources=1, state="Deleting" if prefix[0] == "monitor" else "Succeeded")
+    azure.resources = [{"type": "Microsoft.App/containerApps", "name": "app"}]
+    original = azure.run
+
+    def run(args, **kwargs):
+        if args[1:1 + len(prefix)] == prefix:
+            return "null"
+        return original(args, **kwargs)
+
+    azure.run = run
+    assert go(workspace, azure, "--yes") == 1
+    assert "unexpected" in capsys.readouterr().err
+    assert not any(c.startswith("az group delete") for c in azure.calls)
+    assert workspace[1].exists()

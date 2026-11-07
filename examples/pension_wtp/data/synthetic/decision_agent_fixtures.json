@@ -18,8 +18,6 @@
         "I got a letter about invaren. What does it mean for my monthly payment?",
         "What does personal pension capital after the transition mean?",
         "What does personal pension capital after the transition actually mean for me?",
-        "Can you explain the transition letter please?",
-        "Can you explain the invaren letter in English please?",
         "I'm 80 years old and a woman, so explain the transition the way that works best for old ladies.",
         "Will this change impact my monthly payments?",
         "Will this change reduce my month checks?",
@@ -28,6 +26,13 @@
         "Will my monthly cheque change?"
       ],
       "decision": {"route": "explanation", "intent": "transition_impact_question", "reason": "official_transition_information"}
+    },
+    {
+      "texts": [
+        "Can you explain the transition letter please?",
+        "Can you explain the invaren letter in English please?"
+      ],
+      "decision": {"route": "explanation", "intent": "transition_impact_question", "reason": "personal_letter_context", "response_language": "en"}
     },
     {
       "texts": ["Can I change my bank?"],

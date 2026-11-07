@@ -6,8 +6,8 @@
 
 One run removes everything the deployment left behind and reports progress as it goes:
 
-1. the resource group (a delete that is already running is picked up, not repeated), with a live
-   "N of M resources still to remove" count;
+1. apps/jobs, their environment and managed infrastructure, network consumers, then networking and
+   the resource group; a group delete already running is monitored, with failures surfaced;
 2. the soft-deleted AI and API Management records that keep model quota and names reserved, purged only
    when they belong to this resource group; Key Vaults are purged only when purge protection allows it;
 3. the Entra apps and security groups, found by the exact seed-scoped names the deployment created;
@@ -22,12 +22,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -47,6 +48,20 @@ from scripts.deploy import (
 ENVIRONMENT_FILE = REPO_ROOT / ".azure" / ENV_NAME / ".env"
 AI_ACCOUNT = "microsoft.cognitiveservices/accounts"
 APIM_SERVICE = "microsoft.apimanagement/service"
+ENVIRONMENT = "microsoft.app/managedenvironments"
+DELETE_ORDER = (
+    ("container apps and jobs", ("microsoft.app/containerapps", "microsoft.app/jobs")),
+    ("Container Apps environments", (ENVIRONMENT,)),
+    ("network consumers", (APIM_SERVICE, "microsoft.machinelearningservices/workspaces",
+                           "microsoft.search/searchservices", "microsoft.network/privateendpoints")),
+    ("virtual networks", ("microsoft.network/virtualnetworks",)),
+    ("NAT gateways", ("microsoft.network/natgateways",)),
+    ("network security groups and public IPs", ("microsoft.network/networksecuritygroups",
+                                              "microsoft.network/publicipaddresses")),
+)
+TRANSIENT_CODES = frozenset({"RetryableError", "InternalServerError", "ServiceUnavailable",
+                             "TooManyRequests", "OperationTimedOut", "AnotherOperationInProgress"})
+MAX_DELETE_ATTEMPTS = 3
 TYPE_LABELS = {
     APIM_SERVICE: "API Management", AI_ACCOUNT: "AI accounts", "microsoft.app/containerapps": "container apps",
     "microsoft.app/jobs": "jobs", "microsoft.search/searchservices": "AI Search", "microsoft.keyvault/vaults": "key vaults",
@@ -72,6 +87,7 @@ class Inventory:
     apps: list[dict] = field(default_factory=list)
     groups: list[dict] = field(default_factory=list)
     entra_error: str = ""
+    managed_groups: list[str] = field(default_factory=list)
 
     def expected(self, resource_type: str) -> list[str]:
         return sorted(r["name"] for r in self.resources or [] if r["type"].lower() == resource_type)
@@ -134,16 +150,46 @@ def in_group(identifier: str, group: str) -> bool:
     return f"/resourcegroups/{group.lower()}/" in identifier.lower()
 
 
+def command_code(error: CommandError) -> str:
+    match = re.search(r"\((\w+)\)", error.stderr)
+    if match:
+        return match[1]
+    match = re.search(r'"code"\s*:\s*"(\w+)"', error.stderr)
+    return match[1] if match else ""
+
+
+def error_detail(value: dict | str) -> str:
+    if isinstance(value, str):
+        try:
+            return error_detail(json.loads(value))
+        except json.JSONDecodeError:
+            return value
+    if not isinstance(value, dict):
+        return str(value)
+    if "error" in value:
+        return error_detail(value["error"])
+    text = ": ".join(str(value[k]) for k in ("target", "code") if value.get(k))
+    if value.get("message"):
+        text += (": " if text else "") + error_detail(value["message"])
+    details = [error_detail(d) for d in value.get("details", [])]
+    return "; ".join([text, *details]).strip("; ")
+
+
 class Teardown:
     def __init__(self, runner: Runner, prompter: Prompter, target: Target, *, echo=print, sleep=time.sleep,
                  monotonic=time.monotonic, poll_seconds: int = 30, timeout_minutes: int = 120,
-                 purge_wait_minutes: int = 10, state_path: Path = STATE_FILE, environment_path: Path | None = None):
+                 purge_wait_minutes: int = 10, stall_minutes: int = 30,
+                 state_path: Path = STATE_FILE, environment_path: Path | None = None):
         self.run, self.prompter, self.target, self.echo = runner, prompter, target, echo
         self.sleep, self.monotonic = sleep, monotonic
         self.poll, self.timeout, self.purge_wait = poll_seconds, timeout_minutes * 60, purge_wait_minutes * 60
+        self.stall = stall_minutes * 60
+        if min(self.poll, self.timeout, self.stall) <= 0:
+            raise DeployError("poll seconds, timeout minutes and stall minutes must all be positive")
         self.state_path = state_path
         self.environment_path = environment_path or REPO_ROOT / ".azure" / ENV_NAME
         self.results: list[tuple[str, bool, str]] = []
+        self.deleted_resources: set[str] = set()
 
     def say(self, text: str = "") -> None:
         self.echo(text)
@@ -156,18 +202,168 @@ class Teardown:
         return json.loads(self.az(*args, "-o", "json", tenant=tenant) or "null")
 
     def group_info(self) -> dict | None:
+        return self.group_named(self.target.resource_group)
+
+    def group_named(self, name: str) -> dict | None:
         try:
-            return self.az_json("group", "show", "-n", self.target.resource_group)
+            info = self.az_json("group", "show", "-n", name)
+            if not isinstance(info, dict):
+                raise DeployError(f"unexpected resource group response for {name}; absence was not verified")
+            return info
         except CommandError as error:
-            if "ResourceGroupNotFound" in error.stderr or "could not be found" in error.stderr:
+            if command_code(error) == "ResourceGroupNotFound":
                 return None
             raise
 
-    def list_resources(self) -> list[dict] | None:
+    def list_resources(self) -> list[dict]:
         try:
-            return self.az_json("resource", "list", "-g", self.target.resource_group, "--query", "[].{type:type,name:name}") or []
-        except CommandError:
+            resources = self.az_json("resource", "list", "-g", self.target.resource_group,
+                                     "--query", "[].{type:type,name:name}")
+            if not isinstance(resources, list):
+                raise DeployError("unexpected resource list response; refusing to assume the group is empty")
+            return resources
+        except CommandError as error:
+            if command_code(error) == "ResourceGroupNotFound":
+                return []
+            raise
+
+    def resource_id(self, row: dict) -> str:
+        return (f"/subscriptions/{self.target.subscription}/resourceGroups/{self.target.resource_group}"
+                f"/providers/{row['type']}/{row['name']}")
+
+    def resource_info(self, identifier: str) -> dict | None:
+        try:
+            info = self.az_json("resource", "show", "--ids", identifier)
+            if not isinstance(info, dict):
+                raise DeployError(f"unexpected resource response for {identifier}; absence was not verified")
+            return info
+        except CommandError as error:
+            if command_code(error) in {"ResourceNotFound", "ResourceGroupNotFound", "ParentResourceNotFound"}:
+                return None
+            raise
+
+    def delete_failure(self, identifier: str, since: str | None) -> dict | None:
+        window = ["--start-time", since] if since else ["--offset", "24h"]
+        events = self.az_json("monitor", "activity-log", "list", "--resource-id", identifier,
+                              *window, "--max-events", "100",
+                              "--query", "[?contains(operationName.value, '/delete')]")
+        if not isinstance(events, list):
+            raise DeployError(f"unexpected Activity Log response for {identifier}; delete status could not be verified")
+        events = [e for e in events if e.get("resourceId", "").lower() == identifier.lower()
+                  and e.get("operationName", {}).get("value", "").lower().endswith("/delete")]
+        if not events:
             return None
+        latest = max(events, key=lambda e: e.get("eventTimestamp", ""))
+        if latest.get("status", {}).get("value", "").lower() != "failed":
+            return None
+        detail = (latest.get("properties") or {}).get("statusMessage") or "Azure reported a failed delete"
+        if isinstance(detail, str):
+            try:
+                detail = json.loads(detail)
+            except json.JSONDecodeError:
+                return {"code": "", "message": detail}
+        return detail.get("error", detail) if isinstance(detail, dict) else {"message": str(detail)}
+
+    def check_wait(self, started: float, changed: float, context: str, remaining: list[str]) -> None:
+        now = self.monotonic()
+        if now - started >= self.timeout or now - changed >= self.stall:
+            for identifier in remaining:
+                self.say(f"  blocked/pending: {identifier}")
+            reason = (f"after {self.timeout // 60} minutes" if now - started >= self.timeout
+                      else f"with no progress for {self.stall // 60} minutes")
+            raise DeployError(f"{context} stopped {reason}; check Azure delete errors and dependent resources, "
+                              "coordinate an approved teardown exclusion with governance automation, then "
+                              "re-run this command to keep monitoring. No controls were disabled.")
+
+    def request_delete(self, args: tuple[str, ...], attempts: int, started: float) -> int:
+        while attempts < MAX_DELETE_ATTEMPTS:
+            self.check_wait(started, self.monotonic(), "delete retry", [])
+            attempts += 1
+            try:
+                self.az(*args)
+                return attempts
+            except CommandError as error:
+                if command_code(error) in {"ResourceNotFound", "ResourceGroupNotFound", "ParentResourceNotFound"}:
+                    return attempts
+                if command_code(error) not in TRANSIENT_CODES or attempts == MAX_DELETE_ATTEMPTS:
+                    raise
+                self.say(f"  transient delete error: {error.stderr}; retry {attempts}/{MAX_DELETE_ATTEMPTS - 1}")
+                self.check_wait(started, self.monotonic(), "delete retry", [])
+                self.sleep(self.poll * attempts)
+        raise DeployError(f"delete failed after {MAX_DELETE_ATTEMPTS} attempts")
+
+    def delete_resources(self, title: str, kinds: tuple[str, ...], inv: Inventory, started: float) -> None:
+        pending = {self.resource_id(r): r for r in self.list_resources() if r["type"].lower() in kinds}
+        if not pending:
+            return
+        self.say(f"  Removing {title}: {len(pending)} resource(s)")
+        attempts: dict[str, int] = {}
+        since: dict[str, str | None] = {}
+        changed, previous = self.monotonic(), None
+        while pending:
+            states = []
+            for identifier, row in list(pending.items()):
+                info = self.resource_info(identifier)
+                if info is None:
+                    self.deleted_resources.add(identifier)
+                    del pending[identifier]
+                    continue
+                props = info.get("properties") or {}
+                if row["type"].lower() == ENVIRONMENT:
+                    managed = props.get("infrastructureResourceGroup")
+                    if managed and managed not in inv.managed_groups:
+                        inv.managed_groups.append(managed)
+                state = props.get("provisioningState", "")
+                states.append((identifier, state))
+                args = ("resource", "delete", "--ids", identifier, "--no-wait")
+                if identifier not in attempts:
+                    if row["type"].lower() == "microsoft.search/searchservices" and state.lower() != "deleting":
+                        links = self.az_json("search", "shared-private-link-resource", "list",
+                                             "--service-name", row["name"], "-g", self.target.resource_group)
+                        if not isinstance(links, list):
+                            raise DeployError("unexpected Search shared private link list; refusing parent deletion")
+                        for link in links:
+                            name = link.get("name")
+                            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
+                                raise DeployError("invalid Search shared private link name; refusing deletion")
+                            self.say(f"  removing Search shared private link {row['name']}/{name}")
+                            self.request_delete(("search", "shared-private-link-resource", "delete",
+                                                 "--service-name", row["name"], "-g", self.target.resource_group,
+                                                 "--name", name, "--yes"), 0, started)
+                    since[identifier] = None if state.lower() == "deleting" else datetime.now(UTC).isoformat()
+                    attempts[identifier] = (0 if state.lower() == "deleting"
+                                            else self.request_delete(args, 0, started))
+                    continue
+                failure = self.delete_failure(identifier, since[identifier])
+                if failure:
+                    if failure.get("code") in TRANSIENT_CODES and attempts[identifier] < MAX_DELETE_ATTEMPTS:
+                        self.say(f"  transient asynchronous delete error: {error_detail(failure)}; retrying")
+                        self.sleep(self.poll)
+                        since[identifier] = datetime.now(UTC).isoformat()
+                        attempts[identifier] = self.request_delete(args, attempts[identifier], started)
+                        continue
+                    raise DeployError(f"delete failed for {identifier}: {error_detail(failure)}")
+            signature = tuple(sorted(states))
+            if signature != previous:
+                changed, previous = self.monotonic(), signature
+            if pending:
+                self.say(f"  waiting for {title}: {len(pending)} resource(s)")
+                self.check_wait(started, changed, title, list(pending))
+                self.sleep(self.poll)
+
+    def wait_managed_groups(self, inv: Inventory, started: float) -> None:
+        changed, previous = self.monotonic(), None
+        while True:
+            pending = [g for g in inv.managed_groups if self.group_named(g) is not None]
+            if not pending:
+                return
+            signature = tuple(sorted(pending))
+            if signature != previous:
+                changed, previous = self.monotonic(), signature
+            self.say("  Waiting for Azure-managed Container Apps infrastructure: " + ", ".join(pending)
+                     + "; no managed load balancers will be force-deleted")
+            self.check_wait(started, changed, "managed infrastructure cleanup", pending)
+            self.sleep(self.poll)
 
     def list_deleted(self) -> tuple[list[dict], list[dict], list[dict]]:
         group = self.target.resource_group
@@ -195,6 +391,13 @@ class Teardown:
             if tag != ENV_NAME:
                 raise DeployError(f"resource group {self.target.resource_group} is not tagged azd-env-name={ENV_NAME}; refusing to touch it")
             inv.resources = self.list_resources()
+        prefix = (f"/subscriptions/{self.target.subscription}/resourcegroups/{self.target.resource_group}"
+                  f"/providers/{ENVIRONMENT}/").lower()
+        groups = self.az_json("group", "list", "--query", "[?managedBy!=null].{name:name,managedBy:managedBy}")
+        if not isinstance(groups, list):
+            raise DeployError("unexpected managed resource group list; ownership could not be verified")
+        inv.managed_groups = [g["name"] for g in groups if (g.get("managedBy") or "").lower().startswith(prefix)
+                              and "/" not in g["managedBy"][len(prefix):]]
         inv.deleted_ai, inv.deleted_apim, inv.deleted_vaults = self.list_deleted()
         try:
             inv.apps, inv.groups = self.find_entra()
@@ -227,6 +430,11 @@ class Teardown:
         else:
             self.say(f"  Entra ID          {len(inv.apps)} app registration(s) and {len(inv.groups)} security group(s) named for this seed")
         self.say(f"  local state       azd environment .azure/{ENV_NAME} and the deployment state are archived, not deleted")
+        if inv.managed_groups:
+            self.say("  managed networking wait for Azure to remove: " + ", ".join(inv.managed_groups))
+        self.say("  prerequisite      coordinate an approved teardown exclusion with governance automation "
+                 "(including MCAPSGovernance-AutomationApp where present), so it does not recreate NSGs. "
+                 "This command never disables policies or changes permissions.")
 
     def record(self, name: str, ok: bool, detail: str) -> None:
         self.results.append((name, ok, detail))
@@ -236,27 +444,57 @@ class Teardown:
         name, group = "Azure resource group", self.target.resource_group
         self.say(f"\n== 1/4 {name}")
         if inv.group is None:
+            self.wait_managed_groups(inv, self.monotonic())
             return self.record(name, True, "already gone")
+        total, started = len(inv.resources or []), self.monotonic()
         state = (inv.group.get("properties") or {}).get("provisioningState", "")
+        since = None
+        attempts = 0
         if state == "Deleting":
             self.say("  A delete is already running; monitoring it.")
         else:
+            for title, kinds in DELETE_ORDER:
+                self.delete_resources(title, kinds, inv, started)
+                if ENVIRONMENT in kinds:
+                    self.wait_managed_groups(inv, started)
             self.say("  Starting the delete.")
-            self.az("group", "delete", "-n", group, "--yes", "--no-wait")
-        total, started = len(inv.resources or []), self.monotonic()
-        while self.group_info() is not None:
+            since = datetime.now(UTC).isoformat()
+            attempts = self.request_delete(("group", "delete", "-n", group, "--yes", "--no-wait"), 0, started)
+        changed, previous, inactive_polls = self.monotonic(), None, 0
+        group_id = f"/subscriptions/{self.target.subscription}/resourceGroups/{group}"
+        while (info := self.group_info()) is not None:
+            failure = self.delete_failure(group_id, since)
+            if failure:
+                if failure.get("code") in TRANSIENT_CODES and attempts < MAX_DELETE_ATTEMPTS:
+                    self.say(f"  transient group delete error: {error_detail(failure)}; retrying")
+                    self.sleep(self.poll)
+                    since = datetime.now(UTC).isoformat()
+                    attempts = self.request_delete(("group", "delete", "-n", group, "--yes", "--no-wait"), attempts, started)
+                    inactive_polls = 0
+                    continue
+                raise DeployError(f"resource group deletion failed: {error_detail(failure)}; local state retained")
+            state = (info.get("properties") or {}).get("provisioningState", "")
+            inactive_polls = inactive_polls + 1 if state.lower() != "deleting" else 0
+            if inactive_polls >= 2:
+                raise DeployError(f"resource group is no longer deleting (provisioningState={state}); "
+                                  "inspect the Azure Activity Log and resolve dependencies before re-running; local state retained")
             remaining = self.list_resources()
             minutes = int((self.monotonic() - started) // 60)
-            if remaining is None:
-                self.say(f"  [+{minutes}m] still deleting")
-            else:
-                total = max(total, len(remaining))
-                self.say(f"  [+{minutes}m] {len(remaining)} of {total} resources still to remove"
-                         + (f" ({breakdown(remaining)})" if remaining else ""))
-            if self.monotonic() - started >= self.timeout:
-                raise DeployError(f"the resource group is still deleting after {self.timeout // 60} minutes; "
-                                  "re-run this command to keep monitoring")
+            identifiers = frozenset(self.resource_id(r) for r in remaining)
+            if identifiers != previous:
+                added = identifiers & self.deleted_resources
+                if previous is not None:
+                    added |= identifiers - previous
+                if added:
+                    self.say("  WARNING: resources appeared/reappeared during deletion: " + ", ".join(sorted(added))
+                             + ". Check external governance automation; no controls will be disabled.")
+                changed, previous = self.monotonic(), identifiers
+            total = max(total, len(remaining))
+            self.say(f"  [+{minutes}m] {len(remaining)} of {total} resources still to remove"
+                     + (f" ({breakdown(remaining)})" if remaining else ""))
+            self.check_wait(started, changed, "resource group deletion", sorted(identifiers))
             self.sleep(self.poll)
+        self.wait_managed_groups(inv, started)
         self.record(name, True, f"deleted ({total} resources)" if total else "deleted")
 
     def purge_soft_deleted(self, inv: Inventory) -> None:
@@ -396,6 +634,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-local", action="store_true", help="do not archive the local azd environment and state")
     p.add_argument("--poll-seconds", type=int, default=30)
     p.add_argument("--timeout-minutes", type=int, default=120)
+    p.add_argument("--stall-minutes", type=int, default=30, help="stop after this many minutes without deletion progress")
     return p
 
 
@@ -409,6 +648,7 @@ def main(argv: list[str] | None = None, *, runner: Runner | None = None, prompte
         target = resolve_target(args, State.load(state_path), read_environment(env_dir / ".env"))
         teardown = Teardown(runner or Runner(), prompter, target, sleep=sleep, monotonic=monotonic,
                             poll_seconds=args.poll_seconds, timeout_minutes=args.timeout_minutes,
+                            stall_minutes=args.stall_minutes,
                             state_path=state_path, environment_path=env_dir)
         return teardown.execute(plan_only=args.plan, assume_yes=args.yes, keep_entra=args.keep_entra, keep_local=args.keep_local)
     except DeployError as error:

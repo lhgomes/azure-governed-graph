@@ -15,9 +15,14 @@ from governedgraph.learning.azure_inputs import WATERMARK
 from governedgraph.learning.azure_ml import STEPS, check_component_states, component_metrics, run_component
 
 
+class P2MetadataUnavailable(ValueError):
+    """ARM has not supplied conclusive metadata for this cycle."""
+
+
 def component_states(executions: dict[str, list[dict]], cycle_id: str, image: str) -> dict[str, str]:
     states = {}
     status_map = {"Succeeded": "Completed", "Failed": "Failed", "Stopped": "Canceled",
+                  "Degraded": "Failed", "Unknown": "Unknown",
                   "Running": "Running", "Processing": "Running", "Pending": "Running"}
     for role, rows in executions.items():
         for row in rows:
@@ -37,8 +42,10 @@ def component_states(executions: dict[str, list[dict]], cycle_id: str, image: st
                 raise ValueError("P2 execution does not match its isolated stage/image")
             status = properties["status"]
             if status not in status_map:
-                raise ValueError("unknown P2 execution status")
+                raise ValueError(f"unknown P2 execution status: {status!r}")
             states[stage] = status_map[status]
+    if "Unknown" in states.values() and not any(status in {"Failed", "Canceled"} for status in states.values()):
+        raise P2MetadataUnavailable("ARM reported Unknown P2 execution status; completion is not certified")
     return states
 
 
@@ -69,10 +76,22 @@ def execution_rows(credential, job_id: str) -> list[dict]:
 
 def watch(credential, cycle_id: str, image: str, *, timeout: float = 3600) -> None:
     deadline = time.monotonic() + timeout
+    unavailable = 0
     while time.monotonic() < deadline:
         executions = {role: execution_rows(credential, os.environ[f"P2_{role.upper()}_JOB_ID"])
                       for role in ("pipeline", "fairness")}
-        if check_component_states(component_states(executions, cycle_id, image)):
+        try:
+            states = component_states(executions, cycle_id, image)
+        except P2MetadataUnavailable:
+            unavailable += 1
+            print(json.dumps({"cycle_id": cycle_id, "event": "p2_metadata_unavailable",
+                              "attempt": unavailable}), flush=True)
+            if unavailable >= 5:
+                raise
+            time.sleep(10)
+            continue
+        unavailable = 0
+        if check_component_states(states):
             return
         time.sleep(10)
     raise TimeoutError("P2 execution monitoring deadline exceeded")

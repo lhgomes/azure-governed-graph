@@ -386,7 +386,13 @@ class Counsellor:
         return raw_draft, review
 
     def _template_for(self, strategy) -> str:
-        """First approved variant whose placeholders all exist in this member's official values."""
+        """Approved task-specific wording, otherwise a variant with available official values."""
+        intent = next((item.decision for item in reversed(self.tools.trace.decision_evidence)
+                       if item.role == "intent"), None)
+        if intent is not None and strategy.strategy_id != ESCALATION_STRATEGY:
+            goal = TEMPLATES.get("answer_goals", {}).get(intent["reason"])
+            if goal is not None:
+                return goal["text"][self.tools.journey.response_language]
         have = set(self.tools.trace.values.by_id()) if self.tools.trace.values else set()
         for variant in TEMPLATES["templates"][strategy.template_id].values():
             if set(referenced_value_ids(variant)) <= have:

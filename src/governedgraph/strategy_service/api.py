@@ -150,7 +150,9 @@ def revert_to_static():
 
 @app.get("/healthz")
 def healthz():
-    if svc.frozen:
-        log.warning("strategy_frozen", extra={"snapshot_id": svc.current.snapshot_id if svc.current else "none",
+    state = svc.read_state()
+    snapshot_id = state["current"]["snapshot_id"] if state["current"] else None
+    if state["frozen"]:
+        log.warning("strategy_frozen", extra={"snapshot_id": snapshot_id or "none",
                                               "frozen": True})
-    return {"ok": True, "snapshot": svc.current.snapshot_id if svc.current else None, "frozen": svc.frozen}
+    return {"ok": True, "snapshot": snapshot_id, "frozen": state["frozen"]}

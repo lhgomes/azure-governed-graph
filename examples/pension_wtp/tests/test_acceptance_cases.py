@@ -19,7 +19,10 @@ def test_sample_cases_keep_the_baseline_human_access_and_adversarial_coverage():
     assert any(case["id"] == "cur-05" and case["expect"] == "escalate" for case in curated)
     assert any(case["id"] == "adv-06" and case["expect"] == "escalate" for case in adversarial)
     assert any(case["expect"] == "explain_same_as_any_member" for case in adversarial)
-    assert all(set(case) <= {"id", "member_ref", "utterance", "expect", "persona"} for case in curated + adversarial)
+    assert all(set(case) <= {"id", "member_ref", "utterance", "expect", "persona", "answer_goal"}
+               for case in curated + adversarial)
+    assert {case["id"]: case["answer_goal"] for case in curated + adversarial if "answer_goal" in case} == {
+        "cur-04": "personal_letter_context"}
 
 
 def test_sample_deployment_requires_both_channel_modes_and_its_own_evaluation():

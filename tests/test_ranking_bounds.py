@@ -92,3 +92,31 @@ def test_sparse_snapshot_publishes_already_approved_chat_priors_without_outcomes
     assert served.signature_valid
     assert [row.strategy_id for row in served.ranked] == [sid for sid in approved if sid != "S2"]
     assert "S2" in served.suspended
+
+
+def test_b3_b5_english_chat_has_signed_approved_priors_without_borrowing_standard_outcomes(tmp_path):
+    from governedgraph.agents.counsellor import new_session
+    from governedgraph.learning.pipeline_steps import previous_rankings
+    from governedgraph.learning.run_cycle import run_cycle
+    from governedgraph.strategy_service.service import StrategyService
+
+    service = StrategyService(state_dir=tmp_path, control_share=0)
+    key = "first_contact|transition_impact_question|chat|english"
+    approved = service.priors["default"]
+    assert previous_rankings(service)[key] == approved
+    assert key not in load_outcome_aggregates()
+    result = run_cycle(service)
+    assert result.published
+    candidate = next(c for c in result.candidates if c.request_key == key)
+    assert candidate.previous == candidate.candidate == approved
+    assert candidate.shift == 0
+    counsellor = new_session("MBR-9C1M", strategy_service=service, journey_id="J-ENGLISH-CHAT",
+                            channel="chat", accessibility_mode="english")
+    counsellor.start()
+    answer = counsellor.handle("Can you explain the invaren letter in English please?")
+    assert not answer.escalated
+    assert answer.numeric_fidelity_passed
+    assert counsellor.tools.trace.ranked.source == "snapshot"
+    assert counsellor.tools.trace.ranked.signature_valid
+    assert "S2" in counsellor.tools.trace.ranked.suspended
+    assert "S2" not in answer.ranked

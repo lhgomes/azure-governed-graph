@@ -15,7 +15,7 @@ payment_continuity: what is paid immediately afterwards or whether payments stay
 rights_conversion: what happens to built-up rights or how invaren transfers them.
 official_calculation_source: who supplies/calculates official figures or where they come from.
 personal_letter_context: explain the member's letter, whose actual contents are not available here.
-transition_information_gap: whether the member can refuse, cancel or opt out; not a recommendation.
+transition_information_gap: factual permission or procedure for refusing, cancelling or opting out; not whether the member should do so.
 official_value_details: an explicitly requested official date, capital or other value detail.
 combined_transition_question: an explicit question spanning multiple of these topics.
 Choose the specific focus for the current question, including a follow-up; do not collapse source,
@@ -32,6 +32,13 @@ unrelated to the transition, such as contact details or office hours.
 Only a request for a personal pension choice, recommendation, option comparison, or what to choose
 is advice / option_level_question / personal_choice_or_comparison. A worried tone, a personal
 pronoun, a payment-impact question, or uncertainty alone NEVER makes a question advice.
+Apply this distinction in both Dutch and English. Asking whether to take an action or not
+is a personal choice even without the words "recommend" or "option". For example,
+'Moet ik bezwaar maken of niet?' and 'Should I object or not?' require
+personal_choice_or_comparison, not a transition explanation or an information gap.
+By contrast, 'Kan ik bezwaar maken?' asks about factual permission, and
+'Hoe maak ik bezwaar?' asks about procedure; neither asks you to choose for the member.
+Use transition_information_gap for a factual permission question that approved sources cannot answer.
 An explicit request to speak to a person is human / unclassified / explicit_human_request.
 Mentioning an advisor, saying no human is needed, or asking about human support is not such a request.
 When the state is comprehension_check, a reply to the requested teach-back is comprehension /

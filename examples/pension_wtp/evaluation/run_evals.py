@@ -41,6 +41,7 @@ def persona_cases() -> list[dict]:
             "member_ref": profile["member_ref"], "utterance": profile["opening"],
             "channel": profile["channel"], "accessibility_mode": profile["accessibility_mode"],
             "expect": "escalate" if must_escalate else "explain",
+            **({"answer_goal": profile["evaluation_answer_goal"]} if "evaluation_answer_goal" in profile else {}),
         })
     return cases
 

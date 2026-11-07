@@ -686,6 +686,68 @@ def test_art50_b9_foundry_composition_treats_opening_as_already_delivered(counse
 
 
 @pytest.mark.parametrize("channel", ["chat", "voice"])
+@pytest.mark.parametrize("language", ["en", "nl"])
+@pytest.mark.parametrize("failure", ["invalid_draft", "review_rejected"])
+def test_b1_b2_b8_letter_help_fallback_keeps_the_approved_goal(
+        counsellor, monkeypatch, caplog, channel, language, failure):
+    counsellor.journey.channel = channel
+
+    def route(bound_tools, *_):
+        decision = IntentDecision("explanation", "transition_impact_question", "personal_letter_context", language)
+        bound_tools.trace.decision_evidence.append(
+            DecisionEvidence("intent", "gg-intent-agent", "7", asdict(decision)))
+        return decision
+
+    counsellor.decision_agents["intent"] = SimpleNamespace(run=route)
+    hits = counsellor.tools.search.search("overgang", counsellor.journey.stage, language="nl")
+    monkeypatch.setattr(counsellor.tools.search, "search", lambda *args, **kwargs: hits)
+    draft = response("The administrator provides the official figures.", content_ids=[hits[0].id],
+                     question="Who provides the official figures?")
+    client = (FakeResponses(response('{"invalid": true}')) if failure == "invalid_draft" else
+              FakeResponses(draft, reviews=[draft], judgments=[
+                  review_response("revise", ["relevance"]), review_response("revise", ["grounding"])]))
+    install_responses(monkeypatch, client)
+    result = counsellor.handle("Can you help me to understand the letter I received?")
+    assert not result.escalated and result.fidelity.passed
+    assert result.composition_source == "template_fallback"
+    assert "output_gate_template_fallback" in caplog.text
+    assert not any(character.isdigit() for character in result.text)
+    assert "EUR" not in result.text and "{{" not in result.text
+    if language == "en":
+        assert "happy to help" in result.text and "don't have your letter here" in result.text
+        assert "leaving out personal details" in result.text
+    else:
+        assert "help je graag" in result.text and "heb je brief hier niet" in result.text
+        assert "zonder persoonsgegevens" in result.text
+    record, = counsellor.tools.store.read_all()
+    assert record["template_version"] == "1.4"
+    assert record["strategy_id"] == result.strategy_id
+    if failure == "review_rejected":
+        assert len([item for item in record["decision_evidence"] if item["role"] == "answer-review"]) == 2
+    counsellor.decision_agents.pop("intent")
+    assert counsellor.handle("Can I talk to a person please?").escalated
+
+
+@pytest.mark.parametrize("strategy_id", ["S1", "S2", "S3", "S4", "S5"])
+def test_b3_letter_help_template_never_switches_strategy_or_falls_back_to_unrelated_figures(
+        counsellor, monkeypatch, strategy_id):
+    from governedgraph.agents.counsellor import TEMPLATES
+
+    assert TEMPLATES["answer_goals"]["personal_letter_context"]["approval_ref"] == (
+        "HR-PENSION-WTP-LETTER-FALLBACK-2026-11-06")
+    decision = IntentDecision("explanation", "transition_impact_question", "personal_letter_context", "en")
+    counsellor.tools.trace.decision_evidence.append(
+        DecisionEvidence("intent", "gg-intent-agent", "7", asdict(decision)))
+    counsellor.journey.response_language = "en"
+    template = counsellor._template_for(counsellor.catalogue.get(strategy_id))
+    assert "happy to help" in template and "{{value:" not in template
+    assert counsellor._template_for(counsellor.catalogue.get("S6")) == TEMPLATES["templates"]["T-S6"]["any"]
+    monkeypatch.delitem(TEMPLATES["answer_goals"]["personal_letter_context"]["text"], "en")
+    with pytest.raises(KeyError):
+        counsellor._template_for(counsellor.catalogue.get(strategy_id))
+
+
+@pytest.mark.parametrize("channel", ["chat", "voice"])
 def test_b1_b2_b8_letter_help_is_welcoming_without_claiming_document_access(counsellor, monkeypatch, channel):
     counsellor.journey.channel = channel
 

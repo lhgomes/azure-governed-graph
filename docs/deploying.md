@@ -6,13 +6,14 @@ restricted to an environment named exactly `gg-dev`. Do not use it as a producti
 
 ## Automated deployment (recommended)
 
-One command selects the bundled sample, runs its declared acceptance checks and deploys it, resuming where it stopped
-if anything fails. Separate evaluation, demo and proof commands are not required for the normal deployment:
+Deploy first, then run acceptance against that completed deployment. Deployment resumes where it stopped;
+acceptance has its own outcome and never redeploys unchanged services:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-azure.txt
 python -m scripts.deploy
+python -m scripts.acceptance --environment gg-dev
 ```
 
 It first asks whether to **start fresh**, **redeploy/update**, or **resume**. It then asks for the **subscription**, **region**,
@@ -23,10 +24,10 @@ the sample's local tests, evaluation hard gates and offline rehearsal, then pref
 (tools, sign-in, permissions, resource providers, model quota, existing resource group), the azd environment, the
 first provision, the Search private-link approval, the Entra app registrations, delegated recovery access for the saved operator,
 the Foundry agents, the service deployment, a second
-provision, the member-token key bootstrap, a final provision, the learning plane and the sample's channel and voice-text
-verification, fresh Foundry evaluations and the admin console check.
-The voice proof image is remotely built and resolved to an immutable digest automatically; no local Docker or
-separate image-building command is needed. Expect 45-90 minutes plus sample verification/build time.
+provision, the member-token key bootstrap, a final provision, the safe learning bootstrap and the admin console's
+health, sign-in and closed-route checks. It then persists **Deployment complete** and prints the service URLs.
+Expect 45-90 minutes plus local verification/build time. Hosted channel/voice proofs, conversation-capture verification
+and paid Foundry grading run only when you invoke the separate acceptance command afterwards.
 
 ### Sample-owned verification
 
@@ -40,9 +41,11 @@ examples/pension_wtp/deployment.json` selects it explicitly. A saved deployment 
 The definition's package (`examples/<package>/`) is also passed to the image builds and to Bicep as `SAMPLE`/`sampleName`
 and stored in the azd environment as `GOVERNEDGRAPH_SAMPLE`, so a different sample deploys without editing the Dockerfile or
 Bicep (see the [Azure image contract](adopting.md#azure-image-contract)).
-Sample, runtime, dependency or verification-input changes invalidate the affected saved deployment steps and previous
-proof receipts. Every declared proof must report `Succeeded` before deployment completion; an old channel-only success
-cannot skip the sample's voice proof. Selecting a repair step does not bypass missing local sample acceptance.
+Runtime, approved catalogue, infrastructure and dependency changes invalidate the affected deployment checkpoints
+and make old acceptance stale. Evaluation datasets, judge adapters, rubric code and proof-script changes invalidate
+acceptance and local verification, **not** deployed services or the signed learning bootstrap.
+Every declared proof must report `Succeeded` before **acceptance** passes; an old channel-only success cannot skip
+the sample's voice proof. Selecting a deployment repair step does not bypass missing local sample acceptance.
 
 Local acceptance failures stop before fresh Azure provisioning. Do not weaken checks or call a partially accepted sample
 fully available.
@@ -53,17 +56,46 @@ including paraphrased teach-back questions and the unchanged resolved-state acce
 These offline checks are not a claim of live Azure acceptance.
 The in-network channel proof's authentication, idempotency, handover and audit regressions also run before provisioning.
 
-### Foundry evaluations (automatic)
+### Post-deployment acceptance
 
-The `evaluations` step runs the existing pinned writers and semantic agents on the synthetic corpus with local
+```bash
+python -m scripts.acceptance --environment gg-dev
+python -m scripts.acceptance --status
+python -m scripts.deploy --status
+```
+
+Acceptance requires completed deployment checkpoints, safe learning receipts and matching runtime inputs, scope,
+project and numeric agent pins. It runs the existing strict in-network channel and voice-text proofs, verifies
+synthetic conversation capture when enabled, and runs fresh hosted grading. Only the probe image is built during
+acceptance; application services, agent definitions and the learning plane are not redeployed.
+
+The `evaluations` check runs the existing pinned writers and semantic agents on the synthetic corpus with local
 deterministic adapters, then creates a remote guarded-output evaluation in this deployment's Foundry project.
-It prints the results link and retains project-scoped evidence under `.run/`. Model and judge calls incur usage costs;
-no new identity, permission, agent or model is created. Failed deterministic or quality gates block completion.
+It prints the results link and retains project-scoped evidence. Model and judge calls incur usage costs;
+no new identity, permission, agent or model is created. Failed deterministic or quality gates block **acceptance**.
 See [evaluation visibility and limitations](evaluation.md#foundry-results-for-this-deployment).
 
-For an existing deployment, run `python -m scripts.run_foundry_evals --environment gg-dev` from the project virtualenv
-without redeploying services or rerunning learning. A fresh project starts with no evaluation history; old repository
-reports are not recreated by provisioning and cannot certify the new project.
+The saved state records deployment status separately from the latest acceptance attempt. Each explicit invocation
+creates new evidence under `.run/acceptance/`; earlier attempts and Foundry reports are retained, never overwritten.
+Acceptance is `passed`, `failed`, `unavailable` (the grader could not produce valid evidence), `running`, or
+`incomplete` for partial diagnostics. The status command reports `stale` when its binding no longer matches,
+and `not_run` when no tracked attempt exists. Exit codes are 0 for successful checks, 1 for failed checks and
+2 for evaluator unavailability; both failure outcomes remain unaccepted. There are no automatic retries until green.
+
+Fix an acceptance failure and rerun **acceptance**, not deployment. Evaluation-only changes rerun local checks as
+needed without provisioning. `--only verify` and `--only evaluations` are diagnostics and cannot certify full
+acceptance, even after an earlier full pass. The old deployment flags for those checks redirect to these partial
+diagnostics; use the full acceptance command for a new complete receipt.
+
+Legacy deployment files have no separate runtime fingerprint or acceptance binding. Status inspection is read-only;
+old step names are not fabricated into current acceptance. The first subsequent deployment resume conservatively
+revalidates affected runtime checkpoints once to establish the new fingerprint. Acceptance never performs that
+migration by provisioning on your behalf.
+
+For Foundry-only diagnosis, `python -m scripts.run_foundry_evals --environment gg-dev` remains available, but does
+not certify the full solution. A fresh project starts with no evaluation history; old reports cannot certify it.
+Neither deployment completion nor synthetic acceptance is production approval: all existing safety gates and
+human approval requirements remain mandatory before real member use.
 
 ### Learning plane (automatic)
 
@@ -71,8 +103,10 @@ After the final provision, the `learning` step remotely builds the immutable P2 
 inputs, the fixture-publisher image) into the deployment's dedicated Azure ML registry, publishes the synthetic aggregates,
 runs one complete P2 cycle on the Azure ML hosting jobs and, when the sample declares it, runs the protective fairness agent
 once on its isolated fairness job. Only after both succeed does it enable the four-hourly schedule and re-provision. A failed
-cycle or agent proof leaves the schedule off and the step pending; `--mode resume` retries only this step. Nothing is run by
-hand. The runbook's recurrence checks (two scheduled cycles and a skipped-audit freeze-and-alert proof) are observations made
+cycle or agent proof leaves the schedule off and the step pending. Inspect the original cycle before retrying:
+an observation failure is not a confirmed stage failure, and an existing watchdog must not be abandoned by
+blindly starting a replacement cycle. Normal learning bootstrap is automated. The runbook's recurrence checks
+(two scheduled cycles and a skipped-audit freeze-and-alert proof) are observations made
 over time and are not claimed by the script.
 
 P2 job artifacts use sorted-key JSON. Candidate verification matches complete rows by request key, independent of the
@@ -82,6 +116,75 @@ existing audited human recovery remains required, and no schedule or completed l
 The watchdog and recovery audit lookup read every execution-history page, rather than treating ordinary pagination as a
 failure. Continuation links must remain on the same HTTPS ARM job endpoint and must not repeat; malformed pages or a
 failed component on any page still fail closed.
+ARM's documented `Unknown` execution metadata is never completion evidence. The watchdog
+re-observes it at most five times within its original deadline before failing closed;
+an actual failed, stopped or degraded component still requests protection immediately,
+even when another component has unknown metadata. This does not release an existing freeze
+or permit replacing a failed watchdog.
+
+#### ARM polling outages and same-cycle recovery
+
+The operator coordinator retries transient ARM **reads** up to five times, with bounded exponential backoff and jitter,
+within the execution's original polling deadline. A 503 during a status GET does not mean that the job failed.
+Exhausted reads return exit 3 (`observation_unavailable`); deployment keeps learning pending and the schedule disabled,
+without claiming that a freeze occurred. Job-start POSTs are never automatically retried: their outcome can be ambiguous.
+An expired ARM authentication token on a read also returns exit 3 without retrying:
+refresh the operator login, then inspect the original cycle and watchdog. A refreshed
+login cannot release a freeze or turn a failed watchdog into completion.
+The cycle ID is printed before the first job start so that an interrupted attempt can be inspected.
+
+After confirming that the original coordinator stopped, inspect that exact cycle's stage and watchdog executions.
+For a verified unfinished cycle whose **original watchdog remains active**, resume using its original immutable image:
+
+```bash
+python -m scripts.run_p2_container_jobs --environment gg-dev \
+  --image '<original-ML-registry-image@sha256:digest>' \
+  --resume-cycle '<original-cycle-id>' --fairness-agent-proof
+```
+
+Resume reads every history page, binds evidence to the exact cycle, image and isolated job roles, rejects duplicate or
+out-of-order stages, and polls existing executions instead of restarting them. Only not-yet-started subsequent stages
+may be launched. It never replaces a watchdog, retries a failed stage, lifts a freeze, bypasses fairness/approval,
+or enables the schedule. A failed/stopped original watchdog is refused and requires the existing human recovery process.
+Do not use this command to retry an ambiguous job-start POST without first resolving its actual outcome.
+Successful coordinator output alone does not fabricate a completed deployment checkpoint.
+After the human personally completes audited freeze recovery, a failed original
+watchdog still cannot be resumed. Pass the recovery command's exact successful
+JSON to a full saved-state deployment resume:
+
+```bash
+python -m scripts.deploy --mode resume --learning-recovery-receipt '<successful recovery JSON>'
+```
+
+The driver checks the failed cycle's scope, isolated image, original failed/stopped
+watchdog, successful audit and absence of active stages, plus the current durable
+unfrozen Strategy state. It archives the old attempt and supplied human receipt
+without certifying that cycle, then requires a new complete governed cycle on the
+current source. It never calls freeze recovery itself. Subsequent retries use
+ordinary `--mode resume` without reusing the receipt.
+
+The deployment driver now saves the cycle ID, immutable image, runtime fingerprint and selected scope **before**
+starting the watchdog. A normal `python -m scripts.deploy --mode resume` reuses that pending cycle automatically,
+without republishing its input fixtures or starting another watchdog. Scope/image mismatches fail closed.
+For older interruptions without this saved handoff, finalize through the deployment driver:
+
+```bash
+python -m scripts.deploy --mode resume --resume-learning-cycle '<original-cycle-id>'
+```
+
+The driver rechecks the original stage/watchdog evidence, runs the fairness-agent proof against the current pinned
+version, enables the recurring schedule through provisioning, runs the admin health/auth checks, and only then
+records deployment completion. It does not lift freezes. A schedule-provisioning failure retains the original
+cycle for the next resume. The standalone coordinator command above remains a diagnostic/recovery tool, not a
+deployment finalizer.
+
+Operator-only edits to the deployment/P2 coordinator no longer invalidate deployed runtime checkpoints.
+An older fingerprint cannot be safely rewritten to the new input set: the first resume conservatively revalidates
+affected runtime steps once. Reusing an interrupted cycle across such a change requires an identical rebuilt P2
+image digest or verified identical application bytes, dependency manifests and execution defaults inside isolated
+registry tasks. In the latter case the driver retains the **original immutable image and its installed dependencies**;
+it never certifies or promotes the rebuilt image using old cycle evidence. This avoids silently upgrading a transitive
+dependency merely to finalize an interrupted deployment. Changed source/manifests fail closed.
 
 ### Recovery operator access (automatic)
 
@@ -320,10 +423,18 @@ python -m scripts.teardown --plan     # inventory only: resource counts, soft-de
 python -m scripts.teardown            # asks you to type the resource group name, then cleans up and reports progress
 ```
 
+Teardown removes each Search service's shared private link resources before deleting
+the service. Azure can otherwise refuse parent deletion when it cannot verify locks
+on the linked storage resource; this dependency cleanup is automatic and stays scoped
+to the approved deployment.
+
 It reads the saved deployment (or `--subscription`, `--resource-group`, `--seed`) and, in order:
 
-1. deletes the resource group (a delete already running is picked up) and prints `N of M resources still to remove` with a
-   per-type breakdown until it is gone; stops with a re-run hint after `--timeout-minutes` (default 120);
+1. deletes container apps/jobs, then their environments, and waits for Azure to remove the environments' managed
+   infrastructure resource groups. It never directly deletes managed load balancers. It then removes network consumers
+   (API Management, ML workspaces, Search and private endpoints), virtual networks, NAT gateways, and finally NSGs/public IPs,
+   before deleting the resource group. A group delete already running is monitored, not repeated. Progress includes
+   `N of M resources still to remove`, per-type counts, and warnings naming resources that appear/reappear;
 2. purges only this resource group's soft-deleted AI accounts and API Management services, which frees model quota and names
    (it waits for the records to appear). Key Vaults are purged only when purge protection is off; protected ones are listed with their
    retention date and left alone. Another group's soft-deleted resources are never touched;
@@ -335,6 +446,23 @@ It reads the saved deployment (or `--subscription`, `--resource-group`, `--seed`
 It refuses a resource group that is not tagged `azd-env-name=gg-dev`, requires `--yes` when unattended, never grants access, and is safe
 to re-run. Entra clean-up needs permission to delete the registrations and groups the deployment created for you. Do not use
 `azd down` for a deployment with a custom `--resource-group`; it can look for the default group name instead.
+
+**Before teardown, coordinate with subscription governance automation.** Obtain an approved teardown exclusion through
+its existing operator process, so it does not recreate NSGs while the environment is being removed. In the shared development
+subscription, `MCAPSGovernance-AutomationApp` has done this during cleanup. The script does not disable that application,
+change policies, create exemptions, or grant permissions. No particular tag is assumed to suppress automation.
+
+The script checks delete failures in the Azure Activity Log, reports nested dependency errors, and stops if the resource group
+rolls back out of `Deleting`; an existing group is not sufficient evidence that a delete is still running. Known transient
+errors receive at most three delete submissions per resource or group; permission, policy and dependency errors do not receive
+blind retries. Activity Log and resource-list failures are surfaced, not treated as success. The operator needs read access to
+the target resources, their delete activity, and owned managed infrastructure, plus permission to delete individual resources.
+No new permissions are granted by the script.
+
+The shared teardown deadline is `--timeout-minutes` (default 120); `--stall-minutes` (default 30) stops waits without progress
+earlier and prints pending resource IDs/names. Local state is retained on failure. Resolve the reported dependencies or
+automation conflict, then re-run. If an environment is absent but its managed infrastructure persists, use Azure support or
+the authorized service operator; do not force-delete platform-managed networking.
 
 The new environment uses new resource names (they derive from the naming seed), so nothing from the old one collides with it.
 

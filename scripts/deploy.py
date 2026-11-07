@@ -9,7 +9,8 @@ an on-call email. The browser presenter, synthetic-conversation capture and the 
 groups and conversation view) are on by default; --no-voice-demo turns off the presenter, capture and conversation view.
 It then runs, in order: preflight checks, azd environment, first provision, Search private-link approval, Entra app
 registrations (including the console's groups and sign-in), Foundry agents, service deployment, second provision,
-member-token key bootstrap, final provision, learning, verification and a final admin console check. Every step is
+member-token key bootstrap, final provision, safe learning bootstrap and a final admin console health/auth check.
+Run `python -m scripts.acceptance` afterwards for channel/voice proofs and hosted evaluation. Every deployment step is
 idempotent and its completion is recorded in `.run/deploy-state.json`, so after a failure you
 fix the cause and run with --mode resume: it resumes where it stopped.
 Fresh deployments persist a random naming seed; redeploy and resume keep it unchanged.
@@ -28,18 +29,23 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import time
 from collections import deque
-from dataclasses import asdict, dataclass, field
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
+from secrets import token_hex
+from tempfile import NamedTemporaryFile
 from uuid import UUID, uuid4
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "src"))
 STATE_FILE = REPO_ROOT / ".run" / "deploy-state.json"
 ENV_NAME = "gg-dev"
 SAMPLE_NAME = os.getenv("GOVERNEDGRAPH_SAMPLE", "pension_wtp")
@@ -82,6 +88,10 @@ class DeployError(RuntimeError):
     """A step failed; the message says what to fix. Re-running resumes."""
 
 
+class LearningCycleStopped(DeployError):
+    """Inspect the existing cycle before attempting any replacement work."""
+
+
 class UnsafeKey(DeployError):
     """The key material found was not a pure public key; never retry or store it."""
 
@@ -118,21 +128,35 @@ class State:
     sample_fingerprint: str = ""
     sample_proof_executions: dict[str, str] = field(default_factory=dict)
     learning_receipts: dict[str, str] = field(default_factory=dict)
+    learning_attempt: dict[str, str] = field(default_factory=dict)
+    learning_recoveries: list[dict] = field(default_factory=list)
+    runtime_fingerprint: str = ""
+    deployment_id: str = ""
+    deployment_status: str = "pending"
+    acceptance: dict = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: Path = STATE_FILE) -> "State":
         if not path.exists():
             return cls()
         raw = json.loads(path.read_text())
-        return cls(raw.get("answers", {}), raw.get("completed", []), raw.get("operator_id", ""),
-                   raw.get("search_capacity_regions", []), raw.get("environment_reset_pending", False),
-                   raw.get("new_group_required", False), raw.get("channel_proof_execution", ""),
-                   raw.get("sample_fingerprint", ""), raw.get("sample_proof_executions", {}),
-                   raw.get("learning_receipts", {}))
+        return cls(**{item.name: raw[item.name] for item in fields(cls) if item.name in raw})
 
     def save(self, path: Path = STATE_FILE) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(asdict(self), indent=2, sort_keys=True) + "\n")
+        save_json(path, asdict(self))
+
+
+def save_json(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with NamedTemporaryFile(mode="w", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)
@@ -225,6 +249,42 @@ class SampleDefinition:
         for kind, targets in self.local_checks:
             if kind == "pytest":
                 paths.update(REPO_ROOT / target for target in targets)
+        paths.update(self.runtime_inputs())
+        paths.update(path for path in (REPO_ROOT / "evals").rglob("*.py"))
+        for name in ("scripts/acceptance.py",):
+            if (REPO_ROOT / name).is_file():
+                paths.add(REPO_ROOT / name)
+        return self.hash_inputs(paths)
+
+    def runtime_inputs(self) -> set[Path]:
+        paths = {REPO_ROOT / name for name in (
+            "Dockerfile", ".dockerignore", "azure.yaml", "requirements.txt", "requirements-azure.txt",
+            "requirements-p2.txt", "pyproject.toml",
+        ) if (REPO_ROOT / name).is_file()}
+        for directory in (REPO_ROOT / "src", REPO_ROOT / "scripts", REPO_ROOT / "infra", self.path.parent):
+            paths.update(path for path in directory.rglob("*")
+                         if path.is_file() and path.suffix in (
+                             ".py", ".json", ".jsonl", ".csv", ".md", ".html", ".bicep", ".xml", ".yaml", ".js", ".css")
+                         and "__pycache__" not in path.parts)
+        evaluation_only = {
+            REPO_ROOT / "scripts/acceptance.py", REPO_ROOT / "scripts/run_foundry_evals.py",
+            REPO_ROOT / "scripts/run_dev_proof.py",
+            REPO_ROOT / "src/governedgraph/evaluation.py", REPO_ROOT / "src/governedgraph/foundry_evaluation.py",
+            self.path.parent / "data/synthetic/decision_agent_fixtures.json",
+        }
+        operator_only = {REPO_ROOT / "scripts" / name for name in (
+            "deploy.py", "run_p2_container_jobs.py", "teardown.py", "benchmark_voice.py", "lift_dev_freeze.py",
+        )}
+        return {path for path in paths if path not in evaluation_only | operator_only and not (
+            path.is_relative_to(self.path.parent)
+            and (path.relative_to(self.path.parent).parts[0] in ("evaluation", "tests", "docs")
+                 or path.is_relative_to(self.path.parent / "data/personas")))}
+
+    def runtime_fingerprint(self) -> str:
+        return self.hash_inputs(self.runtime_inputs())
+
+    @staticmethod
+    def hash_inputs(paths: set[Path]) -> str:
         digest = hashlib.sha256()
         for path in sorted(paths):
             if not path.resolve().is_relative_to(REPO_ROOT):
@@ -350,6 +410,8 @@ def quota_findings(usage: list[dict]) -> list[str]:
     for name, needed in QUOTA_NEEDS.items():
         row = seen.get(name)
         if row is None:
+            row = seen.get(name.replace(".gpt-4.1", ".gpt4.1"))
+        if row is None:
             problems.append(f"could not confirm quota for {name.split('.', 2)[-1]} ({name.split('.')[1]})")
         elif row.get("limit", 0) - row.get("currentValue", 0) < needed:
             problems.append(f"{name.split('.', 2)[-1]} ({name.split('.')[1]}) has {row['limit'] - row['currentValue']:g} "
@@ -401,9 +463,10 @@ STEP_TITLES = {
     "learning": "Build the P2 image, publish synthetic learning inputs, run the learning and fairness proofs, enable the schedule",
     "verify": "Run every in-network acceptance proof declared by the sample",
     "evaluations": "Create fresh Foundry evaluations of pinned agents on synthetic cases (paid model and judge calls)",
-    "admin-console": "Check the admin console: page, required sign-in, closed routes and recorded synthetic conversations",
+    "admin-console": "Check the admin console: page, health, required sign-in and closed routes",
 }
-STEPS = list(STEP_TITLES)
+ACCEPTANCE_STEPS = ("verify", "evaluations")
+STEPS = [step for step in STEP_TITLES if step not in ACCEPTANCE_STEPS]
 
 
 class Deployer:
@@ -418,6 +481,8 @@ class Deployer:
         self.environment_path = environment_path or REPO_ROOT / ".azure" / ENV_NAME
         self.mode = "resume" if state.answers else "fresh"
         self.answers = Answers(**state.answers) if state.answers else Answers()
+        self.resume_learning_cycle = ""
+        self.learning_recovery_receipt: dict | None = None
 
     @property
     def sample(self) -> SampleDefinition:
@@ -1322,10 +1387,91 @@ class Deployer:
             raise DeployError(f"{what} did not succeed (status: {status or 'unknown'}, execution {execution})")
         return execution
 
+    def p2_source_digest(self, registry: str, image: str) -> str:
+        """Verify source/manifests before retaining an original image, never promoting its rebuild."""
+        # ACR embeds --cmd in task YAML: newlines and mapping separators must not escape the command.
+        code = (
+            "import hashlib,json,os,platform,subprocess,sys;from pathlib import Path;"
+            "h=hashlib.sha256();"
+            "roots=[Path('/app'),Path(sys.executable).resolve(),Path('/etc/os-release')];"
+            "paths=sorted(p for r in roots for p in (r.rglob('*') if r.is_dir() else [r]) "
+            "if p.is_file() and '__pycache__' not in p.parts and p.suffix!='.pyc');"
+            "[h.update(str(p).encode()+b'\\0'+p.read_bytes()+b'\\0') for p in paths];"
+            "metadata=dict(python=sys.version,platform=platform.machine(),uid=os.geteuid(),"
+            "packages=subprocess.check_output(['dpkg-query','-W'],text=True),"
+            "env=dict((k,os.environ.get(k)) for k in ('GOVERNEDGRAPH_SAMPLE','GOVERNEDGRAPH_MODE',"
+            "'PYTHONPATH','PYTHONDONTWRITEBYTECODE','PYTHONUNBUFFERED')));"
+            "h.update(json.dumps(metadata,sort_keys=True).encode());"
+            "print('GG_P2_SOURCE_SHA256='+h.hexdigest(),flush=True)"
+        )
+        output = self.az("acr", "run", "--registry", registry, "--cmd",
+                         shlex.join([image, "python", "-c", code]), "/dev/null", stream=True)
+        digests = re.findall(r"\bGG_P2_SOURCE_SHA256=([0-9a-f]{64})\b", output)
+        if len(digests) != 1:
+            raise LearningCycleStopped("registry task did not return one conclusive P2 source digest")
+        return digests[0]
+
     def learning_complete(self) -> bool:
         wanted = set(self.sample.learning_checks) | {"p2-image", "schedule"}
         return (set(self.state.learning_receipts) == wanted
                 and all(isinstance(value, str) and value for value in self.state.learning_receipts.values()))
+
+    def acknowledge_learning_recovery(self, receipt: dict) -> None:
+        from governedgraph.strategy_service.recovery import RecoveryRequest, latest_successful_audit
+        from governedgraph.strategy_service.state import StateUnavailable
+        from scripts.run_p2_container_jobs import execution_history
+
+        if (not isinstance(receipt, dict)
+                or set(receipt) != {"audit_execution", "decision_ref", "frozen", "recovery_id"}
+                or receipt["frozen"] is not False
+                or not isinstance(receipt["recovery_id"], str)
+                or not re.fullmatch(r"recovery-[0-9a-f]{32}", receipt["recovery_id"])):
+            raise LearningCycleStopped("an exact successful human recovery receipt is required")
+        try:
+            RecoveryRequest.from_dict({"expected_audit_execution": receipt["audit_execution"],
+                                       "decision_ref": receipt["decision_ref"]})
+        except (ValueError, TypeError) as error:
+            raise LearningCycleStopped("human recovery decision or audit reference is invalid") from error
+        attempt = self.state.learning_attempt
+        if (not attempt or any(attempt.get(key) != value for key, value in {
+                "subscription_id": self.answers.subscription_id, "resource_group": self.answers.resource_group,
+                "sample": self.sample.package}.items())):
+            raise LearningCycleStopped("human recovery must match the pending deployment scope")
+        if any(record["receipt"]["recovery_id"] == receipt["recovery_id"] for record in self.state.learning_recoveries):
+            raise LearningCycleStopped("the human recovery receipt has already been acknowledged")
+        rows = []
+        for role in ("pipeline", "fairness"):
+            job = {"id": (f"/subscriptions/{self.answers.subscription_id}/resourceGroups/{self.answers.resource_group}"
+                          f"/providers/Microsoft.App/jobs/job-gg-p2-{role}")}
+            history = execution_history(job, reader=lambda *args: json.loads(self.az(*args, "-o", "json", quiet=True)))
+            for row in history:
+                for container in row["properties"]["template"]["containers"]:
+                    env = {item["name"]: item.get("value") for item in container.get("env", [])}
+                    if env.get("GOVERNEDGRAPH_P2_CYCLE_ID") == attempt["cycle_id"]:
+                        if (container["image"] != attempt["image"]
+                                or (env.get("GOVERNEDGRAPH_P2_STAGE") == "audit") != (role == "fairness")):
+                            raise LearningCycleStopped("recovery execution does not match the pending isolated cycle")
+                        rows.append((row, env))
+        watchdogs = [row for row, env in rows if env.get("GOVERNEDGRAPH_P2_STAGE") == "watchdog"]
+        audits = [row for row, env in rows if env.get("GOVERNEDGRAPH_P2_STAGE") == "audit"]
+        if (len(watchdogs) != 1 or watchdogs[0]["properties"]["status"] not in {"Failed", "Stopped"}
+                or len(audits) != 1 or audits[0]["name"] != receipt["audit_execution"]
+                or audits[0]["properties"]["status"] != "Succeeded"
+                or any(row["properties"]["status"] not in {"Succeeded", "Failed", "Stopped"} for row, _ in rows)):
+            raise LearningCycleStopped("recovery requires a stopped failed cycle and its exact successful audit")
+        try:
+            if latest_successful_audit(audits, attempt["image"]) != receipt["audit_execution"]:
+                raise LearningCycleStopped("human recovery audit does not match the pending cycle")
+        except StateUnavailable as error:
+            raise LearningCycleStopped("human recovery audit lacks approved isolated execution evidence") from error
+        values = self.values()
+        remote = json.loads(self.expect_status("recovered strategy state", values["STRATEGY_ADMIN_URL"] + "/snapshots", 200))
+        if remote.get("frozen") is not False:
+            raise LearningCycleStopped("Strategy Service is still protected; human recovery is required")
+        self.state.learning_recoveries.append({"attempt": dict(attempt), "receipt": dict(receipt)})
+        self.state.learning_attempt = {}
+        self.state.save(self.state_path)
+        self.say("Human recovery verified; failed cycle archived, not certified. A new governed cycle is required.")
 
     def step_learning(self) -> None:
         sample, v = self.sample, self.values()
@@ -1335,12 +1481,34 @@ class Deployer:
         registry = registry_id.rsplit("/", 1)[-1]
         if "/providers/Microsoft.ContainerRegistry/registries/" not in registry_id:
             raise DeployError("provisioning did not report the dedicated Azure ML registry")
+        attempt = self.state.learning_attempt
+        cycle = self.resume_learning_cycle or attempt.get("cycle_id", "")
+        scope = {"subscription_id": self.answers.subscription_id, "resource_group": group,
+                 "sample": sample.package}
+        if attempt and (any(attempt.get(key) != value for key, value in scope.items())
+                        or attempt.get("cycle_id") != cycle):
+            raise LearningCycleStopped("the pending learning cycle does not match the saved deployment scope")
+        previous_image = attempt.get("image") or v.get("P2_CONTAINER_IMAGE", "")
+        if cycle and not re.fullmatch(re.escape(registry) + r"\.azurecr\.io/governedgraph/p2@sha256:[0-9a-f]{64}",
+                                      previous_image):
+            raise LearningCycleStopped("recovering learning requires its original immutable dedicated-registry image")
+        if cycle and not attempt:
+            self.state.learning_attempt = {**scope, "cycle_id": cycle, "image": previous_image}
+            self.state.save(self.state_path)
+        p2_image = (previous_image if cycle and attempt.get("runtime_fingerprint") == self.state.runtime_fingerprint
+                    else self.build_image(registry, "governedgraph/p2", "p2"))
+        if cycle and p2_image != previous_image:
+            self.say("  image digests differ; verifying application code, dependency manifests and execution defaults "
+                     "before retaining the original immutable P2 image...")
+            if self.p2_source_digest(registry, previous_image) != self.p2_source_digest(registry, p2_image):
+                raise LearningCycleStopped("current P2 source differs from the interrupted cycle; "
+                                           "the recovered cycle cannot certify changed workload code")
+            p2_image = previous_image
         receipts: dict[str, str] = {}
-        p2_image = self.build_image(registry, "governedgraph/p2", "p2")
         receipts["p2-image"] = p2_image
         self.setenv("P2_CONTAINER_IMAGE", p2_image)
         self.setenv("P2_SCHEDULE_ENABLED", "false")
-        if sample.learning_fixtures:
+        if sample.learning_fixtures and not cycle:
             self.setenv("DEV_FIXTURES_IMAGE", self.build_image(registry, "governedgraph/dev-fixtures", "dev-fixtures"))
             self.setenv("DEPLOY_DEV_FIXTURES", "true")
         if v.get("FAIRNESS_MANAGED_IDENTITY_CLIENT_ID") != v.get("FAIRNESS_CLIENT_ID"):
@@ -1361,16 +1529,28 @@ class Deployer:
         if grants_change:
             self.say("  waiting for the new container-scoped role assignments to propagate before the first cycle...")
             self.sleep(300)
-        if sample.learning_fixtures:
+        if sample.learning_fixtures and not cycle:
             self.run_job(FIXTURES_JOB, "synthetic learning input publication", group)
+        if not cycle:
+            cycle = "cycle-" + token_hex(8)
+        self.state.learning_attempt = {**scope, "cycle_id": cycle, "image": p2_image,
+                                       "runtime_fingerprint": self.state.runtime_fingerprint}
+        self.state.save(self.state_path)
         command = [self.python, "scripts/run_p2_container_jobs.py", "--environment", ENV_NAME, "--image", p2_image]
+        command += ["--resume-cycle" if self.resume_learning_cycle or attempt else "--cycle-id", cycle]
         if "fairness-agent" in sample.learning_checks:
             command.append("--fairness-agent-proof")
         try:
             output = self.run.run(command, env=self.tool_env(), stream=True)
         except CommandError as error:
-            raise DeployError("the learning acceptance cycle failed. A failed P2 stage freezes the Strategy Service by design; "
-                              "recover it only through the human process in the runbook, then resume. "
+            if error.code == 3:
+                raise LearningCycleStopped("P2 execution status is unavailable; this is not evidence that a stage failed or "
+                                  "the Strategy Service froze. The original jobs/watchdog may still be running. "
+                                  "Inspect and resume the existing cycle, not a new one; do not lift any freeze. "
+                                  f"Last output: {error.stderr[-300:]}") from error
+            raise LearningCycleStopped("learning coordination stopped. Verify the actual stage and watchdog status before retrying. "
+                              "A confirmed failed P2 stage freezes the Strategy Service by design; any confirmed freeze "
+                              "must be recovered only through the human process in the runbook. "
                               f"Last output: {error.stderr[-300:]}") from error
         events = []
         for line in output.splitlines():
@@ -1378,13 +1558,15 @@ class Deployer:
                 events.append(json.loads(line))
             except ValueError:
                 continue
-        cycle = next((e["cycle_id"] for e in events if e.get("pipeline") == "Completed" and e.get("cycle_id")), "")
-        if not cycle:
-            raise DeployError("the P2 cycle did not report completion")
+        completed_cycle = next((e.get("cycle_id") for e in events
+                                if isinstance(e, dict) and e.get("pipeline") == "Completed"), "")
+        if completed_cycle != cycle:
+            raise DeployError("the P2 cycle did not report completion for the pending cycle")
         receipts["p2-cycle"] = cycle
         if "fairness-agent" in sample.learning_checks:
-            proof = next((e["execution"] for e in events if e.get("fairness_agent") == "Succeeded" and e.get("execution")), "")
-            if not proof:
+            proof = next((e.get("execution") for e in events
+                          if isinstance(e, dict) and e.get("fairness_agent") == "Succeeded"), "")
+            if not isinstance(proof, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", proof):
                 raise DeployError("the fairness-agent proof did not report success")
             receipts["fairness-agent"] = proof
         # The recurring cycle starts only after the manual acceptance cycle and agent proof have succeeded.
@@ -1392,8 +1574,9 @@ class Deployer:
         self.provision()
         receipts["schedule"] = "enabled"
         self.state.learning_receipts = receipts
+        self.state.learning_attempt = {}
 
-    def step_verify(self) -> None:
+    def step_verify(self, on_execution: Callable[[str, str], None] | None = None) -> None:
         v = self.values()
         self.run.run([self.python, "-m", "scripts.azd_env", "show", "--environment", ENV_NAME], stream=True)
         proofs = {}
@@ -1406,13 +1589,15 @@ class Deployer:
                 image = self.build_image(endpoint.split(".", 1)[0], "sample-voice-proof", "dev-voice")
                 args += ["--image", image]
             execution = self.run.run(args, env=self.tool_env()).strip()
+            if on_execution is not None and re.fullmatch(r"[a-z0-9][a-z0-9-]*", execution):
+                on_execution(mode, execution)
             self.verify_execution(mode, execution, v)
             proofs[mode] = execution
         self.state.sample_proof_executions = proofs
         self.state.channel_proof_execution = proofs["channel"]
 
-    def step_evaluations(self) -> None:
-        self.run.run([self.python, "-m", "scripts.run_foundry_evals", "--environment", ENV_NAME],
+    def step_evaluations(self, output: Path) -> None:
+        self.run.run([self.python, "-m", "scripts.run_foundry_evals", "--environment", ENV_NAME, "--output", str(output)],
                      env={**self.tool_env(), "GOVERNEDGRAPH_MODE": "local"}, stream=True)
 
     def expect_status(self, what: str, url: str, expected: int, headers: dict | None = None) -> str:
@@ -1448,12 +1633,14 @@ class Deployer:
                            401 if signed_in else 200, headers)
         mode = "sign-in required" if signed_in else "open, read-only"
         self.say(f"  Admin console: page, health and closed routes verified; evidence access is {mode}.")
-        if self.answers.voice_demo:
-            self.verify_conversation_capture(v)
-        else:
-            self.say("  Conversation capture skipped: the voice presenter was not chosen.")
 
-    def verify_conversation_capture(self, v: dict[str, str]) -> None:
+    def step_capture(self, since: datetime | None = None) -> None:
+        if self.answers.voice_demo and self.admin_enabled():
+            self.verify_conversation_capture(self.values(), since=since)
+        else:
+            self.say("  Conversation capture skipped: the voice presenter or admin console was not chosen.")
+
+    def verify_conversation_capture(self, v: dict[str, str], *, since: datetime | None = None) -> None:
         """The channel proof runs synthetic journeys; their text must reach the workspace the console reads."""
         group = v["AZURE_RESOURCE_GROUP"]
         workspace = v.get("LOG_ANALYTICS_WORKSPACE_ID", "").strip()
@@ -1467,10 +1654,11 @@ class Deployer:
         except DeployError:
             self.az("extension", "add", "--name", "log-analytics", "--yes")
         spans = ""
+        query = CAPTURE_QUERY if since is None else CAPTURE_QUERY.replace("ago(3h)", f"datetime({since.isoformat()})")
         for attempt in range(15):
             try:
                 spans = self.az("monitor", "log-analytics", "query", "-w", workspace, "--analytics-query",
-                                CAPTURE_QUERY, "--query", "[0].spans", "-o", "tsv", quiet=True).strip()
+                                query, "--query", "[0].spans", "-o", "tsv", quiet=True).strip()
             except DeployError as error:
                 raise DeployError("could not read the Log Analytics workspace to check conversation capture; the "
                                   "deploying user needs read access to it. Re-run this step once that is granted: "
@@ -1505,14 +1693,29 @@ class Deployer:
     # ---- driver ------------------------------------------------------------------------------------------------
     def execute(self, only: str | None = None, from_step: str | None = None, force: bool = False) -> None:
         fingerprint = self.sample.fingerprint()
+        runtime = self.sample.runtime_fingerprint()
+        changed_runtime = self.state.runtime_fingerprint != runtime
         if self.state.sample_fingerprint != fingerprint:
-            affected = {"sample", "recovery-access", "agents", "deploy", "provision-2", "provision-3", "learning", "verify",
-                        "evaluations", "admin-console"}
+            self.state.completed = [step for step in self.state.completed if step != "sample"]
+        if changed_runtime:
+            affected = {"sample", "recovery-access", "agents", "deploy", "provision-2", "provision-3", "learning",
+                        "verify", "evaluations", "admin-console"}
             self.state.completed = [step for step in self.state.completed if step not in affected]
             self.state.channel_proof_execution = ""
             self.state.sample_proof_executions = {}
             self.state.learning_receipts = {}
-            self.state.save(self.state_path)
+            self.state.runtime_fingerprint = runtime
+        mutating = set(STEPS) - {"sample", "preflight", "admin-console"}
+        selected = STEPS[STEPS.index(from_step):] if from_step else STEPS
+        selected = [only] if only else selected
+        pending_mutation = any(step in mutating and (force or only or step not in self.state.completed
+                              or step == "learning" and (not self.learning_complete()
+                                                         or self.resume_learning_cycle)) for step in selected)
+        if changed_runtime or pending_mutation:
+            if changed_runtime or self.state.deployment_status == "succeeded" or not self.state.deployment_id:
+                self.state.deployment_id = token_hex(16)
+            self.state.deployment_status = "pending"
+        self.state.save(self.state_path)
         if (only and only != "sample" or from_step and from_step != "sample") and "sample" not in self.state.completed:
             self.say(f"\n== sample: {STEP_TITLES['sample']}")
             self.step_sample()
@@ -1521,12 +1724,26 @@ class Deployer:
         if "environment" in self.state.completed and only != "preflight":
             self.say("Revalidating the gg-dev environment and saved deployment scope before resuming.")
             self.step_environment()
+        if self.learning_recovery_receipt is not None:
+            self.acknowledge_learning_recovery(self.learning_recovery_receipt)
+            self.learning_recovery_receipt = None
+        if self.resume_learning_cycle and not self.state.learning_attempt:
+            values = self.values()
+            image = values.get("P2_CONTAINER_IMAGE", "")
+            registry = values.get("AZURE_ML_REGISTRY_ID", "").rsplit("/", 1)[-1]
+            if not registry or not re.fullmatch(
+                    re.escape(registry) + r"\.azurecr\.io/governedgraph/p2@sha256:[0-9a-f]{64}", image):
+                raise LearningCycleStopped("legacy cycle recovery requires its original immutable P2 image")
+            self.state.learning_attempt = {
+                "subscription_id": self.answers.subscription_id, "resource_group": self.answers.resource_group,
+                "sample": self.sample.package, "cycle_id": self.resume_learning_cycle, "image": image,
+            }
+            self.state.save(self.state_path)
         for index, step in enumerate(STEPS):
             if only and step != only or index < start:
                 continue
             if (step in self.state.completed and not force and not only
-                    and (step != "verify" or self.sample_proofs_complete())
-                    and (step != "learning" or self.learning_complete())):
+                    and (step != "learning" or self.learning_complete() and not self.resume_learning_cycle)):
                 self.say(f"[skip] {step}: already done")
                 continue
             if step == "learning":
@@ -1534,22 +1751,17 @@ class Deployer:
                     self.state.completed.remove(step)
                 self.state.learning_receipts = {}
                 self.state.save(self.state_path)
-            if step == "verify":
-                if step in self.state.completed:
-                    self.state.completed.remove(step)
-                self.state.channel_proof_execution = ""
-                self.state.sample_proof_executions = {}
-                self.state.save(self.state_path)
             self.say(f"\n== {step}: {STEP_TITLES[step]}")
             getattr(self, "step_" + step.replace("-", "_"))()
             self.mark(step)
         self.finish()
 
     def finish(self) -> None:
-        if (not all(step in self.state.completed for step in STEPS) or not self.sample_proofs_complete()
-                or not self.learning_complete()):
+        if not all(step in self.state.completed for step in STEPS) or not self.learning_complete():
             return
         v = self.values()
+        self.state.deployment_status = "succeeded"
+        self.state.save(self.state_path)
         self.say("\nDeployment complete.")
         for label, key in (("Resource group", "AZURE_RESOURCE_GROUP"), ("Orchestrator", "ORCHESTRATOR_URL"),
                            ("Gateway", "APIM_GATEWAY_URL")):
@@ -1564,6 +1776,8 @@ class Deployer:
         self.say("  Not every region asks for this yet; any alert email you receive also proves delivery. Then follow the runbook:")
         self.say("  examples/pension_wtp/docs/demo-runbook.md   (every command reads its values from the azd environment)")
         self.say("Learning runs on its approved four-hourly schedule. Remove everything with: python -m scripts.teardown")
+        self.say("Deployment is not acceptance or approval for real member use.")
+        self.say("Run post-deployment acceptance: python -m scripts.acceptance --environment gg-dev")
 
     def sample_proofs_complete(self) -> bool:
         return (bool(self.state.channel_proof_execution)
@@ -1605,6 +1819,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="fresh: new naming seed/group; redeploy: rerun with existing names; resume: skip completed steps")
     p.add_argument("--recover-soft-deleted", action="store_true",
                    help="explicitly allow recovery of verified same-deployment soft-deleted resources; never purge")
+    p.add_argument("--resume-learning-cycle",
+                   help="verify/resume this original P2 cycle and finalize deployment; never replace its watchdog")
+    p.add_argument("--learning-recovery-receipt",
+                   help="successful human recovery JSON; verify and archive a failed cycle before a new governed cycle")
     p.add_argument("--yes", action="store_true", help="do not ask for the final confirmation")
     p.add_argument("--non-interactive", action="store_true", help="never prompt; every answer must be a flag")
     p.add_argument("--reconfigure", action="store_true", help="ask the questions again (before provisioning only)")
@@ -1615,8 +1833,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--on-call-email")
     p.add_argument("--member-token-issuer")
     p.add_argument("--voice-demo", action=argparse.BooleanOptionalAction, default=None)
-    p.add_argument("--only", choices=STEPS)
-    p.add_argument("--from-step", choices=STEPS)
+    p.add_argument("--only", choices=[*STEPS, *ACCEPTANCE_STEPS])
+    p.add_argument("--from-step", choices=[*STEPS, *ACCEPTANCE_STEPS])
     p.add_argument("--force", action="store_true", help="re-run steps already recorded as done")
     p.add_argument("--ignore-warnings", action="store_true",
                    help="unattended runs stop on quota/permission/existing-group warnings; this continues past them")
@@ -1633,13 +1851,37 @@ def main(argv: list[str] | None = None, *, runner: Runner | None = None, prompte
                         check_local=runner is None, ignore_warnings=args.ignore_warnings,
                         recover_soft_deleted=args.recover_soft_deleted, environment_path=environment_path)
     try:
+        if args.learning_recovery_receipt:
+            if (args.mode != "resume" or not state.answers or args.force or args.reconfigure or args.only
+                    or args.from_step or args.sample_definition or args.resume_learning_cycle):
+                raise DeployError("--learning-recovery-receipt requires a full saved-state --mode resume")
+            try:
+                deployer.learning_recovery_receipt = json.loads(args.learning_recovery_receipt)
+            except ValueError as error:
+                raise DeployError("--learning-recovery-receipt must be valid recovery JSON") from error
+            if not isinstance(deployer.learning_recovery_receipt, dict):
+                raise DeployError("--learning-recovery-receipt must be a recovery JSON object")
+        if args.resume_learning_cycle:
+            if (not re.fullmatch(r"cycle-[0-9a-f]{16}", args.resume_learning_cycle)
+                    or args.mode != "resume" or not state.answers or args.force or args.reconfigure
+                    or args.only or args.from_step or args.sample_definition):
+                raise DeployError("--resume-learning-cycle requires saved state, --mode resume and an exact cycle ID; "
+                                  "it cannot be combined with partial, forced or reconfigured deployment")
+            deployer.resume_learning_cycle = args.resume_learning_cycle
         if args.sample_definition:
             if state.answers and args.sample_definition != deployer.answers.sample_definition and args.mode != "fresh":
                 raise DeployError("an existing deployment cannot switch its sample definition")
             deployer.answers.sample_definition = args.sample_definition
         deployer.sample
         if args.status:
-            deployer.say(json.dumps(asdict(state), indent=2))
+            from scripts.acceptance import current_status
+            summary = asdict(state)
+            try:
+                summary["acceptance_status"] = current_status(deployer)
+            except DeployError as error:
+                summary["acceptance_status"] = "stale"
+                summary["acceptance_error"] = str(error)
+            deployer.say(json.dumps(summary, indent=2))
             return 0
         if args.plan:
             deployer.mode = args.mode or deployer.mode
@@ -1660,6 +1902,13 @@ def main(argv: list[str] | None = None, *, runner: Runner | None = None, prompte
                 deployer.state.completed = []
             print_plan(deployer, args)
             return 0
+        if args.only in ACCEPTANCE_STEPS or args.from_step in ACCEPTANCE_STEPS:
+            if args.mode not in (None, "resume") or args.force or args.reconfigure or args.sample_definition:
+                raise DeployError("post-deployment checks use `python -m scripts.acceptance`; deployment flags do not apply")
+            from scripts.acceptance import execute
+            deployer.say("Post-deployment acceptance has moved to `python -m scripts.acceptance`. "
+                         "This compatibility command runs a partial diagnostic, not full acceptance.")
+            return execute(deployer, only=args.only or args.from_step)
         deployer.select_mode(args)
         if args.sample_definition:
             deployer.answers.sample_definition = args.sample_definition
@@ -1676,8 +1925,15 @@ def main(argv: list[str] | None = None, *, runner: Runner | None = None, prompte
         return 0
     except DeployError as error:
         print(f"\nStopped: {error}", file=sys.stderr)
-        print("Fix the cause and resume with `python -m scripts.deploy --mode resume`; completed steps are skipped. "
-              "Do not repeat --mode fresh to retry.", file=sys.stderr)
+        if isinstance(error, LearningCycleStopped):
+            print("Do not start a replacement P2 cycle blindly. Inspect the original execution and watchdog. "
+                  "The pending cycle is retained for `python -m scripts.deploy --mode resume`; "
+                  "legacy recovery uses `--resume-learning-cycle <original-cycle-id>`. "
+                  "An unfinished cycle requires its original active watchdog; a failed watchdog requires human recovery. "
+                  "No deployment completion or learning acceptance was recorded.", file=sys.stderr)
+        else:
+            print("Fix the cause and resume with `python -m scripts.deploy --mode resume`; completed steps are skipped. "
+                  "Do not repeat --mode fresh to retry.", file=sys.stderr)
         return 1
 
 

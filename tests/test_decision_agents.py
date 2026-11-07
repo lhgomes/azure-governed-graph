@@ -345,6 +345,14 @@ def test_b3_judge_is_a_pinned_tool_free_separate_agent_using_existing_model():
         OfflineFixtureAgent("answer-review")
 
 
+def test_b9_dutch_personal_choice_and_factual_objection_questions_remain_distinct_in_pinned_prompt():
+    instructions = agent_definition("intent").as_dict()["instructions"]
+    assert "'Moet ik bezwaar maken of niet?'" in instructions
+    assert "'Kan ik bezwaar maken?'" in instructions
+    assert "personal_choice_or_comparison" in instructions
+    assert "transition_information_gap" in instructions
+
+
 @pytest.mark.parametrize("language", [None, "de", "Dutch", {"age": 80}])
 def test_b7_intent_language_is_explicit_closed_and_never_derived_from_demographics(monkeypatch, language):
     monkeypatch.setattr(decision_agents, "settings", replace(settings, intent_agent_version="1"))

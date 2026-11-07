@@ -56,6 +56,45 @@ def test_b6_container_watchdog_detects_audit_failure_before_component_python():
         check_component_states(states)
 
 
+def test_b6_degraded_execution_requires_a_protective_freeze():
+    states = component_states({"fairness": [execution("audit", status="Degraded")]}, CYCLE, IMAGE)
+    with pytest.raises(RuntimeError, match="freeze"):
+        check_component_states(states)
+
+
+def test_b6_unknown_metadata_cannot_hide_a_failed_component():
+    states = component_states({"pipeline": [execution("rank", status="Unknown")],
+                               "fairness": [execution("audit", status="Failed")]}, CYCLE, IMAGE)
+    with pytest.raises(RuntimeError, match="freeze"):
+        check_component_states(states)
+
+
+@pytest.mark.parametrize("recover", [True, False])
+def test_b6_watchdog_bounds_unknown_observations_without_certifying_them(monkeypatch, recover):
+    calls, sleeps = [], []
+    monkeypatch.setenv("P2_PIPELINE_JOB_ID", "pipeline")
+    monkeypatch.setenv("P2_FAIRNESS_JOB_ID", "fairness")
+    monkeypatch.setattr(container_jobs.time, "sleep", sleeps.append)
+    monkeypatch.setattr(container_jobs.time, "monotonic", lambda: 0)
+
+    def rows(credential, job_id):
+        calls.append(job_id)
+        if job_id == "fairness":
+            return [execution("audit")]
+        status = "Succeeded" if recover and len(calls) > 2 else "Unknown"
+        return [execution(stage, status=status if stage == "rank" else "Succeeded")
+                for stage in STEPS if stage != "audit"]
+
+    monkeypatch.setattr(container_jobs, "execution_rows", rows)
+    if recover:
+        watch(object(), CYCLE, IMAGE)
+        assert len(calls) == 4 and sleeps == [10]
+    else:
+        with pytest.raises(container_jobs.P2MetadataUnavailable, match="not certified"):
+            watch(object(), CYCLE, IMAGE)
+        assert len(calls) == 10 and sleeps == [10] * 4
+
+
 @pytest.mark.parametrize("executions", [
     {"pipeline": [execution("audit")]},
     {"fairness": [execution("sign")]},

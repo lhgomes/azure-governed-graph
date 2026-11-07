@@ -1,11 +1,21 @@
 {
-  "template_set_version": "1.3",
+  "template_set_version": "1.4",
   "acknowledgements": {
     "approval_ref": "IMP-35-user-approval-2026-10-27",
     "label": "ILLUSTRATIVE - synthetic data",
     "voice_checking": "Thank you. I'm checking your official figures now."
   },
-  "note": "Approved templates. Figures are bound BY REFERENCE ({{value:<value_id>}}) from get_member_values results (B2). The model may choose wording around a template but never writes a figure itself. Each template has approved variants; the runtime picks the first variant whose placeholders are all present in the member's official values.",
+  "note": "Approved templates. Figures are bound BY REFERENCE ({{value:<value_id>}}) from get_member_values results (B2). The model may choose wording around a template but never writes a figure itself. An approved answer-goal template takes precedence for that task and language without changing the selected strategy. Otherwise the runtime picks the first variant whose placeholders are all present in the member's official values.",
+  "answer_goals": {
+    "personal_letter_context": {
+      "approval_ref": "HR-PENSION-WTP-LETTER-FALLBACK-2026-11-06",
+      "label": "ILLUSTRATIVE - synthetic data",
+      "text": {
+        "en": "I'm happy to help you understand your letter. We can take it one step at a time. I don't have your letter here. Please share the sentence or section you'd like explained, leaving out personal details. Which part would you like help with?",
+        "nl": "Ik help je graag om je brief te begrijpen. We kunnen dit stap voor stap bekijken. Ik heb je brief hier niet. Deel de zin of het onderdeel dat je wilt laten uitleggen, zonder persoonsgegevens. Welk deel wil je bespreken?"
+      }
+    }
+  },
   "templates": {
     "T-S1": {
       "pensioner": "In short: the Wtp transition (invaren) changes how your pension is organised, not the official amounts you have built up. Your current official monthly pension is {{value:current_monthly_pension}}. The fund's administrator calculated your figures; I can only explain them.",

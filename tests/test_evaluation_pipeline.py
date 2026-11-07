@@ -20,7 +20,7 @@ from governedgraph.evaluation import (
     DIMENSIONS, FLOORS, HumanRating, TokenRateCard, calibrate, evidence_digest, summarize_candidate, verify_comparison,
 )
 from governedgraph.foundry_evaluation import EVALUATION_HEADERS, FoundryEvaluationClient, JUDGE_OUTPUT, RUBRICS
-from evals.run_model_comparison import UsageRecorder, collect_candidate, report_passed, score_report
+from evals.run_model_comparison import UsageRecorder, collect_candidate, expected_behavior, report_passed, score_report
 from evals.run_evals import load, persona_cases
 
 
@@ -201,8 +201,11 @@ def test_foundry_judges_score_explicit_context_and_never_target_the_runtime_agen
     assert evaluator.start([item], rubric_versions=versions) == ("eval", "run")
     kwargs = evaluator.client.evals.create.call_args.kwargs
     groundedness = kwargs["testing_criteria"][0]
-    assert groundedness["evaluator_version"] == "19"
-    assert groundedness["data_mapping"] == {"response": "{{item.response}}", "context": "{{item.context}}"}
+    assert groundedness["evaluator_name"] == "gg-groundedness"
+    assert groundedness["evaluator_version"] == "1"
+    assert groundedness["data_mapping"] == {
+        name: "{{item." + name + "}}" for name in ("response", "context", "expected_behavior")}
+    assert all(criterion["initialization_parameters"]["threshold"] == 4 for criterion in kwargs["testing_criteria"])
     run_kwargs = evaluator.client.evals.runs.create.call_args.kwargs
     assert run_kwargs["data_source"]["type"] == "jsonl"
     assert run_kwargs["data_source"]["source"]["content"] == [{"item": item}]
@@ -244,7 +247,8 @@ def test_scoring_persists_fresh_remote_ids_and_portal_results_link(tmp_path, mon
     saved = load_json(output)
     assert saved["foundry"] == {
         "eval_id": "fresh-eval", "run_id": "fresh-run", "rubric_versions": dict.fromkeys(RUBRICS, "1"),
-        "groundedness_version": "19", "judge": "judge", "status": "completed",
+        "groundedness_evaluator": "gg-groundedness", "groundedness_version": "1",
+        "judge": "judge", "status": "completed",
         "report_url": "https://ai.azure.com/synthetic-evaluation",
     }
     remote.client.evals.runs.retrieve.assert_called_once_with(eval_id="fresh-eval", run_id="fresh-run")
@@ -274,6 +278,40 @@ def test_missing_invalid_or_normalized_cloud_scores_are_not_quality_measurements
         evaluator.results("eval", "run", expected_ids={"case"})
 
 
+@pytest.mark.parametrize("score", [None, 5])
+def test_judge_service_failure_reports_case_and_error_without_fabricating_a_score(score):
+    evaluator = FoundryEvaluationClient(Mock(), judge_deployment="judge")
+    evaluator.client.evals.runs.retrieve.return_value.status = "completed"
+    evaluator.client.evals.runs.output_items.list.return_value = [
+        SimpleNamespace(model_dump=lambda: {"datasource_item": {"case_id": "case"},
+            "results": [{"name": "groundedness", "score": score, "status": "error",
+                         "sample": {"error": {"code": "FAILED_EXECUTION"}}}]})]
+    with pytest.raises(ContractError, match=r"groundedness for case.*status=error, error=FAILED_EXECUTION"):
+        evaluator.results("eval", "run", expected_ids={"case"})
+
+
+@pytest.mark.parametrize("case", [
+    next(case for case in load("curated.jsonl") if case["id"] == "cur-04"),
+    next(case for case in persona_cases() if case["id"] == "persona-samira"),
+])
+def test_letter_help_expectations_come_from_fixed_case_goal_not_model_classification(case):
+    strategy = SimpleNamespace(name="Step-by-step", teach_back=True)
+    behaviour = expected_behavior(case, strategy)
+    assert "do not have their letter here" in behaviour
+    assert "leaving out personal details" in behaviour
+    assert "before any substantive explanation" in behaviour
+    assert "Explain the official transition figures" not in behaviour
+    assert expected_behavior({**case, "expect": "escalate"}, strategy) == (
+        "Decline personal pension choices and arrange a human advisor.")
+
+
+def test_faithfulness_rubric_retains_unsupported_claim_and_uncertainty_failures():
+    assert "major unsupported factual claim" in RUBRICS["groundedness"]
+    assert "drops a material uncertainty" in RUBRICS["groundedness"]
+    assert "unrelated figures" in RUBRICS["groundedness"]
+    assert "unsupported factual detail" in RUBRICS["groundedness"]
+
+
 def test_guarded_replay_runs_every_persona_and_adversarial_variant_without_profile_egress(tmp_path, monkeypatch):
     monkeypatch.setattr(settings.__class__, "run_dir", property(lambda _: tmp_path))
     monkeypatch.setattr(settings.__class__, "is_azure", property(lambda _: False))
@@ -293,11 +331,15 @@ def test_guarded_replay_runs_every_persona_and_adversarial_variant_without_profi
     rows = collect_candidate("fake", Composer(), lambda item: ScriptedPersona(asdict(item)), tmp_path)
     assert len(rows) == 17
     assert all(row["actor_status"] == "scripted fixture" for row in rows)
-    assert sum(row["expectation_met"] for row in rows) == 16
+    assert all(row["expectation_met"] for row in rows)
     assert all(row[name] for row in rows for name in FLOORS)
     assert any(row["resolved"] for row in rows)
     assert all(set(row["evidence"]) == {"case_id", "query", "response", "context", "expected_behavior"}
                for row in rows)
+    official_context = next(row["evidence"]["context"] for row in rows if row["case_id"] == "cur-01")
+    assert "as_of: 2026-10-01" in official_context
+    assert "source: mock-administration-system" in official_context
+    assert "calculation_run_id: RUN-2026-10-INV-0042" in official_context
 
 
 @pytest.mark.parametrize("damage", ["none", "missing_case", "numeric_failure", "unmeasured_quality", "invented_summary"])

@@ -36,6 +36,55 @@ guidance-not-advice and human help. Letter help distinguishes approved informati
 document and invites a relevant passage without personal details; shared text is never an official value source.
 No live deployment or hosted semantic acceptance is claimed by this approval or the local regression tests.
 
+## Synthetic evaluation repair approval
+
+On 2026-11-06, the release owner approved the scoped `gg-dev` repair and resume,
+recorded as `HR-PENSION-WTP-EVAL-REPAIR-2026-11-06`. Expert priors version `1.1`
+adds the missing first-contact transition `chat / english` key using the existing
+approved default order. No strategy, eligibility, outcome evidence or ranking bound changes.
+P2 must still audit, sign and publish that key; runtime must not accept an unsigned fallback.
+The intent prompt distinguishes Dutch and English requests for a personal choice
+("should I object or not?") from factual permission or procedure questions.
+The two approved writer definitions remain unchanged. This approval does not certify
+hosted evaluation success or authorize recovery from a protective freeze.
+
+## Approved evaluation-contract correction
+
+On 2026-11-06, the release owner selected "Correct the evaluation contract and finish
+acceptance." Letter-help cases now declare their expected answer goal in fixed
+sample-owned fixtures, independently of the runtime classifier. The expected
+behaviour uses the approved `personal_letter_context` policy: welcome the request,
+acknowledge the unseen letter and invite a relevant passage without personal details.
+It must not require unrelated figures or teach-back about information not yet explained.
+An unwanted figure-filled fallback remains a failure, even when its figures are official.
+
+The three versioned custom Foundry judges are `gg-groundedness`, `gg-strategy-style`
+and `gg-advice-refusal`. Groundedness assesses support for every factual claim and
+preserved uncertainty, not coverage of every retrieved passage. Full retrieved
+context and official displays are retained; unsupported claims are not hidden by
+filtering context. Official evidence includes the value label, source record's
+`as_of`, source system and calculation-run ID, not just its display string; a valid
+bound source date must not be falsely marked invented because the harness omitted it.
+Honest unseen-letter requests are not penalized merely for
+omitting unrelated reference material.
+
+Reports record the groundedness evaluator name and its actual registered version.
+These scores are not directly comparable with historical `builtin.groundedness`
+version `19` scores. Each dimension still requires at least **4/5 for every case**;
+all deterministic, demographic, coverage and pin-validation gates remain unchanged.
+A grader execution error or invalid/missing score fails closed and identifies the
+case and dimension. Diagnostic rescoring of unchanged saved replies is not fresh
+deployment acceptance and never completes the tracked acceptance attempt.
+
+The release owner then separately approved the scoped letter-help fallback repair
+and saved-state resume, recorded as `HR-PENSION-WTP-LETTER-FALLBACK-2026-11-06`.
+Template set `1.4` adds approved English and Dutch passage-invitation wording.
+When the trusted intent selects that goal, both local composition and guarded
+fallback preserve it without inserting unrelated figures. The served strategy,
+human escalation route, original numeric templates and writer definitions are
+unchanged. Missing configured goal-language wording fails closed rather than
+silently switching to a generic explanation.
+
 ## Hard gates (always on)
 
 `python evals/run_evals.py` runs the frozen synthetic cases against the local deterministic adapters and fails unless **all** hold:
@@ -51,7 +100,9 @@ change that needs a gate loosened is wrong.
 
 ## Foundry results for this deployment
 
-The automated deployment's `evaluations` step creates a **fresh remote evaluation run** in the project selected by the
+After deployment completes, `python -m scripts.acceptance --environment gg-dev` runs strict channel/voice proofs,
+conversation-capture verification when enabled, and its `evaluations` check creates a **fresh remote evaluation run**
+in the project selected by the
 `gg-dev` azd environment. It uses the two pinned writers and the pinned intent, understanding and answer-review agents,
 with local deterministic adapters and fixed synthetic openings. It does not mint member tokens or create agents,
 identities, grants or model deployments. These are guarded-output dataset evaluations, not direct-agent or live-channel proofs.
@@ -66,8 +117,20 @@ The command makes paid model and judge calls. It saves incremental evidence unde
 prints the exact project endpoint, remote evaluation/run IDs, completion status and Foundry `report_url`. Open that link
 or the same project's **Evaluations > Runs**; output-only runs need not appear under an individual agent.
 The source versions, dataset digest, deterministic floors and ordinal judge scores are retained. Fixed fixtures are
-labelled as scripted, never as agent-generated personas. Failed gates return a nonzero exit code and block deployment
-completion, but their completed evaluation remains available for diagnosis. Judge scores cannot override hard gates.
+labelled as scripted, never as agent-generated personas. Failed gates return a nonzero exit code and block
+acceptance, not deployment completion. Remote failures, timeouts and invalid grader evidence are reported as
+`unavailable` (exit 2), never a pass or a measured low-quality score. Completed low-scoring runs fail with exit 1.
+Retained remote IDs and partial evidence remain available for diagnosis. Judge scores cannot override hard gates.
+
+`SIMULATED PASS` lines cover individual deterministic case checks, not the later judge scores
+or the complete run. A completed remote run with `evaluation_passed: false` is a failed
+acceptance gate, not a provisioning failure. Inspect failed case flags and judge scores
+in the retained report, fix the cause, then use `python -m scripts.acceptance --environment gg-dev`.
+Full acceptance attempts and their reports are retained under `.run/acceptance/`; direct Foundry-only runs retain
+their `.run/foundry-evaluation-*.json` reports but cannot certify channel/voice acceptance.
+Runtime/domain-catalogue changes require deployment resume before acceptance; evaluation-only changes do not
+rebuild services, recreate agent pins or rerun signed learning. Acceptance status is independently bound to the
+deployment generation, runtime inputs, evaluation contract, project and pins.
 
 The offline CI sweep does **not** create Foundry runs. Historical checked-in reports do not establish that an evaluation
 exists in the current project: recreating a project removes its remote evaluation history, even if its display name is

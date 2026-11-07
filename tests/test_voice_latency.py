@@ -32,7 +32,7 @@ def test_acknowledgement_is_approved_figure_free_and_versioned():
     from governedgraph.guardrails.advice_intent import response_steers_choice
 
     assert ACKNOWLEDGEMENT == "Thank you. I'm checking your official figures now."
-    assert TEMPLATES["template_set_version"] == "1.3"
+    assert TEMPLATES["template_set_version"] == "1.4"
     assert TEMPLATES["acknowledgements"]["approval_ref"] == "IMP-35-user-approval-2026-10-27"
     assert check(ACKNOWLEDGEMENT, None, []).passed and not response_steers_choice(ACKNOWLEDGEMENT)
 

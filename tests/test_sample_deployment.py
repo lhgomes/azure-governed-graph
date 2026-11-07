@@ -97,3 +97,39 @@ def test_pension_cases_and_runner_live_in_the_sample_not_the_framework():
     for name in ("curated.jsonl", "adversarial.jsonl"):
         assert (datasets / name).is_file()
         assert not (deploy.REPO_ROOT / "evals" / "datasets" / name).exists()
+
+
+@pytest.mark.parametrize("name", [
+    "scripts/run_foundry_evals.py", "scripts/run_dev_proof.py", "scripts/acceptance.py",
+    "scripts/deploy.py", "scripts/run_p2_container_jobs.py",
+    "evals/run_model_comparison.py", "src/governedgraph/foundry_evaluation.py",
+    "src/governedgraph/evaluation.py", "examples/sample/evaluation/datasets/curated.jsonl",
+    "examples/sample/data/personas/personas.json", "examples/sample/data/synthetic/decision_agent_fixtures.json",
+])
+def test_evaluation_only_edits_change_acceptance_not_runtime_fingerprint(tmp_path, monkeypatch, name):
+    path, _ = specification(tmp_path, monkeypatch)
+    target = tmp_path / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("original")
+    sample = deploy.SampleDefinition.load(str(path))
+    runtime, acceptance = sample.runtime_fingerprint(), sample.fingerprint()
+    target.write_text("changed")
+    assert sample.runtime_fingerprint() == runtime
+    assert sample.fingerprint() != acceptance
+
+
+@pytest.mark.parametrize("name", [
+    "src/governedgraph/agents/counsellor.py", "infra/main.bicep", "infra/apim/request.xml",
+    "examples/sample/data/catalogue/templates_v1.json", "examples/sample/member_values_api/app.py",
+    "requirements-azure.txt", "Dockerfile", "scripts/create_agents.py",
+])
+def test_runtime_inputs_invalidate_both_fingerprints(tmp_path, monkeypatch, name):
+    path, _ = specification(tmp_path, monkeypatch)
+    target = tmp_path / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("original")
+    sample = deploy.SampleDefinition.load(str(path))
+    runtime, acceptance = sample.runtime_fingerprint(), sample.fingerprint()
+    target.write_text("changed")
+    assert sample.runtime_fingerprint() != runtime
+    assert sample.fingerprint() != acceptance
