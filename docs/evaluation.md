@@ -150,6 +150,10 @@ export GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER=pension_wtp.member_values_api.data:ge
 export GOVERNEDGRAPH_TEXT_DEMO_MODULE=pension_wtp.demo.run_demo
 ```
 
+CI uses `ubuntu-latest` for both jobs and Node.js 24-based checkout and Python
+setup actions. The application tests continue to run on Python 3.14. Runner OS
+updates follow GitHub's `ubuntu-latest` migration schedule.
+
 | Tool | Purpose |
 |---|---|
 | `python evals/run_model_suite.py --check-config` | Offline schema check of the suite template; missing pins are listed, never reported as readiness. |
