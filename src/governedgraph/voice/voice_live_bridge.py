@@ -196,13 +196,14 @@ class VoiceBridge:
         self.acknowledgement_audio: bytes | None = None
         self.substantive_first_seconds: list[float] = []
         self.acknowledgement_seconds: list[float] = []
+        self.input_modes: set[str] = set()
 
-    async def start(self, accessibility_mode: str = "standard") -> None:
+    async def start(self, accessibility_mode: str = "standard", *, channel: str = "voice") -> None:
         if self.started or self.failed:
             raise VoiceError("voice session cannot be restarted or reused after failure")
         self.started = True
         try:
-            started = await self.channel.start(accessibility_mode)
+            started = await self.channel.start(accessibility_mode, channel=channel)
             self.journey_id = started.journey_id
             if self.spoken_acknowledgement and getattr(self.speech, "checked_sentence_audio", False):
                 from governedgraph.guardrails.numeric_fidelity import check
@@ -301,6 +302,14 @@ class VoiceBridge:
             raise VoiceError("voice failure handover was not confirmed")
 
     async def turn(self, pcm: bytes, *, request_id: str | None = None) -> VoiceReply:
+        return await self._turn(pcm=pcm, request_id=request_id)
+
+    async def turn_text(self, text: str, *, request_id: str | None = None) -> VoiceReply:
+        """Narrate a text turn through the same authenticated, checked reply path."""
+        return await self._turn(text=text, request_id=request_id)
+
+    async def _turn(self, *, pcm: bytes | None = None, text: str | None = None,
+                    request_id: str | None = None) -> VoiceReply:
         if not self.disclosed or self.failed or self.inflight:
             raise VoiceError("spoken disclosure and a healthy audio session are required")
         self.inflight = True
@@ -316,10 +325,15 @@ class VoiceBridge:
             await self._play(ACKNOWLEDGEMENT, self.acknowledgement_audio)
 
         try:
-            validate_pcm(pcm)
+            if pcm is None and text is None:
+                raise AudioFailure("no audio or narrated text input")
+            if pcm is not None:
+                validate_pcm(pcm)
+            elif not isinstance(text, str) or not text.strip() or len(text) > 4000:
+                raise ContractError("bounded nonempty narrated text required")
             if self.acknowledgement_audio is not None:
                 acknowledgement = asyncio.create_task(acknowledge())
-            transcript = await self.speech.transcribe(pcm)
+            transcript = await self.speech.transcribe(pcm) if pcm is not None else text
             transcribed = time.monotonic()
             if not isinstance(transcript, str) or not transcript.strip():
                 raise AudioFailure("speech recognition did not produce a final transcript")
@@ -355,6 +369,7 @@ class VoiceBridge:
                 await asyncio.gather(acknowledgement, return_exceptions=True)
             self.inflight = False
         self.turn_seconds.append(ready - started)
+        self.input_modes.add("audio" if pcm is not None else "text")
         from governedgraph.observability import emit
 
         emit("voice_audio", event_id=f"{self.journey_id}:voice:{turn_id}",
@@ -366,7 +381,8 @@ class VoiceBridge:
         self.substantive_first_seconds.append(substantive_first - started)
         if acknowledgement is not None:
             self.acknowledgement_seconds.append(acknowledged - started)
-        self.stage_samples.append({**reply.stage_ms, "transcription": (transcribed - stage_started) * 1000,
+        self.stage_samples.append({**reply.stage_ms,
+                                   "transcription": (transcribed - stage_started) * 1000 if pcm is not None else 0.0,
                                    "orchestration": (replied - transcribed) * 1000,
                                    "synthesis": synthesis_seconds * 1000,
                                    "model_rounds": reply.model_rounds})
@@ -379,10 +395,14 @@ class VoiceBridge:
         first_p95 = first[math.ceil(len(first) * .95) - 1] * 1000 if first else None
         return {
             "journey_id": self.journey_id, "turn_count": len(samples),
-            "measurement": "end_of_input_to_complete_audio_ready",
+            "measurement": (
+                "text_input_to_complete_audio_ready" if self.input_modes == {"text"}
+                else "mixed_input_to_complete_audio_ready" if "text" in self.input_modes
+                else "end_of_input_to_complete_audio_ready"),
             "voice_turn_p95_ms": p95_ms, "target_ms": 2000,
             "target_met": p95_ms is not None and p95_ms < 2000,
-            "slo_certified": len(samples) >= 20 and p95_ms is not None and p95_ms < 2000,
+            "slo_certified": "text" not in self.input_modes and len(samples) >= 20
+            and p95_ms is not None and p95_ms < 2000,
             "first_audio_measurement": "end_of_input_to_first_validated_audio_playback_dispatch",
             "first_audio_sample_count": len(first),
             "first_audio_p95_ms": first_p95,

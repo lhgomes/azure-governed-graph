@@ -71,6 +71,47 @@ def test_each_registry_build_uses_only_its_own_dependency_family(monkeypatch):
             assert "p2-registry" not in " ".join(args.values())
 
 
+def test_initializer_receives_existing_keyless_telemetry_without_widening_signer_authority(monkeypatch):
+    calls = []
+    foundation = {
+        "security": {key: "synthetic-" + key for key in (
+            "pipelineIdentityId", "pipelineClientId", "pipelinePrincipalId",
+            "strategyIdentityId", "strategyClientId", "strategyPrincipalId", "keyVaultUri", "signingKeyName",
+        )},
+        "compute": {"registryName": "runtime-registry", "environmentId": "existing-environment"},
+        "learning": {"mlRegistryId": "/ml-registry"},
+        "data": {"contentBlobEndpoint": "https://synthetic.blob.core.windows.net"},
+        "monitoring": {"appInsightsRouting": "synthetic-routing-metadata"},
+        "ai": {"projectResourceId": "/synthetic/approved-project"},
+    }
+    inputs = SimpleNamespace(location="swedencentral")
+    images = {role: {"image": "synthetic-" + role} for role in ("runtime", "p2")}
+
+    def provision(runner, inputs, template, values, *, group):
+        assert template == "infra/bootstrap-job.bicep" and group is True
+        calls.append(values)
+
+    monkeypatch.setattr(bootstrap, "provision", provision)
+    monkeypatch.setattr(bootstrap, "run_job", lambda runner, inputs, name: name + "-execution")
+    monkeypatch.setattr(bootstrap, "public_result", lambda runner, inputs, name, execution: (
+        {"snapshot": {"snapshot_id": "signed-expert-priors"}} if name.endswith("-sign")
+        else {"initialized": False, "snapshot_id": "preserved-learned-snapshot"}))
+    result = bootstrap.initial_priors(None, inputs, COMPOSITION, foundation, images)
+    sign, initialize = calls
+    assert sign["identityId"] == foundation["security"]["pipelineIdentityId"]
+    assert initialize["identityId"] == foundation["security"]["strategyIdentityId"]
+    assert "APPLICATIONINSIGHTS_CONNECTION_STRING" not in sign["env"]
+    assert "AZURE_AI_PROJECT_RESOURCE_ID" not in sign["env"]
+    assert "GOVERNEDGRAPH_INITIAL_SNAPSHOT" not in sign["env"]
+    assert initialize["env"]["APPLICATIONINSIGHTS_CONNECTION_STRING"] == foundation["monitoring"]["appInsightsRouting"]
+    assert initialize["env"]["AZURE_AI_PROJECT_RESOURCE_ID"] == foundation["ai"]["projectResourceId"]
+    assert initialize["env"]["GOVERNEDGRAPH_SERVICE_NAME"] == "gg-bootstrap-initialize"
+    assert initialize["env"]["GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS"] == "false"
+    assert json.loads(initialize["env"]["GOVERNEDGRAPH_INITIAL_SNAPSHOT"]) == {"snapshot_id": "signed-expert-priors"}
+    assert result["initialize"]["initialized"] is False
+    assert result["initialize"]["snapshot_id"] == "preserved-learned-snapshot"
+
+
 def test_entra_bootstrap_imports_modules_and_binds_exact_recovery_scope(monkeypatch):
     import os
     from governedgraph.strategy_service import provision_auth

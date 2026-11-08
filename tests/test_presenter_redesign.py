@@ -22,6 +22,7 @@ from governedgraph.agents.counsellor import DISCLOSURE
 from governedgraph.common.config import DATA_DIR
 from governedgraph.common.contracts import ContractError
 from governedgraph.voice import presenter
+from governedgraph.voice.simulations import load_simulations
 from governedgraph.voice.voice_live_bridge import ACKNOWLEDGEMENT, OrchestratorChannel, VoiceBridge, VoiceReply
 
 
@@ -324,7 +325,13 @@ def test_ui_has_accessible_voice_states_real_metadata_secondary_video_and_csp(mo
         assert state in html
     for field in ("meta-strategy", "meta-snapshot", "meta-audit", "meta-suspended"):
         assert f'id="{field}"' in html
-    assert "<details><summary>Watch the synthetic Annelies" in html
+    assert "<details><summary>Watch the synthetic sample conversations" in html
+    assert '<div class="simulation-controls"><div class="simulation-picker">' in html
+    assert '<label for="simulation">Synthetic persona</label><select id="simulation" disabled>' in html
+    assert '<button id="simulate" disabled>Run and save video</button>' in html
+    assert "select{font:inherit}" in html and "select:focus-visible" in html
+    assert ".simulation-controls select,.simulation-controls button{min-height:48px;line-height:1.4}" in html
+    assert "@media(max-width:600px){.simulation-picker{flex-basis:100%}" in html
     assert '<details id="diagnostics">' in html and "not met" in html and "prefers-reduced-motion" in html
     assert "ILLUSTRATIVE - synthetic data" in html and "not a live training feed" in html
     policy = response.headers["content-security-policy"]
@@ -361,7 +368,7 @@ const assert = require("node:assert/strict");
 const elements = new Map();
 function element(){
   return {disabled:true,hidden:false,textContent:"",value:"",dataset:{},children:[],
-    append(...items){this.children.push(...items)},replaceChildren(){this.children=[]},scrollIntoView(){},
+    append(...items){this.children.push(...items)},replaceChildren(){this.children=[]},scrollIntoView(){},click(){},
     getContext(){return {fillRect(){},fillText(){},measureText(){return {width:0}}}}};
 }
 global.document={getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id)},
@@ -381,6 +388,8 @@ global.WebSocket=class {
   close(){this.readyState=3}
 };
 """
+    harness += "global.fetch=async()=>({ok:true,json:async()=>({simulations:" + json.dumps(
+        [item.summary() for item in load_simulations()]) + "})});\n"
     assertions = r"""
 (async()=>{
   await connect("chat");socket.onopen();
@@ -452,6 +461,47 @@ global.WebSocket=class {
   await socket.onmessage({data:JSON.stringify({kind:"chat_complete",state:"escalation_requested"})});
   assert.equal($("chat-text").disabled,true);
   assert.equal($("send").disabled,true);
+  socket.readyState=WebSocket.CLOSED;socket.onclose();
+  await load();
+  assert.equal($("simulation").children.length,5);
+  assert.ok($("simulation").children.some(option=>option.value==="samira"));
+  global.AudioContext=class {
+    async resume(){}
+    createMediaStreamDestination(){return {stream:{getAudioTracks:()=>[]}}}
+  };
+  global.MediaStream=class {constructor(tracks){this.tracks=tracks}};
+  global.MediaRecorder=class {
+    constructor(stream,options){this.mimeType=options.mimeType;this.state="inactive"}
+    start(){this.state="recording"}
+    stop(){this.state="inactive";this.onstop()}
+  };
+  canvas.captureStream=()=>({getVideoTracks:()=>[],getTracks:()=>[]});
+  $("simulation").value="joost";
+  await connect("simulator");socket.onopen();
+  assert.deepEqual(socket.sent[0],{mode:"simulator",simulation_id:"joost"});
+  assert.equal($("simulation").disabled,true);
+  addCaption("persona","Synthetic opening");
+  assert.equal($("conversation").children[0].children[0].textContent,"Joost (synthetic)");
+  recorder.ondataavailable({data:new Blob(["synthetic-video"])});
+  $("simulation").value="samira";
+  recorder.stop();
+  assert.equal($("download").download,"joost-voice-fallback.webm","recording filename must capture the active persona");
+  socket.readyState=WebSocket.CLOSED;socket.onclose();
+  await connect("simulator");socket.onopen();
+  assert.deepEqual(socket.sent[0],{mode:"simulator",simulation_id:"samira"});
+  addCaption("persona","Synthetic opening");
+  assert.equal($("conversation").children[0].children[0].textContent,"Samira (synthetic)");
+  addCaption("persona","Thank you for explaining. Goodbye.");
+  await socket.onmessage({data:JSON.stringify({kind:"session_ended"})});
+  assert.equal($("conversation").children.length,3,"one entry per member utterance, plus the ending notification");
+  assert.equal($("conversation").children[2].children[0].textContent,"Session","ending is not an AI-authored reply");
+  assert.equal($("conversation").children[2].children[1].textContent,"Conversation ended. Human support remains available.");
+  recorder.ondataavailable({data:new Blob(["synthetic-video"])});
+  recorder.stop();
+  assert.equal($("download").download,"samira-voice-fallback.webm");
+  socket.readyState=WebSocket.CLOSED;socket.onclose();
+  global.fetch=async()=>({ok:true,json:async()=>({})});
+  await assert.rejects(load(),/Sample conversations unavailable/);
   console.log("UX states and evidence passed");
 })().catch(error=>{console.error(error);process.exitCode=1});
 """

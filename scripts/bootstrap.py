@@ -139,6 +139,14 @@ def initial_priors(runner, inputs, composition, foundation: dict, images: dict) 
     results = {}
     for role in ("sign", "initialize"):
         identity = "pipeline" if role == "sign" else "strategy"
+        job_env = dict(env)
+        if role == "initialize":
+            job_env.update({
+                "APPLICATIONINSIGHTS_CONNECTION_STRING": foundation["monitoring"]["appInsightsRouting"],
+                "AZURE_AI_PROJECT_RESOURCE_ID": foundation["ai"]["projectResourceId"],
+                "GOVERNEDGRAPH_SERVICE_NAME": "gg-bootstrap-initialize",
+                "GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS": "false",
+            })
         registry = (foundation["learning"]["mlRegistryId"].rsplit("/", 1)[1] if role == "sign"
                     else foundation["compute"]["registryName"])
         name = "job-gg-bootstrap-" + role
@@ -147,7 +155,7 @@ def initial_priors(runner, inputs, composition, foundation: dict, images: dict) 
             "image": images["p2" if role == "sign" else "runtime"]["image"],
             "identityId": security[identity + "IdentityId"], "identityClientId": security[identity + "ClientId"],
             "identityPrincipalId": security[identity + "PrincipalId"], "registryName": registry,
-            "command": ["python", "-m", "governedgraph.strategy_service.bootstrap", role], "env": env,
+            "command": ["python", "-m", "governedgraph.strategy_service.bootstrap", role], "env": job_env,
         }, group=True)
         execution = run_job(runner, inputs, name)
         result = public_result(runner, inputs, name, execution)

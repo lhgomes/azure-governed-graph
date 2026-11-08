@@ -342,11 +342,20 @@ def test_production_image_does_not_embed_cohorts_or_personas():
     assert "requirements-p2.txt" not in dockerfile
     overlay = (REPO_ROOT / "examples/pension_wtp/Dockerfile").read_text()
     offline_overlay = (REPO_ROOT / "examples/pension_wtp/Dockerfile.p2").read_text()
-    runtime = overlay.split("FROM runtime AS probe")[0]
+    base, builder_and_runtime = overlay.split("FROM sample-base AS simulation-builder", 1)
+    builder, runtime_and_probe = builder_and_runtime.split("FROM sample-base AS runtime", 1)
+    runtime_stage = runtime_and_probe.split("FROM runtime AS probe", 1)[0]
+    runtime = base + runtime_stage
     p2 = offline_overlay.split("FROM p2 AS fixtures")[0]
     assert "members.json" in runtime and "members.json" not in p2
     for source in (runtime, p2):
         assert "cohort_aggregates" not in source and "personas" not in source and "outcome_aggregates" not in source
+    assert "data/personas/personas.json" in builder
+    assert "cohort_aggregates" not in builder and "outcome_aggregates" not in builder
+    assert runtime_stage.strip().splitlines() == [
+        ("COPY --from=simulation-builder --chown=10001:10001 /tmp/simulations.json "
+         "./examples/pension_wtp/data/demo/simulations.json"),
+    ]
     assert "FROM p2 AS fixtures" in offline_overlay and "FROM runtime AS probe" in overlay
     assert "FRAMEWORK_RUNTIME" not in offline_overlay
     assert "FRAMEWORK_P2" not in overlay

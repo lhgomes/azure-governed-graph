@@ -587,10 +587,23 @@ operator, tenant, audience and client; authenticated media uses an exact-Origin,
 rate-limited WebSocket with no token query parameters. Static page/config confer
 no media access. Only runtime has the issuer invocation application role.
 The internal issuer app retains the dedicated dev-issuer identity/key-only
-grant and signs only the fixed step-up synthetic member; no member token reaches
+grant and signs only step-up synthetic members from the sample's closed
+`trace_members` allowlist; no member token reaches
 the browser. A socket owns transient audio/token state in one process, never a
 persistent store. The `deployVoiceDemo` flag defaults false and runtime also
 requires gg-dev. No new identity or Azure RBAC grant was needed.
+
+The sample image build projects persona fixtures into closed simulation scripts,
+excluding profiles, goals and cohort attributes from the runtime image. The
+presenter lists these scripts automatically and accepts only a simulation ID;
+the server resolves its member, opening, teach-back, channel and accessibility
+mode. Only member authorization and the existing closed journey fields reach
+the counsellor, never the simulation ID or actor profile. Chat fixtures use a
+chat journey with audio narration; voice fixtures retain the voice journey.
+Actors without a dedicated approved voice reuse the sample's default actor voice.
+Advice-seeking and adversarial fixtures retain normal protective outcomes,
+not forced resolution. Responses are generated live through the existing
+governed orchestrator, not precomputed or used to train a model.
 
 Both nearest-rank first-validated-playback-dispatch and complete-audio-ready
 p95s are reported with independent counts. No unchecked delta is streamed.

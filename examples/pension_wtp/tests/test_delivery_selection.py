@@ -59,15 +59,21 @@ def _dockerfile_copies():
     for line in text.splitlines():
         if line.startswith("COPY ") and "examples/" in line:
             parts = [p for p in line.split()[1:] if not p.startswith("--")]
-            copies.append(parts)
+            stage = next((p.removeprefix("--from=") for p in line.split() if p.startswith("--from=")), None)
+            copies.append((parts, stage))
     return copies
 
 
 def test_every_dockerfile_copy_resolves_to_a_real_file_for_the_bundled_sample():
     copies = _dockerfile_copies()
     assert len(copies) >= 8
-    for source, destination in copies:
-        assert (ROOT / source).exists(), source
+    for (source, destination), stage in copies:
+        if stage is None:
+            assert (ROOT / source).exists(), source
+        else:
+            assert stage == "simulation-builder"
+            assert source == "/tmp/simulations.json"
+            assert destination == "./examples/pension_wtp/data/demo/simulations.json"
         assert destination.startswith("./examples/pension_wtp/"), destination
 
 

@@ -31,13 +31,15 @@ def image_artifacts(runner, foundation: dict, composition) -> dict:
     images = {
         "framework-runtime": framework["runtime"], "framework-p2": framework["p2"],
         "runtime": build(runner, registry, "runtime", composition.dockerfile,
-                         domain + [data / "synthetic/members.json", data.parent / "member_values_api"], args),
+                         domain + [data / "synthetic/members.json", data.parent / "member_values_api",
+                                   data / "personas/personas.json", data.parent / "demo/build_simulations.py"], args),
         "p2": build(runner, ml_registry, "p2", composition.p2_dockerfile, domain, p2_args),
         "fixtures": build(runner, ml_registry, "fixtures", composition.p2_dockerfile, domain + [
             data / "synthetic/outcome_aggregates_illustrative.csv", data / "synthetic/uplift_window_illustrative.json",
             data / "fairness/cohort_aggregates_illustrative.csv"], p2_args),
         "probe": build(runner, registry, "probe", composition.dockerfile, domain + [
-            data / "synthetic/members.json", data.parent / "member_values_api", data / "personas/personas.json"], args),
+            data / "synthetic/members.json", data.parent / "member_values_api", data / "personas/personas.json",
+            data.parent / "demo/build_simulations.py"], args),
     }
     return images
 

@@ -27,6 +27,7 @@ from governedgraph.agents.counsellor import DISCLOSURE, TEMPLATES
 from governedgraph.voice.access import COOKIE, enabled, verify
 from governedgraph.voice.azure_voice import open_counsellor_speech as open_speech
 from governedgraph.voice.hosted import VoiceScriptRequest
+from governedgraph.voice.simulations import load_simulations, select_simulation
 from governedgraph.voice.voice_live_bridge import (
     AudioFailure, OrchestratorChannel, PCM_RATE, PERSONA_VOICES, VoiceBridge, VoiceError, validate_pcm,
 )
@@ -40,6 +41,7 @@ class SessionRequest:
     mode: str
     script: dict | None = None
     benchmark_model: str = "gpt-counsellor"
+    simulation_id: str | None = None
 
     def __post_init__(self):
         if self.mode not in ("presenter", "simulator", "benchmark", "chat"):
@@ -49,11 +51,18 @@ class SessionRequest:
         if self.mode != "benchmark" and self.benchmark_model != "gpt-counsellor":
             raise ContractError("model selection is restricted to the synthetic benchmark")
         if self.mode == "simulator":
-            if not isinstance(self.script, dict):
-                raise ContractError("simulator utterances required")
-            VoiceScriptRequest.from_dict(self.script)
+            if self.simulation_id is not None:
+                if not isinstance(self.simulation_id, str) or self.script is not None:
+                    raise ContractError("select a synthetic simulation without custom utterances")
+                select_simulation(self.simulation_id)
+            else:
+                if not isinstance(self.script, dict):
+                    raise ContractError("simulator utterances required")
+                VoiceScriptRequest.from_dict(self.script)
         elif self.script is not None:
             raise ContractError("presenter sessions accept audio only")
+        if self.mode != "simulator" and self.simulation_id is not None:
+            raise ContractError("synthetic selection is restricted to simulations")
 
     @classmethod
     def from_dict(cls, body: dict):
@@ -156,7 +165,8 @@ def config():
         raise HTTPException(404, "dev voice demo disabled")
     return JSONResponse({"client_id": os.environ["VOICE_DEMO_CLIENT_ID"],
                          "tenant": os.environ["STRATEGY_TENANT_ID"],
-                         "origin": os.environ["VOICE_DEMO_ORIGIN"]},
+                         "origin": os.environ["VOICE_DEMO_ORIGIN"],
+                         "simulations": [item.summary() for item in load_simulations()]},
                         headers={"Cache-Control": "no-store"})
 
 
@@ -267,8 +277,9 @@ class SocketAudio:
 
 class CaptionedSpeech:
     checked_sentence_audio = True
-    def __init__(self, speech, audio: SocketAudio, role: str):
+    def __init__(self, speech, audio: SocketAudio, role: str, *, transcribe_captions: bool = True):
         self.speech, self.audio, self.role = speech, audio, role
+        self.transcribe_captions = transcribe_captions
 
     async def synthesize(self, text):
         pcm = await self.speech.synthesize(text)
@@ -277,7 +288,8 @@ class CaptionedSpeech:
 
     async def transcribe(self, pcm):
         text = await self.speech.transcribe(pcm)
-        await self.audio.socket.send_json({"kind": "caption", "role": "member", "text": text})
+        if self.transcribe_captions:
+            await self.audio.socket.send_json({"kind": "caption", "role": "member", "text": text})
         return text
 
     async def synthesize_sentences(self, sentences):
@@ -289,7 +301,7 @@ class CaptionedSpeech:
                 yield sentence, await self.speech.synthesize(sentence)
 
 
-async def member_bearer(credential, client: httpx.AsyncClient) -> str:
+async def member_bearer(credential, client: httpx.AsyncClient, *, member_ref: str | None = None) -> str:
     from azure.core.exceptions import AzureError
 
     audience = os.environ["VOICE_DEMO_CLIENT_ID"]
@@ -299,7 +311,8 @@ async def member_bearer(credential, client: httpx.AsyncClient) -> str:
         log.error("voice_issuer_identity_failed", extra={"error_type": type(error).__name__})
         raise VoiceError("internal issuer authorization unavailable") from error
     result = await client.post(os.environ["VOICE_DEMO_ISSUER_URL"].rstrip("/") + "/issue",
-                               headers={"Authorization": "Bearer " + auth.token})
+                               headers={"Authorization": "Bearer " + auth.token},
+                               **({"json": {"member_ref": member_ref}} if member_ref is not None else {}))
     result.raise_for_status()
     payload = result.json()
     if set(payload) != {"token"} or not isinstance(payload["token"], str) or not payload["token"]:
@@ -312,9 +325,11 @@ async def serve(socket: WebSocket, claims: dict):
 
     async with asyncio.timeout(min(850, max(0, claims["exp"] - time.time()))):
         request = SessionRequest.from_dict(await asyncio.wait_for(socket.receive_json(), 20))
+        simulation = select_simulation(request.simulation_id) if request.simulation_id is not None else None
+        member_ref = simulation.member_ref if simulation else domain.demo()["member_ref"]
         async with ManagedIdentityCredential(client_id=os.environ["AZURE_CLIENT_ID"]) as credential:
             async with httpx.AsyncClient(timeout=120, follow_redirects=False) as client:
-                token = await member_bearer(credential, client)
+                token = await member_bearer(credential, client, **({"member_ref": member_ref} if simulation else {}))
                 if request.mode == "chat":
                     async with httpx.AsyncClient(base_url=os.environ["GOVERNEDGRAPH_ORCHESTRATOR_URL"].rstrip("/") + "/",
                                                  timeout=120, follow_redirects=False) as channel:
@@ -338,19 +353,27 @@ async def serve(socket: WebSocket, claims: dict):
                     async with httpx.AsyncClient(base_url=os.environ["GOVERNEDGRAPH_ORCHESTRATOR_URL"].rstrip("/") + "/",
                                                  timeout=120, follow_redirects=False) as channel:
                         bridge = VoiceBridge(OrchestratorChannel(channel, lambda: token),
-                                             CaptionedSpeech(speech, audio, "counsellor"), audio,
+                                             CaptionedSpeech(speech, audio, "counsellor",
+                                                             transcribe_captions=request.mode != "simulator"), audio,
                                              spoken_acknowledgement=False)
                         try:
+                            session_ended = False
                             if request.mode == "simulator":
-                                if request.script is None:
+                                script = simulation.script() if simulation else request.script
+                                if script is None:
                                     raise ContractError("simulator utterances required")
+                                actor_id = simulation.simulation_id if simulation else domain.demo()["persona"]
+                                actor_voice = PERSONA_VOICES.get(actor_id, PERSONA_VOICES[domain.demo()["persona"]])
                                 async with open_speech(os.environ["AZURE_VOICE_LIVE_ENDPOINT"],
-                                                       PERSONA_VOICES[domain.demo()["persona"]], credential=credential) as actor:
+                                                       actor_voice, credential=credential) as actor:
                                     result = await run_simulator(
                                         bridge, CaptionedSpeech(actor, audio, "persona"),
-                                        script=ScriptedPersona(request.script),
+                                        script=ScriptedPersona(script),
+                                        channel=simulation.channel if simulation else "voice",
+                                        accessibility_mode=simulation.accessibility_mode if simulation else "standard",
                                     )
                                     replies = result.replies
+                                    session_ended = result.session_ended
                             else:
                                 replies = []
                                 await bridge.start()
@@ -379,12 +402,16 @@ async def serve(socket: WebSocket, claims: dict):
                                 replies.append(reply)
                                 await audio.response_metadata(reply)
                                 await bridge._speak(reply.text)
-                            audit = await channel.get(f"members/{domain.demo()['member_ref']}/explainability-report",
+                            audit = await channel.get(f"members/{member_ref}/explainability-report",
                                                        headers={"Authorization": "Bearer " + token})
                             audit.raise_for_status()
                             rows = [row for row in audit.json()["records"] if row["journey_id"] == bridge.journey_id]
+                            session_ended = session_ended and not audio.handover_requested
+                            if session_ended:
+                                await socket.send_json({"kind": "session_ended"})
                             await socket.send_json({
                                 "kind": "complete", "journey_id": bridge.journey_id, "metrics": bridge.metrics(),
+                                "session_ended": session_ended,
                                 "state": replies[-1].state if replies else "",
                                 "strategy": replies[0].strategy_id if replies else None,
                                 "suspended": replies[0].suspended if replies else [],

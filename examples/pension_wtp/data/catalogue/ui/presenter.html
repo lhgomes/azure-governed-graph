@@ -6,9 +6,9 @@
 :root{color-scheme:light;--ink:#172e50;--blue:#254b82;--paper:#f5f7fc;--line:#cbd5e6;--lilac:#e4def5;--quiet:#50617b}
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.6 "Segoe UI",Candara,sans-serif}
 header,main,footer{max-width:1240px;margin:auto;padding:24px 40px}header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);gap:20px}
-.brand{font-weight:700;font-size:20px}.label{margin:0;font-size:13px;color:var(--quiet)}button,input,textarea{font:inherit}
+.brand{font-weight:700;font-size:20px}.label{margin:0;font-size:13px;color:var(--quiet)}button,input,textarea,select{font:inherit}
 button{border:1px solid var(--line);border-radius:8px;padding:12px 20px;background:white;color:var(--ink);cursor:pointer}
-button:hover:not(:disabled){background:var(--lilac)}button:disabled{opacity:.5;cursor:default}button:focus-visible,textarea:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid #6c4ac2;outline-offset:4px}
+button:hover:not(:disabled){background:var(--lilac)}button:disabled{opacity:.5;cursor:default}button:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid #6c4ac2;outline-offset:4px}
 .primary{background:var(--blue);color:white;border-color:var(--blue)}.primary:hover:not(:disabled){background:#183c70}
 main{padding-top:48px}h1{font:400 clamp(36px,5vw,60px)/1.12 Georgia,serif;letter-spacing:-1.6px;max-width:650px;margin:0 0 20px}h2{font-size:22px;margin:0 0 12px}p{max-width:72ch}
 .intro{max-width:720px;color:var(--quiet);margin-bottom:32px}.workspace{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(280px,1fr);gap:32px;align-items:start}
@@ -26,11 +26,16 @@ main{padding-top:48px}h1{font:400 clamp(36px,5vw,60px)/1.12 Georgia,serif;letter
 #conversation li.member{border-color:var(--blue);background:#e8eef9}#conversation strong{display:block;font-size:13px;color:var(--quiet);margin-bottom:4px}
 aside{border-left:1px solid var(--line);padding-left:28px}aside p{font-size:15px;color:var(--quiet)}dl{margin:24px 0}dl div{padding:12px 0;border-bottom:1px solid var(--line)}dt{font-size:13px;color:var(--quiet)}dd{margin:2px 0;overflow-wrap:anywhere}
 .learning-note{background:var(--lilac);padding:18px;border-radius:8px;font-size:14px}details{border-top:1px solid var(--line);padding:20px 0;margin-top:20px}summary{cursor:pointer;font-weight:600}
+.simulation-controls{display:flex;align-items:flex-end;flex-wrap:wrap;gap:12px;max-width:760px}
+.simulation-picker{display:grid;gap:6px;flex:1 1 320px;min-width:0}.simulation-picker label{font-size:15px;color:var(--quiet)}
+.simulation-picker select{width:100%;min-width:0;border:1px solid var(--line);border-radius:8px;padding:10px 14px;background:white;color:var(--ink)}
+.simulation-controls select,.simulation-controls button{min-height:48px;line-height:1.4}.simulation-controls button{flex:0 0 auto;padding:10px 16px;white-space:nowrap}
 canvas{width:100%;border-radius:8px;margin-top:20px}#result{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;background:#e8eef9;padding:16px;max-height:440px;overflow:auto}
 textarea{display:block;width:100%;min-height:100px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:12px;background:white;color:var(--ink);margin:8px 0 12px}
 [hidden]{display:none!important}.text-button{background:transparent;border-color:transparent;text-decoration:underline;font-size:15px}
 footer{font-size:13px;color:var(--quiet);border-top:1px solid var(--line);margin-top:32px}.handover{margin-top:16px}.empty{color:var(--quiet);font-size:15px}
 @media(max-width:800px){header,main,footer{padding:20px}.workspace{grid-template-columns:1fr}aside{border-left:0;border-top:1px solid var(--line);padding:24px 0}main{padding-top:32px}.voice-stage{padding:24px 16px}header{align-items:flex-start}.brand{font-size:17px}}
+@media(max-width:600px){.simulation-picker{flex-basis:100%}.simulation-controls button{width:100%}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 <body>
@@ -73,7 +78,9 @@ footer{font-size:13px;color:var(--quiet);border-top:1px solid var(--line);margin
 <p>Fairness can veto a strategy. Material changes require human approval; bounded ranking is not permission to invent new guidance.</p>
 </aside>
 </div>
-<details><summary>Watch the synthetic Annelies conversation</summary><p>A scripted secondary demonstration. Only this synthetic flow can be saved as a video; your microphone conversation cannot.</p><button id="simulate" disabled>Run Annelies and save fallback video</button><canvas id="screen" width="1280" height="720" aria-label="Synthetic Annelies video; accessible captions appear in the conversation"></canvas><a id="download" hidden>Download synthetic fallback video</a></details>
+<details><summary>Watch the synthetic sample conversations</summary><p>Live scripted demonstrations from the deployed sample data. Chat personas are narrated using their chat journey; voice personas use a voice journey. Only these synthetic flows can be saved as a video; your microphone conversation cannot.</p>
+<div class="simulation-controls"><div class="simulation-picker"><label for="simulation">Synthetic persona</label><select id="simulation" disabled></select></div><button id="simulate" disabled>Run and save video</button></div>
+<canvas id="screen" width="1280" height="720" aria-label="Synthetic persona video; accessible captions appear in the conversation"></canvas><a id="download" hidden>Download synthetic fallback video</a></details>
 <details id="diagnostics"><summary>Latency &amp; delivery diagnostics</summary><p id="latency-summary">No samples yet. Browser playback dispatch is not an acoustic measurement. A short demonstration does not certify the SLO.</p><pre id="result">No completed journey yet.</pre></details>
 </main><footer>ILLUSTRATIVE - synthetic data. Guidance, not advice. No pension option recommendations.</footer>
 <script>
@@ -81,7 +88,8 @@ footer{font-size:13px;color:var(--quiet);border-top:1px solid var(--line);margin
 const $ = id => document.getElementById(id), origin = location.origin;
 let config, socket, audio, destination, recorder, chunks = [], recording = false, pending,
     inputStream, processor, inputSource, captured = [], popup, verifier, state, audioReceivedAt;
-let speaker = "Ready", caption = "Speak to the fund's AI assistant, or run the synthetic Annelies flow.";
+let speaker = "Ready", caption = "Speak to the fund's AI assistant, or run a synthetic sample flow.";
+let simulationId = "", simulationName = "Sample persona";
 let outcome = "", playbackSource, recordingUrl, turnStartedAt = null, firstSamples = [], completeSamples = [],
     substantiveSamples = [], acknowledgementSamples = [], firstPlayed = false, substantivePlayed = false;
 let nextPlaybackAt = 0;
@@ -112,7 +120,7 @@ function activity(name){
 }
 function addCaption(role,text){
   $("empty").hidden=true;const item=document.createElement("li"),label=document.createElement("strong");
-  item.className=role;label.textContent=role==="member"?"You":role==="persona"?"Annelies (synthetic)":"Pension Counsellor (AI)";
+  item.className=role;label.textContent=role==="member"?"You":role==="persona"?simulationName+" (synthetic)":role==="system"?"Session":"Pension Counsellor (AI)";
   item.append(label,document.createTextNode(text));$("conversation").append(item);item.scrollIntoView({block:"nearest"});
 }
 function metadata(message){
@@ -153,7 +161,7 @@ async function setupAudio(){
 async function authorize(token){
   const response=await fetch("/demo/authorize",{method:"POST",headers:{Authorization:"Bearer "+token}});
   if(!response.ok)throw Error("Assigned presenter authorization rejected ("+response.status+")");
-  authenticated=true;$("simulate").disabled=false;$("present").disabled=false;$("chat").disabled=false;$("stop").disabled=false;
+  authenticated=true;$("simulation").disabled=false;$("simulate").disabled=false;$("present").disabled=false;$("chat").disabled=false;$("stop").disabled=false;
   status("Signed in. Start a voice conversation, or choose to type. Member tokens remain server-side.");
 }
 async function load(){
@@ -164,6 +172,13 @@ async function load(){
   }
   const response=await fetch("/demo/config");if(!response.ok)throw Error("Demo is disabled");
   config=await response.json();
+  if(!Array.isArray(config.simulations)||!config.simulations.length)throw Error("Sample conversations unavailable");
+  $("simulation").replaceChildren();
+  for(const item of config.simulations){
+    const option=document.createElement("option");option.value=item.simulation_id;
+    option.textContent=item.display_name+" ("+item.channel+", "+item.accessibility_mode+")";
+    $("simulation").append(option);
+  }
 }
 $("login").onclick=async()=>{
   try{
@@ -191,6 +206,7 @@ window.addEventListener("message",async event=>{
 });
 function startRecording(){
   if(recordingUrl){URL.revokeObjectURL(recordingUrl);recordingUrl=null;}
+  const filename=simulationId+"-voice-fallback.webm";
   const video=canvas.captureStream(25);
   const mixed=new MediaStream([...video.getVideoTracks(),...destination.stream.getAudioTracks()]);
   chunks=[];recorder=new MediaRecorder(mixed,{mimeType:"video/webm;codecs=vp8,opus",videoBitsPerSecond:512000,audioBitsPerSecond:96000});
@@ -198,7 +214,7 @@ function startRecording(){
   recorder.onstop=()=>{
     for(const track of video.getTracks())track.stop();
     if(recording){recordingUrl=URL.createObjectURL(new Blob(chunks,{type:recorder.mimeType}));
-      $("download").href=recordingUrl;$("download").download="annelies-voice-fallback.webm";
+      $("download").href=recordingUrl;$("download").download=filename;
       $("download").hidden=false;$("download").click();}
     chunks=[];recording=false;
   };
@@ -206,6 +222,11 @@ function startRecording(){
 }
 async function connect(mode, handover=false){
   if(socket&&socket.readyState!==WebSocket.CLOSED)throw Error("Finish the current conversation first");
+  if(mode==="simulator"){
+    const selected=config.simulations.find(item=>item.simulation_id===$("simulation").value);
+    if(!selected)throw Error("Select an available synthetic persona");
+    simulationId=selected.simulation_id;simulationName=selected.display_name;
+  }
   if(mode!=="chat")await setupAudio();sessionMode=mode;waitingForInput=false;handoverPending=handover;
   $("chat-form").hidden=mode!=="chat";$("conversation").replaceChildren();$("empty").hidden=false;
   clearReplyTimeout();$("conversation-error").hidden=true;$("conversation-error").textContent="";
@@ -213,14 +234,11 @@ async function connect(mode, handover=false){
   metadata({state:"Starting"});
   firstSamples=[];completeSamples=[];substantiveSamples=[];acknowledgementSamples=[];
   turnStartedAt=null;firstPlayed=false;substantivePlayed=false;
-  $("simulate").disabled=true;$("present").disabled=true;$("chat").disabled=true;$("stop").disabled=false;
+  $("simulation").disabled=true;$("simulate").disabled=true;$("present").disabled=true;$("chat").disabled=true;$("stop").disabled=false;
   socket=new WebSocket(origin.replace("https:","wss:")+"/demo-stream");socket.binaryType="arraybuffer";
   socket.onopen=()=>{
     if(mode==="simulator")startRecording();
-    socket.send(JSON.stringify(mode==="simulator"?{mode,script:{
-      opening:"Good afternoon. I received a letter about the new pension system. Will the transition change what I receive?",
-      teach_back_answer:"So on the transition date my monthly pension stays the same, and after that it can go up or down a little each year with the fund's results."
-    }}:{mode}));activity("thinking");status("Connected. Waiting for the AI disclosure.");
+    socket.send(JSON.stringify(mode==="simulator"?{mode,simulation_id:simulationId}:{mode}));activity("thinking");status("Connected. Waiting for the AI disclosure.");
   };
   socket.onmessage=async event=>{
     try{
@@ -253,6 +271,7 @@ async function connect(mode, handover=false){
         }
         else if(message.kind==="session_ended"){
           clearReplyTimeout();waitingForInput=false;activity("complete");status("Conversation ended.");
+          if(sessionMode==="simulator")addCaption("system","Conversation ended. Human support remains available.");
         }
         else if(message.kind==="progress"){metadata(message);outcome="Strategy "+message.strategy+" | suspended: "+message.suspended.join(", ");}
         else if(message.kind==="complete"){
@@ -273,7 +292,9 @@ async function connect(mode, handover=false){
             ". "+message.metrics.turn_count+" measured turns. SLO certified: "+(message.metrics.slo_certified?"yes":"no")+
             ". Expand for first-audio and substantive-audio timings; no samples are hidden.";
           window.voiceDemoResult=message;activity("complete");
-          status(message.state==="escalation_requested"?"Human handover requested through the fund's journey.":"Flow complete. Latency and delivery results are available below.");
+          status(message.state==="escalation_requested"?"Human handover requested through the fund's journey.":
+            message.session_ended?"Conversation ended. Latency and delivery results are available below.":
+            "Flow complete. Latency and delivery results are available below.");
           if(recorder&&recorder.state==="recording"){
             await new Promise(resolve=>setTimeout(resolve,200));recorder.stop();}
         }else if(message.kind==="error")throw Error(message.message);
@@ -290,7 +311,7 @@ async function connect(mode, handover=false){
         nextPlaybackAt=startAt+buffer.duration;
         const dispatchAt=performance.now()+(startAt-audio.currentTime)*1000;
         setTimeout(()=>{if(activeSources.has(source)){
-          speaker=message.role==="persona"?"Annelies (simulated)":"Pension Counsellor (AI)";
+          speaker=message.role==="persona"?simulationName+" (simulated)":"Pension Counsellor (AI)";
           caption=message.text;addCaption(message.role,message.text);activity("speaking");status("Playing "+speaker);}},Math.max(0,dispatchAt-performance.now()));
         await new Promise(resolve=>{
           source.onended=()=>{activeSources.delete(source);source.disconnect();resolve();};source.start(startAt);
@@ -320,7 +341,7 @@ async function connect(mode, handover=false){
     $("stop").disabled=!authenticated;$("speak").disabled=true;
     $("end-session").disabled=true;
     waitingForInput=false;$("chat-text").disabled=true;$("send").disabled=true;
-    $("simulate").disabled=!authenticated;$("present").disabled=!authenticated;$("chat").disabled=!authenticated;
+    $("simulation").disabled=!authenticated;$("simulate").disabled=!authenticated;$("present").disabled=!authenticated;$("chat").disabled=!authenticated;
   };
 }
 $("simulate").onclick=()=>connect("simulator").catch(fail);

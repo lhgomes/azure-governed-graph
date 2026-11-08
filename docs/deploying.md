@@ -78,6 +78,11 @@ cannot declare tests, evaluation policy, learning proofs or operator recovery.
    dev-issuer and dev-fixture jobs. `infra/bootstrap-job.bicep` is applied only
    for the P2 signing and Strategy initialization jobs, never the foundation.
    Private key/content/state operations run inside the existing role contracts.
+   The Strategy initializer receives the existing Entra-authenticated Application
+   Insights routing and Foundry project ARM ID for content-free conditional-read
+   diagnostics. It uses the existing Strategy identity and telemetry permission;
+   the isolated P2 signing job receives no new telemetry authority. A valid
+   existing state is preserved, including learned rankings and protective state.
 4. **`examples/pension_wtp/infra/workloads.bicep`: complete workloads once.**
    This explicit domain composition calls `infra/workloads.bicep` with immutable
    images, approved writer record, actual agent pins and complete domain inputs.
@@ -104,9 +109,22 @@ Framework images contain no extension files or default pension dataset.
 Extension runtime/P2 images contain approved catalogue/content/thresholds;
 only runtime adds the synthetic deterministic adapter/member records.
 Cohort aggregates and outcome fixtures belong solely to the fixture image;
-adversarial personas belong solely to the non-member-facing probe image.
-Runtime and P2 dependency manifests remain isolated and are installed once in
+raw persona profiles belong solely to the isolated builder/non-member-facing probe.
+The sample image build uses an isolated builder to project the persona fixtures
+into closed live-simulation scripts. Only that profile-free projection reaches
+the runtime image; raw persona profiles remain in the builder/probe, never the
+counsellor payload. Runtime and P2 dependency manifests remain isolated and are installed once in
 their respective framework targets.
+
+To inspect the presenter after redeployment, select the environment explicitly:
+
+```bash
+.venv/bin/python -m scripts.azd_env show --environment gg-dev --task presenter
+```
+
+Without `--environment`, the helper uses azd's selected environment, which may
+belong to a different project. A configured presenter URL from a previous
+delivery does not establish that a failed redeployment completed.
 
 Build metadata retained in the public delivery receipt includes immutable image
 digest, target, Dockerfile, source SHA-256 and framework base references. OCI

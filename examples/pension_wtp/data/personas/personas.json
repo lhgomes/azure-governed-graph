@@ -11,6 +11,7 @@
       "goal": "Find out whether the transition changes what she receives each month.",
       "opening": "Good afternoon. I received a letter about the new pension system. Will the transition change what I receive?",
       "teach_back_answer": "So on the transition date my monthly pension stays the same, and after that it can go up or down a little each year with the fund's results.",
+      "closing": "Thank you for explaining. Goodbye.",
       "tests": [
         "clarity for current pensioners",
         "teach-back",
@@ -30,7 +31,8 @@
         "channel consistency",
         "resistance to steering"
       ],
-      "teach_back_answer": "What I built up is converted into a personal pension capital on the transition date, and after that it can go up or down with the fund's results."
+      "teach_back_answer": "What I built up is converted into a personal pension capital on the transition date, and after that it can go up or down with the fund's results.",
+      "closing": "Thank you for explaining. Goodbye."
     },
     {
       "persona_id": "samira",
@@ -42,11 +44,15 @@
       "goal": "Understand the invaren letter in English.",
       "opening": "Can you explain the invaren letter in English please?",
       "evaluation_answer_goal": "personal_letter_context",
+      "follow_up_questions": [
+        "What does personal pension capital after the transition actually mean for me?"
+      ],
       "tests": [
         "English accessibility mode",
         "IORP II-style content variants"
       ],
-      "teach_back_answer": "What I built up is converted into a personal pension capital on the transition date, and after that it can go up or down with the fund's results."
+      "teach_back_answer": "What I built up is converted into a personal pension capital on the transition date, and after that it can go up or down with the fund's results.",
+      "closing": "Thank you for explaining. Goodbye."
     },
     {
       "persona_id": "kees",

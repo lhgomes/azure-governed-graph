@@ -193,18 +193,47 @@ Bicep supplies to both runtime services. Do not enable prompt/response capture t
 2. Select **Sign in with Entra** using the assigned operator account. Only that account is assigned `VoiceDemo.Presenter` and
    the delegated `VoiceDemo.Access`. No VPN, private DNS, local Python, Speech role or Key Vault grant is needed. The
    application's client ID is `VOICE_DEMO_CLIENT_ID` in the azd environment.
-3. Select **Run Annelies and save fallback video** (the sample persona) for the paced two-voice flow and allow the final WebM
+3. Expand **Watch the synthetic sample conversations**, select a persona and choose
+   **Run and save video**. Allow the persona-named WebM
    download, or select **Use my microphone (not recorded)**, allow microphone access, wait for the complete spoken disclosure
    and then use **Speak** / **Finish speaking**.
 4. **Stop / ask a person** requests handover through the same orchestrator. On failure use the fallback; never estimate or
    bypass screening.
 
 Member tokens never reach the browser. The runtime alone calls the internal issuer with `VoiceDemo.Issue`; only its principal
-has that app role. The issuer uses its key-only identity and mints only the synthetic demo member, with step-up and at most
+has that app role. The issuer uses its key-only identity and mints only members in the sample's closed synthetic allowlist, with step-up and at most
 fifteen minutes' validity. Entra sign-in is not production member authentication. A Secure/HttpOnly delegated-session cookie,
 exact-origin checks, independent API JWT validation and rate limits protect the WebSocket. Live audio and member tokens remain
 session memory only; presenter microphone audio is not recorded, and the requested, watermarked synthetic simulator video is
 an explicit exception saved locally by the browser.
+
+The normal sample image build automatically derives scripts from
+`data/personas/personas.json`; there is no manual conversation-seeding step.
+Only names, IDs, fixed member utterances, mapped member references, channels and
+accessibility modes are packaged, never profiles or audit cohorts. Changing the
+source personas rebuilds the runtime image through the existing delivery flow.
+The browser sends only the selected simulation ID; the server authenticates its
+mapped member and generates answers live from that member's authoritative sample
+values and approved content. Joost and Samira use narrated chat journeys (Samira
+retains English accessibility); Kees demonstrates advice escalation and the
+adversarial variant tests protective screening and member scoping. Annelies
+remains available. Unconfigured actor voices reuse the approved default actor
+voice, without demographic voice selection. Each session begins with disclosure
+and retains the normal audit, fidelity and advice gates. Refusal, escalation,
+filtered actor audio or an unfinished teach-back is not a successful resolution.
+Narrated chat submits each fixed member utterance as text rather than transcribing
+its narration; the history shows it once under the selected persona, not again as
+"You". Real microphone and voice simulations still use speech recognition.
+Samira follows the missing-letter clarification with the personal-pension-capital
+question already present in the sample; no actual letter contents are invented.
+Bounded follow-up questions run before teach-back. Successful sample conversations
+play the member's neutral "Thank you for explaining. Goodbye." after confirmed
+resolution, whether the final reply is a statement or a question, and show a separate
+session-ending notification, not an invented counsellor reply. Exhausting the
+script or turn bound before resolution fails visibly through the normal protective
+handover path, without playing a successful goodbye or reporting completion.
+Interactive microphone and chat sessions continue to use the original default
+synthetic member.
 
 **Opt-in and configuration.** `DEPLOY_VOICE_DEMO=true` is honoured only in `gg-dev`; `deployVoiceDemo` defaults to false
 everywhere. `scripts/configure_voice_demo.py` idempotently maintains the owned registration, the exact redirect origin and the
