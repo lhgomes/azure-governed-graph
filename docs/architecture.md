@@ -781,10 +781,10 @@ private DNS connect the existing Container Apps VNet; Search uses an owner-appro
 private link and `executionEnvironment=private` (supported for embedding-only skillsets on
 the existing modern Basic service). The manual `job-gg-content-publisher` uses a dedicated
 P3 identity with content-container write, Search service/index publishing and ACR pull roles,
-but no cryptographic or member-facing rights. The postprovision hook calls
-`python -m governedgraph.search.run_publisher_job` through Azure's control plane and requires actual
+but no cryptographic or member-facing rights. Bounded deployment bootstrap starts the
+declared publisher through Azure's control plane and requires actual
 job success. It refuses to start while the Search private link awaits owner approval.
-Never reopen storage public access to make a workstation hook pass.
+Never reopen storage public access to make a workstation publisher pass.
 
 From a workstation, publish a P3-approved synthetic JSON document with
 `python -m governedgraph.search.run_publisher_job --document /secure/p3-approved-document.json`.

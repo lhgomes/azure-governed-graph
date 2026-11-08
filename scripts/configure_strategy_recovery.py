@@ -9,7 +9,7 @@ import sys
 from urllib.parse import quote
 from uuid import UUID, NAMESPACE_URL, uuid5
 
-from configure_contact_centre import graph
+from scripts.configure_contact_centre import graph
 
 AZURE_CLI_CLIENT_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"  # Microsoft's public Azure CLI application ID
 CLI_ID = AZURE_CLI_CLIENT_ID

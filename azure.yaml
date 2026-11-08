@@ -1,60 +1,9 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
 name: governedgraph
 metadata:
-  template: governedgraph@1.0.0
+  template: governedgraph@2.0.0
 infra:
   provider: bicep
   path: infra
-services:
-  orchestrator:
-    project: .
-    language: docker
-    host: containerapp
-    docker: { path: Dockerfile, remoteBuild: true, buildArgs: ["SAMPLE=${GOVERNEDGRAPH_SAMPLE}"] }
-  strategy-service:
-    project: .
-    language: docker
-    host: containerapp
-    docker: { path: Dockerfile, remoteBuild: true, buildArgs: ["SAMPLE=${GOVERNEDGRAPH_SAMPLE}"] }
-  member-values:
-    project: .
-    language: docker
-    host: containerapp
-    docker: { path: Dockerfile, remoteBuild: true, buildArgs: ["SAMPLE=${GOVERNEDGRAPH_SAMPLE}"] }
-  contact-centre:
-    project: .
-    language: docker
-    host: containerapp
-    docker: { path: Dockerfile, remoteBuild: true, buildArgs: ["SAMPLE=${GOVERNEDGRAPH_SAMPLE}"] }
-  admin:
-    project: .
-    language: docker
-    host: containerapp
-    docker: { path: Dockerfile, remoteBuild: true, buildArgs: ["SAMPLE=${GOVERNEDGRAPH_SAMPLE}"] }
-hooks:
-  preprovision:
-    shell: sh
-    run: |
-      if [ "${AZURE_ENV_NAME:-}" = "gg-dev" ] && { [ "${DEPLOY_VOICE_DEMO:-false}" = "true" ] || [ -n "${VOICE_DEMO_CLIENT_ID:-}" ]; }; then
-        PYTHONPATH=. python -m scripts.configure_voice_demo --apply --azd-env
-      fi
-      # Admin console sign-in: groups, deploying user and app, once the gateway origin is known. Opt out with
-      # GOVERNEDGRAPH_ADMIN_ACCESS_CONTROL=false (the console then stays open, with a banner).
-      if [ "${AZURE_ENV_NAME:-}" = "gg-dev" ] && [ -n "${APIM_GATEWAY_URL:-}" ] \
-         && [ "${GOVERNEDGRAPH_DEPLOY_ADMIN_CONSOLE:-true}" != "false" ] \
-         && [ "${GOVERNEDGRAPH_ADMIN_ACCESS_CONTROL:-true}" != "false" ]; then
-        PYTHONPATH=. python -m scripts.configure_admin_console --apply --azd-env
-      fi
-    continueOnError: false
-  postprovision:
-    shell: sh
-    run: |
-      if [ -z "${SERVICE_ORCHESTRATOR_IMAGE_NAME:-}" ]; then
-        echo "Skipping approved-content publication: the services are not deployed yet."
-        echo "After 'azd deploy' and approving the Search private link, run: azd hooks run postprovision"
-        exit 0
-      fi
-      python -m venv .azure/hooks-venv
-      .azure/hooks-venv/bin/python -m pip install -q -r requirements-azure.txt
-      GOVERNEDGRAPH_MODE=azure PYTHONPATH=src .azure/hooks-venv/bin/python -m governedgraph.search.run_publisher_job
-    continueOnError: false
+# The explicit composition driver builds each immutable target once.
+# azd owns the environment and foundation, not duplicate service builds or hooks.

@@ -3,24 +3,17 @@ AZURE mode wires the same components to the provisioned Azure resources."""
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-# The one place the repository names the sample it runs by default. A sample is a package under examples/ with the
-# layout data/, member_values_api/data.py and demo/run_demo.py. Set GOVERNEDGRAPH_SAMPLE to your own package to switch
-# all three defaults below; each can still be overridden individually.
-SAMPLE = os.getenv("GOVERNEDGRAPH_SAMPLE", "pension_wtp")
-if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", SAMPLE):
-    raise ValueError("GOVERNEDGRAPH_SAMPLE must be the name of a Python package under examples/")
-# The domain pack (catalogue, templates, approved content, aggregates, personas).
-DATA_DIR = Path(os.getenv("GOVERNEDGRAPH_DATA_DIR", str(REPO_ROOT / "examples" / SAMPLE / "data")))
+if not os.getenv("GOVERNEDGRAPH_DATA_DIR"):
+    raise ValueError("Runtime requires explicit GOVERNEDGRAPH_DATA_DIR from the domain composition")
+DATA_DIR = Path(os.environ["GOVERNEDGRAPH_DATA_DIR"])
 # Dotted "module:callable" for the deterministic values source used in local mode.
-LOCAL_VALUES_PROVIDER = os.getenv("GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER",
-                                  f"{SAMPLE}.member_values_api.data:get_member_values")
+LOCAL_VALUES_PROVIDER = os.getenv("GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER", "")
 # Module run by the offline text fallback (`python -m <module>`).
-TEXT_DEMO_MODULE = os.getenv("GOVERNEDGRAPH_TEXT_DEMO_MODULE", f"{SAMPLE}.demo.run_demo")
+TEXT_DEMO_MODULE = os.getenv("GOVERNEDGRAPH_TEXT_DEMO_MODULE", "")
 
 
 @dataclass(frozen=True)

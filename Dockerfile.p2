@@ -1,0 +1,11 @@
+FROM python:3.14-slim AS p2
+ARG SOURCE_SHA
+LABEL org.opencontainers.image.revision=${SOURCE_SHA}
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/src GOVERNEDGRAPH_MODE=azure
+RUN useradd -r -u 10001 app
+COPY src ./src
+COPY requirements.txt requirements-p2.txt ./
+RUN pip install --no-cache-dir -r requirements-p2.txt && pip check
+USER app
+CMD ["python", "-m", "governedgraph.learning.scheduled_jobs"]

@@ -18,8 +18,10 @@ python evals/run_evals.py                 # evaluation hard gates
 python -m pension_wtp.demo.run_demo       # a scripted journey, end to end
 ```
 
-Run from the repository root. `evals/run_evals.py` and the demo run the **selected sample**: the bundled
-`pension_wtp` unless you set `GOVERNEDGRAPH_SAMPLE` (see [adopting](adopting.md)).
+Run from the repository root. The explicit pension demo configures its own
+offline inputs. `evals/run_evals.py` selects the bundled evaluation sample unless
+you set `GOVERNEDGRAPH_SAMPLE`; framework runtime inputs remain explicit
+(see [adopting](adopting.md)).
 
 The demo shows the AI disclosure, values taken from the system of record, approved strategy selection with a fairness
 suspension, step-by-step explanation, teach-back, an explainability record and the fairness dashboard. It also shows an
@@ -73,8 +75,9 @@ new signed ranking. It never reads raw conversations and never writes new conten
 | [scripts](../scripts) | [Deploy](deploying.md), [teardown](deploying.md#clean-up-a-previous-environment-if-you-are-replacing-one) and operational tooling |
 | [docs](.) | This documentation |
 
-The sample plugs in through configuration only: `GOVERNEDGRAPH_SAMPLE` picks it, and
-`GOVERNEDGRAPH_DATA_DIR` / `GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER` override individual parts.
+The sample plugs in through explicit `GOVERNEDGRAPH_DATA_DIR` and
+`GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER` configuration, supplied by its own entry
+points/composition. The framework has no default sample.
 [tests/test_layering.py](../tests/test_layering.py) and [tests/test_domain_pack.py](../tests/test_domain_pack.py) fail if framework
 code imports a sample or carries sample-domain wording.
 

@@ -432,7 +432,7 @@ def test_b4_worm_retention_and_apim_report_route_are_preserved():
     assert "allowProtectedAppendWrites: true" in data
     gateway = (REPO_ROOT / "infra/modules/gateway.bicep").read_text()
     assert "'/members/{memberRef}/explainability-report'" in gateway
-    main = (REPO_ROOT / "infra/main.bicep").read_text()
+    main = (REPO_ROOT / "infra/workloads.bicep").read_text()
     assert "AZURE_ENV_NAME: environmentName" in main
 
 

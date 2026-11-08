@@ -7,18 +7,21 @@ explained) and a **values source** (where official figures and outcomes come fro
 ## The path
 
 1. **Copy the sample.** `cp -r examples/pension_wtp examples/my_domain`, then replace the package name `pension_wtp` with
-   `my_domain` in the copied `.py` and `.json` files (about twenty references across ten files: imports and `deployment.json`).
-2. **Select it.** `export GOVERNEDGRAPH_SAMPLE=my_domain`. One setting points the data directory, values provider and demo at
-   your package. Each can still be overridden alone (`GOVERNEDGRAPH_DATA_DIR`, `GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER`,
-   `GOVERNEDGRAPH_TEXT_DEMO_MODULE`).
+   `my_domain` in its Python, domain JSON, overlay Dockerfile and Bicep composition.
+2. **Supply explicit inputs.** Set `GOVERNEDGRAPH_DATA_DIR` to your data directory,
+   `GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER=my_domain.member_values_api.data:get_member_values`
+   and `GOVERNEDGRAPH_TEXT_DEMO_MODULE=my_domain.demo.run_demo`. Your extension's
+   offline entry points may supply their own defaults; the framework supplies none.
+   `GOVERNEDGRAPH_SAMPLE=my_domain` selects the shared evaluation entry point only.
 3. **Replace the domain pack** in `examples/my_domain/data/` (section 1 below): strategies, templates, prompts, vocabulary,
    approved content, expert priors, fairness thresholds.
 4. **Replace the values source** in `examples/my_domain/member_values_api/data.py` (section 2): read-only, scoped to the
    authenticated member, returning display strings from your system of record.
 5. **Run the gates:** `python evals/run_evals.py` and `pytest`. Numeric fidelity 100%, zero option recommendations and
    demographic invariance must all pass (section 4).
-6. **Deploy** with `python -m scripts.deploy --sample-definition examples/my_domain/deployment.json`. The runner builds the
-   images and configures the infrastructure for your package automatically; check the
+6. **Deploy** with `python -m scripts.deploy --inputs .azure/private-delivery.json`,
+   selecting `examples/my_domain/deployment.json` in its `composition` field. The explicit extension owns its overlays and
+   workload composition; check the
    [Azure image contract](#azure-image-contract) first.
 
 This path is exercised: a renamed copy of the sample, selected with `GOVERNEDGRAPH_SAMPLE`, runs the demo and passes the
@@ -71,8 +74,8 @@ gates. `tests/test_domain_pack.py` fails if sample-domain wording appears in `sr
 definitions are recreated from the pack, so a prompt change produces a new agent version for approval (Tier 2).
 Evaluation personas and datasets also belong to your pack.
 Sample-specific evaluation code and cases belong to the sample, not the framework's deployment script. The reference
-sample declares its local tests, evaluation/demo entry points and required deployed channel modes in
-`examples/pension_wtp/deployment.json`; `scripts/deploy.py` runs that definition automatically. Framework B1-B10 tests
+sample keeps local tests and evaluation cases under its own directory. Its
+`deployment.json` declares domain/approved composition inputs only, never test or proof policy. Framework B1-B10 tests
 stay in `tests/` and cannot be removed or weakened by a sample definition.
 
 ## 4. Verify
@@ -88,10 +91,12 @@ All hard gates must pass: numeric fidelity 100%, zero option recommendations, de
 
 ## Azure image contract
 
-The container build is sample-agnostic: `SAMPLE` (the package under examples/) is passed to every image build (`azure.yaml`
-`buildArgs`, `az acr build` in the deploy runner) and to Bicep (`sampleName`), and the deploy runner sets it from your
-`--sample-definition`. The images contain only the files below, so your package needs them at these paths (the sample's
-names, which the [Dockerfile](../Dockerfile) copies):
+The framework [Dockerfile](../Dockerfile) builds `runtime`, and [Dockerfile.p2](../Dockerfile.p2)
+builds `p2`, without sample defaults or files. Your extension supplies matching
+runtime/P2 overlay Dockerfiles and a Bicep composition. Build arguments
+`FRAMEWORK_RUNTIME` and `FRAMEWORK_P2` are immutable base-image references, not sample selectors.
+The explicit extension environment supplies the data directory, values provider and demo module.
+Azure runtime refuses an absent data-directory input. The reference overlays contain:
 
 | Image | Files copied from `examples/<your_package>/` |
 |---|---|
@@ -101,7 +106,8 @@ names, which the [Dockerfile](../Dockerfile) copies):
 | Voice proof | `data/personas/personas.json` |
 
 A missing file makes the image build fail before anything is deployed. Cohorts and personas stay out of the runtime
-images (tested). To use other file names, edit the Dockerfile; `tests/test_sample_selection.py` expands its `COPY` lines
+images (tested). To use other file names, edit your overlay Dockerfile;
+`examples/pension_wtp/tests/test_delivery_selection.py` expands the reference `COPY` lines
 and fails if a source does not exist for the bundled sample.
 
 ## Current limits

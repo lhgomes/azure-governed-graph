@@ -11,7 +11,7 @@ import json
 import os
 from pathlib import Path
 import sys
-from tempfile import TemporaryDirectory
+import shutil
 from uuid import uuid4
 
 from scripts.azd_env import EnvError, load
@@ -89,9 +89,13 @@ def run(project, values: dict[str, str], output: Path) -> int:
             composer = FoundryComposer(INSTRUCTIONS, client=UsageRecorder(client))
             composer.agent_name, composer.agent_version, composer.model = name, values[PIN_KEYS[name]], model
             report["rows"][model] = []
-            with TemporaryDirectory(prefix="gg-foundry-eval-") as directory:
-                collect_candidate(model, composer, lambda scenario: ScriptedPersona(asdict(scenario)), Path(directory),
+            directory = output.parent / ("work-" + uuid4().hex)
+            directory.mkdir()
+            try:
+                collect_candidate(model, composer, lambda scenario: ScriptedPersona(asdict(scenario)), directory,
                                   on_row=save_row, decision_agents=decisions, supporting_recorders=recorders)
+            finally:
+                shutil.rmtree(directory)
         score_report(project, report, output, writers["gg-counsellor"], {})
     expected_ids = {case["id"] for case in cases("curated.jsonl") + cases("adversarial.jsonl") + persona_cases()}
     report["evaluation_passed"] = all(

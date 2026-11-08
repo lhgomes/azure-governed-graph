@@ -37,8 +37,9 @@ your deterministic systems **decide**, and a learning loop improves **how** thin
 | **Your domain** | A **domain pack** (strategies, templates, prompts, vocabulary, approved content, fairness thresholds) and a **values source** (read-only access to your system of record) | `examples/<your_package>` |
 | **The sample** | A complete worked domain (pension-transition guidance for a synthetic Dutch sector fund), bundled so the repository runs out of the box. Synthetic data only | [examples/pension_wtp](examples/pension_wtp) |
 
-The framework never imports a sample ([tested](tests/test_layering.py)). One setting, `GOVERNEDGRAPH_SAMPLE`, chooses which
-domain the repository runs; it defaults to the bundled sample.
+The framework never imports or defaults to a sample ([tested](tests/test_layering.py)).
+Domain inputs are explicit. The bundled sample's offline entry points configure
+their own data, values provider and demo; Azure uses its explicit composition.
 
 > **ILLUSTRATIVE - synthetic data.** All sample data is synthetic; no real organisation, member or personal data is used.
 > The sample gives guidance, not financial or legal advice.
@@ -62,7 +63,9 @@ suspensions, governance decisions, learning evidence and journeys, with audited 
 ## Use it for your own solution
 
 1. Copy `examples/pension_wtp` to `examples/my_domain` and rename the package.
-2. `export GOVERNEDGRAPH_SAMPLE=my_domain`.
+2. Configure `GOVERNEDGRAPH_DATA_DIR`, `GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER` and
+   `GOVERNEDGRAPH_TEXT_DEMO_MODULE` explicitly, or use your extension's offline entry point.
+   `GOVERNEDGRAPH_SAMPLE=my_domain` selects only the shared evaluation entry point.
 3. Replace the domain pack and the values source with yours.
 4. Run `python evals/run_evals.py` and `pytest`; the hard gates must pass.
 
@@ -72,12 +75,15 @@ change, and the current limits.
 ## Run it on Azure
 
 ```bash
-python -m scripts.deploy        # guided, resumable; deploys everything including the administration console
+python -m scripts.deploy --inputs .azure/private-delivery.json  # explicit foundation/bootstrap/workloads
+python -m scripts.run_foundry_evals --environment gg-dev       # separate paid hosted evaluation
 python -m scripts.teardown      # guided removal: resource group, quota release, Entra objects, local state
 ```
 
 One run provisions the reference solution (`azd`, Bicep, managed identities, private backends) and the Entra sign-in for the
-console, then verifies it. `--plan` on either command shows what it would do and changes nothing. See [deploying](docs/deploying.md).
+console, then checks deployment readiness only. Delivery `--plan` requires the same inputs;
+teardown `--plan` inventories its scoped historical/current target. Neither changes cloud resources.
+See [deploying](docs/deploying.md).
 The synthetic contact centre and the member-token issuer are development stand-ins; production needs reviewed identity,
 administrator, contact-centre and content-governance adapters.
 

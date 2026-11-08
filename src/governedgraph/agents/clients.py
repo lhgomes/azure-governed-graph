@@ -18,7 +18,9 @@ class LocalValuesClient:
             trace_parent: str = "") -> MemberValues:
         from importlib import import_module
 
-        module_name, _, attribute = LOCAL_VALUES_PROVIDER.partition(":")
+        module_name, separator, attribute = LOCAL_VALUES_PROVIDER.partition(":")
+        if not module_name or not separator or not attribute:
+            raise ValueError("Local values require explicit GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER")
         get_member_values = getattr(import_module(module_name), attribute)
 
         try:

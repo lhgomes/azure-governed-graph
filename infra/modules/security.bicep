@@ -25,6 +25,11 @@ resource runtimeId 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31'
   location: location
   tags: tags
 }
+resource memberValuesId 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: 'id-gg-member-values-${token}'
+  location: location
+  tags: union(tags, { purpose: 'synthetic-deterministic-values-adapter' })
+}
 resource pipelineId 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: 'id-gg-p2-pipeline-${token}'
   location: location
@@ -135,6 +140,9 @@ resource devMemberKey 'Microsoft.KeyVault/vaults/keys@2023-07-01' = if (deployDe
 output runtimeIdentityId string = runtimeId.id
 output runtimeIdentityClientId string = runtimeId.properties.clientId
 output runtimePrincipalId string = runtimeId.properties.principalId
+output memberValuesIdentityId string = memberValuesId.id
+output memberValuesClientId string = memberValuesId.properties.clientId
+output memberValuesPrincipalId string = memberValuesId.properties.principalId
 output pipelineIdentityId string = pipelineId.id
 output pipelinePrincipalId string = pipelineId.properties.principalId
 output fairnessPrincipalId string = fairnessId.properties.principalId

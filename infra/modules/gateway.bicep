@@ -1,14 +1,10 @@
 // APIM facade = anti-corruption layer over the administrator + AI gateway.
 // Policies: validate JWT, derive the authenticated member from the token (member scoping),
 // reject unknown fields (B7), rate limit per consumer, retry + circuit breaker, wiretap to App Insights.
-param location string
-param tags object
 param token string
-param publisherEmail string
 param memberValuesBackendUrl string
 param strategyServiceBackendUrl string
 param orchestratorBackendUrl string
-param apimSubnetId string
 param appInsightsName string
 param memberTokenIssuer string
 param memberTokenAudience string
@@ -16,22 +12,8 @@ param memberTokenPublicJwk object
 param deployAdminConsole bool = false
 param adminBackendUrl string = ''
 
-resource apim 'Microsoft.ApiManagement/service@2024-05-01' = {
+resource apim 'Microsoft.ApiManagement/service@2024-05-01' existing = {
   name: 'apim-gg-${token}'
-  location: location
-  tags: tags
-  sku: { name: 'StandardV2', capacity: 1 }
-  identity: { type: 'SystemAssigned' }
-  properties: {
-    publisherEmail: publisherEmail
-    publisherName: 'GovernedGraph synthetic fund'
-    developerPortalStatus: 'Disabled'
-    legacyPortalStatus: 'Disabled'
-    natGatewayState: 'Enabled'
-    publicNetworkAccess: 'Enabled'
-    virtualNetworkType: 'External'
-    virtualNetworkConfiguration: { subnetResourceId: apimSubnetId }
-  }
 }
 
 resource tenantNv 'Microsoft.ApiManagement/service/namedValues@2024-05-01' = {

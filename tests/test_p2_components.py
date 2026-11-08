@@ -334,18 +334,22 @@ def test_protective_retry_never_undoes_static_kill_switch(tmp_path):
 
 def test_production_image_does_not_embed_cohorts_or_personas():
     dockerfile = (REPO_ROOT / "Dockerfile").read_text()
-    sample = "examples/${GOVERNEDGRAPH_SAMPLE}"
-    copies = [line for line in dockerfile.splitlines() if line.startswith(f"COPY {sample}/data")]
-    assert copies == [
-        f"COPY {sample}/data/catalogue ./{sample}/data/catalogue",
-        f"COPY {sample}/data/content ./{sample}/data/content",
-        f"COPY {sample}/data/fairness/thresholds_v1.json ./{sample}/data/fairness/thresholds_v1.json",
-    ]
-    assert "FROM base AS p2" in dockerfile
-    assert "pip install --no-cache-dir -r requirements-p2.txt && pip check" in dockerfile
-    p2_base = dockerfile.split("FROM base AS runtime")[0]
-    assert "members.json" not in p2_base
-    assert f"COPY --chown=10001:10001 {sample}/data/synthetic/members.json" in dockerfile
+    assert "examples/" not in dockerfile and "pension" not in dockerfile
+    framework_p2 = (REPO_ROOT / "Dockerfile.p2").read_text()
+    assert "examples/" not in framework_p2 and "pension" not in framework_p2
+    assert "pip install --no-cache-dir -r requirements-p2.txt && pip check" in framework_p2
+    assert "requirements-azure.txt" not in framework_p2
+    assert "requirements-p2.txt" not in dockerfile
+    overlay = (REPO_ROOT / "examples/pension_wtp/Dockerfile").read_text()
+    offline_overlay = (REPO_ROOT / "examples/pension_wtp/Dockerfile.p2").read_text()
+    runtime = overlay.split("FROM runtime AS probe")[0]
+    p2 = offline_overlay.split("FROM p2 AS fixtures")[0]
+    assert "members.json" in runtime and "members.json" not in p2
+    for source in (runtime, p2):
+        assert "cohort_aggregates" not in source and "personas" not in source and "outcome_aggregates" not in source
+    assert "FROM p2 AS fixtures" in offline_overlay and "FROM runtime AS probe" in overlay
+    assert "FRAMEWORK_RUNTIME" not in offline_overlay
+    assert "FRAMEWORK_P2" not in overlay
 
 
 def test_watchdog_fails_closed_on_failed_or_missing_component_metadata():

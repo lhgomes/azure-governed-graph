@@ -292,11 +292,10 @@ def test_b1_probe_image_and_timeout_are_persistent_without_new_resources():
     from pathlib import Path
 
     root = Path(__file__).parents[1]
-    main = (root / "infra/main.bicep").read_text()
+    main = (root / "infra/bootstrap.bicep").read_text()
     module = (root / "infra/modules/dev-member-issuer.bicep").read_text()
-    parameters = json.loads((root / "infra/main.parameters.json").read_text())["parameters"]
-    assert "image: empty(devIssuerImage) ? orchestratorImage : devIssuerImage" in main
-    assert parameters["devIssuerImage"]["value"] == "${DEV_ISSUER_IMAGE=}"
+    assert "image: probeImage" in main and "param probeImage string" in main
+    assert "job-gg-dev-member-issuer" in main
     assert "replicaTimeout: 600" in module
     assert "workloadProfileName: 'Consumption'" in module
     assert "checkFacade" not in module

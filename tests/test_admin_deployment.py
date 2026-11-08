@@ -162,19 +162,21 @@ def test_b3_b8_gateway_lists_every_console_route_and_exposes_no_wildcard_or_publ
         ("GET", "/"), ("GET", "/assets/{name}"), ("GET", "/api/access"), ("GET", "/api/overview"), ("GET", "/api/journeys"),
         ("GET", "/api/journeys/{journeyId}"), ("GET", "/api/traces/{journeyId}"), ("POST", "/api/actions")])
     assert "/*" not in ops and "path: 'admin'" in gateway
-    main = (ROOT / "infra/main.bicep").read_text()
+    main = (ROOT / "infra/workloads.bicep").read_text()
     assert "STRATEGY_ADMIN_PRINCIPAL_ID: security.outputs.adminPrincipalId" in main
 
 
 def test_b8_risky_console_options_are_off_by_default_and_reviewed_access_is_explicit():
-    main = (ROOT / "infra/main.bicep").read_text()
+    main = (ROOT / "infra/workloads.bicep").read_text()
     for parameter in ("adminAllowOpenActions", "adminTraceLookup"):
         assert re.search(rf"param {parameter} bool = false", main)
     assert re.search(r"module adminTraceRbac .* = if \(deployAdminConsole && adminTraceLookup\)", main)
     trace = (ROOT / "infra/modules/admin-trace-rbac.bicep").read_text()
     assert "scope: workspace" in trace and "73c42c96-874c-492b-b04d-ab87d138a893" in trace
-    parameters = (ROOT / "infra/main.parameters.json").read_text()
-    assert "${GOVERNEDGRAPH_ADMIN_ALLOW_OPEN_ACTIONS=false}" in parameters
-    assert "${GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP=false}" in parameters
-    assert "GOVERNEDGRAPH_ADMIN_READER_GROUP_ID" in parameters and "GOVERNEDGRAPH_ADMIN_OPERATOR_GROUP_ID" in parameters
+    bootstrap = (ROOT / "scripts/bootstrap.py").read_text()
+    driver = (ROOT / "scripts/deploy.py").read_text()
+    assert '"adminAllowOpenActions"' not in driver
+    assert '"adminTraceLookup": inputs.voice_demo' in driver
+    assert '"adminReaderGroupId": console["reader_group_id"]' in bootstrap
+    assert '"adminOperatorGroupId": console["operator_group_id"]' in bootstrap
     assert "azure-monitor-query==2.0.0" in (ROOT / "requirements-azure.txt").read_text()

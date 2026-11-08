@@ -145,7 +145,7 @@ def test_b4_foundry_connection_uses_project_identity_not_a_key():
 
 def test_foundry_trace_project_id_is_deployment_metadata():
     ai = (ROOT / "infra/modules/ai.bicep").read_text()
-    main = (ROOT / "infra/main.bicep").read_text()
+    main = (ROOT / "infra/workloads.bicep").read_text()
     compute = (ROOT / "infra/modules/compute.bicep").read_text()
     assert "output projectResourceId string = project.id" in ai
     assert "AZURE_AI_PROJECT_RESOURCE_ID: ai.outputs.projectResourceId" in main
@@ -347,7 +347,7 @@ def test_gateway_preserves_identity_pins_and_fails_closed():
     pinned = next(when for when in root.findall(".//when")
                   if when.find(".//set-status[@reason='Approved pinned agent required']") is not None)
     assert pinned.attrib["condition"].count('name == "') == 5
-    main = (ROOT/"infra/main.bicep").read_text()
+    main = (ROOT/"infra/workloads.bicep").read_text()
     assert "AZURE_AI_REVIEW_AGENT_VERSION: reviewAgentVersion" in main
     assert "reviewAgentVersion: reviewAgentVersion" in main
     assert root.find(".//set-body") is None
@@ -407,9 +407,9 @@ def test_b8_only_exact_project_scoped_human_approval_can_leave_the_protective_wr
     assert "'model-writer-approval': base64(string(writerApproval))" in gateway
     assert "'model-project-endpoint': projectEndpoint" in gateway
     assert "@maxLength(3000)\nparam writerApprovalJson string = ''" in gateway
-    parameters = json.loads((ROOT / "infra/main.parameters.json").read_text())
-    assert parameters["parameters"]["writerApproval"]["value"] == "${GOVERNEDGRAPH_WRITER_APPROVAL_JSON=null}"
-    main = (ROOT / "infra/main.bicep").read_text()
+    from scripts.delivery import parameters
+    assert parameters({"writerApproval": None})["parameters"]["writerApproval"]["value"] is None
+    main = (ROOT / "infra/workloads.bicep").read_text()
     assert "param writerApproval object?\n" in main
     assert "writerApprovalJson: empty(writerApproval) ? '' : string(writerApproval)" in main
 
@@ -423,11 +423,8 @@ def test_b8_only_exact_project_scoped_human_approval_can_leave_the_protective_wr
                 "evidence_ref": 'ILLUSTRATIVE - synthetic "quoted" evidence\\reference\nline'}),
 ])
 def test_azd_approval_object_substitution_preserves_json_and_empty_revocation(raw):
-    parameter = json.loads((ROOT / "infra/main.parameters.json").read_text())["parameters"]["writerApproval"]
-    variable, default = parameter["value"][2:-1].split("=", 1)
-    assert variable == "GOVERNEDGRAPH_WRITER_APPROVAL_JSON" and default == "null"
-    # azd's object path substitutes the value before parsing JSON, unlike its string path.
-    resolved = json.loads(raw or default)
+    from scripts.delivery import parameters
+    resolved = parameters({"writerApproval": json.loads(raw or "null")})["parameters"]["writerApproval"]["value"]
     assert resolved is None or isinstance(resolved, dict)
     gateway_json = json.dumps(resolved) if resolved else ""
     gateway_approval = json.loads(gateway_json) if gateway_json else {}

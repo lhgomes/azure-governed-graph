@@ -262,10 +262,10 @@ def test_the_page_requests_exactly_the_scope_the_registration_exposes_and_the_se
 
 def test_hook_and_guided_runner_register_the_console_in_the_same_places_as_the_voice_demo():
     manifest = (ROOT / "azure.yaml").read_text()
-    hook = manifest.split("preprovision:", 1)[1].split("postprovision:", 1)[0]
-    assert "scripts.configure_voice_demo" in hook and "scripts.configure_admin_console --apply --azd-env" in hook
-    assert 'GOVERNEDGRAPH_ADMIN_ACCESS_CONTROL:-true}" != "false"' in hook and "APIM_GATEWAY_URL" in hook
-    assert 'AZURE_ENV_NAME:-}" = "gg-dev"' in hook.split("configure_voice_demo", 1)[1]
-    parameters = json.loads((ROOT / "infra/main.parameters.json").read_text())["parameters"]
+    assert "hooks:" not in manifest
+    bootstrap = (ROOT / "scripts/bootstrap.py").read_text()
+    assert "scripts.configure_voice_demo import configure" in bootstrap
+    assert "scripts.configure_admin_console import configure" in bootstrap
+    assert 'foundation["gateway"]["gatewayUrl"]' in bootstrap
     for name in ("adminReaderGroupId", "adminOperatorGroupId", "adminClientId"):
-        assert parameters[name]["value"].startswith("${GOVERNEDGRAPH_ADMIN_")
+        assert f'"{name}": console[' in bootstrap

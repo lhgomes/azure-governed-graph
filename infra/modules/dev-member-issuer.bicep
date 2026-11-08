@@ -5,6 +5,8 @@ param image string
 param issuerIdentityId string
 param issuerClientId string
 param memberTokenIssuer string
+param domainEnv object
+var domainEnvList = [for item in items(domainEnv): { name: item.key, value: string(item.value) }]
 
 resource vault 'Microsoft.KeyVault/vaults@2023-07-01' existing = { name: 'kv-gg-${take(token, 13)}' }
 resource environment 'Microsoft.App/managedEnvironments@2024-03-01' existing = { name: 'cae-gg-${token}' }
@@ -30,14 +32,14 @@ resource job 'Microsoft.App/jobs@2024-03-01' = {
           image: image
           command: [ 'python', '-m', 'governedgraph.dev.issue_member_token' ]
           args: [ '--public-jwk' ]
-          env: [
+          env: concat(domainEnvList, [
             { name: 'GOVERNEDGRAPH_ENABLE_DEV_MEMBER_ISSUER', value: 'true' }
             { name: 'AZURE_CLIENT_ID', value: issuerClientId }
             { name: 'DEV_ISSUER_CLIENT_ID', value: issuerClientId }
             { name: 'AZURE_KEY_VAULT_URL', value: vault.properties.vaultUri }
             { name: 'MEMBER_TOKEN_ISSUER', value: memberTokenIssuer }
             { name: 'APIM_GATEWAY_URL', value: 'https://apim-gg-${token}.azure-api.net' }
-          ]
+          ])
           resources: { cpu: json('0.5'), memory: '1Gi' }
         }
       ]

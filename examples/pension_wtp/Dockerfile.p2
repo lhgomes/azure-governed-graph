@@ -1,0 +1,15 @@
+ARG FRAMEWORK_P2
+FROM ${FRAMEWORK_P2} AS p2
+ARG SOURCE_SHA
+LABEL org.opencontainers.image.revision=${SOURCE_SHA}
+ENV PYTHONPATH=/app/src:/app/examples GOVERNEDGRAPH_DATA_DIR=/app/examples/pension_wtp/data
+COPY --chown=10001:10001 examples/pension_wtp/__init__.py ./examples/pension_wtp/__init__.py
+COPY --chown=10001:10001 examples/pension_wtp/data/catalogue ./examples/pension_wtp/data/catalogue
+COPY --chown=10001:10001 examples/pension_wtp/data/content ./examples/pension_wtp/data/content
+COPY --chown=10001:10001 examples/pension_wtp/data/fairness/thresholds_v1.json ./examples/pension_wtp/data/fairness/thresholds_v1.json
+
+FROM p2 AS fixtures
+COPY --chown=10001:10001 examples/pension_wtp/data/synthetic/outcome_aggregates_illustrative.csv ./examples/pension_wtp/data/synthetic/outcome_aggregates_illustrative.csv
+COPY --chown=10001:10001 examples/pension_wtp/data/synthetic/uplift_window_illustrative.json ./examples/pension_wtp/data/synthetic/uplift_window_illustrative.json
+COPY --chown=10001:10001 examples/pension_wtp/data/fairness/cohort_aggregates_illustrative.csv ./examples/pension_wtp/data/fairness/cohort_aggregates_illustrative.csv
+CMD ["python", "-m", "governedgraph.dev.publish_learning_fixtures"]

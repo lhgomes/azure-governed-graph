@@ -2,12 +2,12 @@ param location string
 param tags object
 @minLength(1)
 param token string
-param logAnalyticsId string
-param infrastructureSubnetId string
-param virtualNetworkId string
 param runtimeIdentityId string
 param runtimeIdentityClientId string
 param runtimePrincipalId string
+param memberValuesIdentityId string
+param memberValuesClientId string
+param memberValuesPrincipalId string
 param strategyIdentityId string
 param strategyClientId string
 param strategyPrincipalId string
@@ -16,7 +16,7 @@ param orchestratorEnv object
 param orchestratorImage string
 param strategyServiceImage string
 param memberValuesImage string
-param sampleName string = 'pension_wtp'
+param memberValuesModule string
 param env object
 param deploySyntheticContactCentre bool = false
 param contactCentreImage string
@@ -28,18 +28,14 @@ param contactCentreAudience string = ''
 param contactCentreUrl string = ''
 param contactCentreStorageUrl string
 param deployAdminConsole bool = false
-param adminImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+param adminImage string
 param adminIdentityId string = ''
 param adminClientId string = ''
 param adminPrincipalId string = ''
 param adminEnv object = {}
 
-resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
+resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: 'crgg${take(token, 16)}'
-  location: location
-  tags: tags
-  sku: { name: 'Basic' }
-  properties: { adminUserEnabled: false }
 }
 
 var acrPullRole = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
@@ -57,6 +53,15 @@ resource strategyAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   name: guid(acr.id, strategyPrincipalId, acrPullRole)
   properties: {
     principalId: strategyPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRole)
+  }
+}
+resource memberValuesAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: acr
+  name: guid(acr.id, memberValuesPrincipalId, acrPullRole)
+  properties: {
+    principalId: memberValuesPrincipalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRole)
   }
@@ -81,35 +86,8 @@ resource adminAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if 
   }
 }
 
-resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
+resource cae 'Microsoft.App/managedEnvironments@2024-03-01' existing = {
   name: 'cae-gg-${token}'
-  location: location
-  tags: tags
-  properties: {
-    vnetConfiguration: { internal: true, infrastructureSubnetId: infrastructureSubnetId }
-    workloadProfiles: [ { name: 'Consumption', workloadProfileType: 'Consumption' } ]
-    appLogsConfiguration: {
-      destination: 'azure-monitor'
-    }
-  }
-}
-
-resource diagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
-  name: 'container-apps-logs'
-  scope: cae
-  properties: {
-    workspaceId: logAnalyticsId
-    logs: [ { categoryGroup: 'allLogs', enabled: true } ]
-  }
-}
-
-module privateDns 'private-dns.bicep' = {
-  name: 'container-apps-dns'
-  params: {
-    zoneName: cae.properties.defaultDomain
-    staticIp: cae.properties.staticIp
-    virtualNetworkId: virtualNetworkId
-  }
 }
 
 var serviceEnv = [for k in items(env): { name: k.key, value: k.value }]
@@ -120,9 +98,9 @@ var orchestratorEnvList = concat(orchestratorEnvEntries, [
 ])
 
 var apps = [
-  { name: 'orchestrator', image: orchestratorImage, module: 'governedgraph.orchestrator.api:app', external: true, minReplicas: 1 }
-  { name: 'strategy-service', image: strategyServiceImage, module: 'governedgraph.strategy_service.api:app', external: true, minReplicas: 2 }
-  { name: 'member-values', image: memberValuesImage, module: '${sampleName}.member_values_api.app:app', external: true, minReplicas: 1 }
+  { name: 'orchestrator', image: orchestratorImage, module: 'governedgraph.orchestrator.api:app', external: true, minReplicas: 1, identityId: runtimeIdentityId, clientId: runtimeIdentityClientId }
+  { name: 'strategy-service', image: strategyServiceImage, module: 'governedgraph.strategy_service.api:app', external: true, minReplicas: 2, identityId: strategyIdentityId, clientId: strategyClientId }
+  { name: 'member-values', image: memberValuesImage, module: memberValuesModule, external: true, minReplicas: 1, identityId: memberValuesIdentityId, clientId: memberValuesClientId }
 ]
 
 resource ca 'Microsoft.App/containerApps@2024-03-01' = [for a in apps: {
@@ -131,20 +109,20 @@ resource ca 'Microsoft.App/containerApps@2024-03-01' = [for a in apps: {
   tags: union(tags, { 'azd-service-name': a.name, 'gg-agent-role': a.name })
   identity: {
     type: 'UserAssigned'
-    userAssignedIdentities: { '${a.name == 'strategy-service' ? strategyIdentityId : runtimeIdentityId}': {} }
+    userAssignedIdentities: { '${a.identityId}': {} }
   }
   properties: {
     managedEnvironmentId: cae.id
     configuration: {
       ingress: { external: a.external, targetPort: 8000, transport: 'auto' }
-      registries: [ { server: acr.properties.loginServer, identity: a.name == 'strategy-service' ? strategyIdentityId : runtimeIdentityId } ]
+      registries: [ { server: acr.properties.loginServer, identity: a.identityId } ]
     }
     template: {
       containers: [ {
         name: a.name
         image: a.image
         env: concat(serviceEnv, a.name == 'strategy-service' ? strategyEnvList : [], a.name == 'orchestrator' ? orchestratorEnvList : [], [
-          { name: 'AZURE_CLIENT_ID', value: a.name == 'strategy-service' ? strategyClientId : runtimeIdentityClientId }
+          { name: 'AZURE_CLIENT_ID', value: a.clientId }
           { name: 'APP_MODULE', value: a.module }
           { name: 'STRATEGY_SERVICE_URL', value: 'https://apim-gg-${token}.azure-api.net' }
           { name: 'MEMBER_VALUES_API_URL', value: 'https://apim-gg-${token}.azure-api.net' }
@@ -159,7 +137,7 @@ resource ca 'Microsoft.App/containerApps@2024-03-01' = [for a in apps: {
       scale: { minReplicas: a.minReplicas, maxReplicas: 10 }
     }
   }
-  dependsOn: [ runtimeAcrPull, strategyAcrPull ]
+  dependsOn: [ runtimeAcrPull, strategyAcrPull, memberValuesAcrPull ]
 }]
 
 var adminEnvList = [for k in items(adminEnv): { name: k.key, value: k.value }]

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from scripts import configure_admin_console, teardown
-from scripts.deploy import CommandError, Prompter
+from scripts.teardown import CommandError, Prompter
 
 SUB = "00000000-0000-4000-8000-0000000000aa"
 SEED = "627df32699264204a391842dd9fa673c"

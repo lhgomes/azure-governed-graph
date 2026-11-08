@@ -212,38 +212,25 @@ Access control restricts who may use the console, locally and on Azure.
 ## Deploy to Azure
 
 The console is part of the same deployment as the rest of the solution and the voice presenter, not a separate
-product. A fresh `python scripts/deploy.py` produces the same result as the reference gg-dev, with no console-specific
-steps and no extra questions:
+product. `python -m scripts.deploy --inputs .azure/private-delivery.json` composes the reference gg-dev without
+console-specific manual steps:
 
 - the five services, including the console behind the gateway at `/admin/`;
 - Entra sign-in: the reader and operator groups, you as a member of both, and the sign-in app;
 - the voice presenter, **synthetic-conversation capture**, and the console's **conversation view** (Log Analytics Reader
   for the console identity on the one workspace);
-- a final **admin console check** that fails the deployment if the page or health route is down, the evidence is not
-  behind sign-in (or is not read-only when sign-in is opted out), an unlisted route is exposed, or no synthetic
-  conversation turns reach the workspace within 15 minutes of the proof journeys.
+- lightweight readiness of the running applications, native schedules and console page. Sign-in,
+  route authorization and synthetic conversation behavior remain controlled by their independent tests/probes.
 
-`--no-voice-demo` turns off the presenter, capture and the conversation view together (capture and lookup need it).
-`GOVERNEDGRAPH_DEPLOY_ADMIN_CONSOLE=false` omits the console, and `GOVERNEDGRAPH_ADMIN_ACCESS_CONTROL=false` skips sign-in.
-If the check cannot read the workspace, the deploying user needs read access to it; resume with `--mode resume`.
+Set `voice_demo: false` in the private delivery inputs to disable the presenter, capture and conversation view together.
+The reference composition retains its own sign-in and does not opt into open protective actions.
 
 ```bash
-python scripts/deploy.py   # provisions, registers the Entra apps and console groups, deploys all five services, verifies
+python -m scripts.deploy --inputs .azure/private-delivery.json
 ```
 
-Individual steps, if you run them yourself:
-
-```bash
-azd provision            # identity, immutable journal container, container-scoped access, app, gateway route;
-                         # the preprovision hook also registers the console sign-in (once the gateway exists)
-python -m governedgraph.strategy_service.provision_auth --environment gg-dev \
-  --pipeline "$STRATEGY_PUBLISHER_PRINCIPAL_ID" --fairness "$STRATEGY_FAIRNESS_PRINCIPAL_ID" \
-  --runtime "$STRATEGY_RUNTIME_PRINCIPAL_ID" --admin "$STRATEGY_ADMIN_PRINCIPAL_ID" --apply
-azd provision            # applies the sign-in settings the first pass recorded (as for the presenter's client ID)
-azd deploy admin         # remote build, no local Docker
-```
-
-The runner passes `--admin` automatically once the identity exists. The console is then at `ADMIN_CONSOLE_URL`, the
+Foundation, immutable builds, bounded registrations and complete workloads are separate explicit contracts,
+not repeated full provisions or service-by-service builds. The console is at `ADMIN_CONSOLE_URL`, the
 gateway URL followed by `/admin/`.
 
 What is created, and why it is narrow:
@@ -267,8 +254,7 @@ signatures, so it holds no Key Vault permission.
 
 ### Access control on Azure
 
-Sign-in is set up by the deployment, the same way as the voice presenter. In `gg-dev`, `azd provision`
-(the `preprovision` hook) and `scripts/deploy.py` (its Entra step) both run `scripts/configure_admin_console.py`,
+Sign-in is set up by bounded delivery bootstrap, the same way as the voice presenter, using `scripts/configure_admin_console.py`,
 which is idempotent:
 
 1. creates the **reader** and **operator** security groups (`GovernedGraph gg-dev admin readers-…` and

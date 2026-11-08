@@ -3,7 +3,7 @@
 Everything environment-specific is read from the azd environment (`scripts/azd_env.py`):
 
     python -m scripts.run_dev_proof channel                       # --probe-channel through the orchestrator (+ gateway)
-    python -m scripts.run_dev_proof voice --image <registry>/<repo>@sha256:<digest>   # --probe-voice; needs a dev-voice image
+    python -m scripts.run_dev_proof voice --image <registry>/<repo>@sha256:<digest>   # explicit extension probe image
 
 The job's stored template, identity and permissions are never changed: the image/command/arguments are overridden for
 this single execution only, and no member token exists on this machine (the job mints it in process memory).
@@ -46,7 +46,7 @@ def validate(values: dict[str, str], mode: str, image: str | None) -> None:
     if values["AZURE_ENV_NAME"] != "gg-dev":
         raise EnvError("synthetic proofs run only in the gg-dev environment")
     if mode == "voice" and not (image and IMMUTABLE_IMAGE.fullmatch(image)):
-        raise EnvError("--image must be an immutable registry digest reference built from the Dockerfile dev-voice target")
+        raise EnvError("--image must be an immutable registry digest reference built from the extension probe target")
     if image and not IMMUTABLE_IMAGE.fullmatch(image):
         raise EnvError("--image must be an immutable registry digest reference")
     if image and image.split("/", 1)[0] != values["AZURE_CONTAINER_REGISTRY_ENDPOINT"]:

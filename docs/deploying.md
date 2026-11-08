@@ -1,643 +1,167 @@
-# Deploying GovernedGraph to a new resource group
+# Delivering GovernedGraph
 
-This deploys the reference solution (framework plus the bundled pension sample) with the Azure Developer CLI. It is a **dev/reference
-deployment**: it includes synthetic stand-ins for the member identity provider and the contact centre, and several features are
-restricted to an environment named exactly `gg-dev`. Do not use it as a production deployment.
+The reference composition is **gg-dev**, swedencentral, with dedicated keyless
+Content Safety in francecentral. All domain data is **ILLUSTRATIVE - synthetic
+data**. Deployment readiness is not evaluation, conversational acceptance,
+production approval or human recovery.
 
-## Automated deployment (recommended)
+## Commands and explicit inputs
 
-Deploy first, then run acceptance against that completed deployment. Deployment resumes where it stopped;
-acceptance has its own outcome and never redeploys unchanged services:
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements-azure.txt
-python -m scripts.deploy
-python -m scripts.acceptance --environment gg-dev
-```
-
-It first asks whether to **start fresh**, **redeploy/update**, or **resume**. It then asks for the **subscription**, **region**,
-**resource group name** and an **on-call email**. The browser voice presenter, synthetic-conversation capture and the
-admin console (Entra sign-in, groups and conversation view) are included by default; `--no-voice-demo` turns off the
-presenter, capture and conversation view. It shows what it is about to do (duration and cost included), and waits for your confirmation. Then it runs:
-the sample's local tests, evaluation hard gates and offline rehearsal, then preflight checks
-(tools, sign-in, permissions, resource providers, model quota, existing resource group), the azd environment, the
-first provision, the Search private-link approval, the Entra app registrations, delegated recovery access for the saved operator,
-the Foundry agents, the service deployment, a second
-provision, the member-token key bootstrap, a final provision, the safe learning bootstrap and the admin console's
-health, sign-in and closed-route checks. It then persists **Deployment complete** and prints the service URLs.
-Expect 45-90 minutes plus local verification/build time. Hosted channel/voice proofs, conversation-capture verification
-and paid Foundry grading run only when you invoke the separate acceptance command afterwards.
-
-### Sample-owned verification
-
-`examples/pension_wtp/deployment.json` owns the local check targets, sample evaluation/demo modules, data directory and
-required deployed channel modes. The pension cases and runner live in `examples/pension_wtp/evaluation/`; its coverage
-tests live in `examples/pension_wtp/tests/`. The root evaluation command remains a compatibility entry point, not a
-second implementation. Framework boundary tests remain in `tests/`, unchanged and included in the full test suite.
-
-The default command uses this definition automatically. `--plan` shows its checks; `--sample-definition
-examples/pension_wtp/deployment.json` selects it explicitly. A saved deployment cannot silently switch definitions.
-The definition's package (`examples/<package>/`) is also passed to the image builds and to Bicep as `SAMPLE`/`sampleName`
-and stored in the azd environment as `GOVERNEDGRAPH_SAMPLE`, so a different sample deploys without editing the Dockerfile or
-Bicep (see the [Azure image contract](adopting.md#azure-image-contract)).
-Runtime, approved catalogue, infrastructure and dependency changes invalidate the affected deployment checkpoints
-and make old acceptance stale. Evaluation datasets, judge adapters, rubric code and proof-script changes invalidate
-acceptance and local verification, **not** deployed services or the signed learning bootstrap.
-Every declared proof must report `Succeeded` before **acceptance** passes; an old channel-only success cannot skip
-the sample's voice proof. Selecting a deployment repair step does not bypass missing local sample acceptance.
-
-Local acceptance failures stop before fresh Azure provisioning. Do not weaken checks or call a partially accepted sample
-fully available.
-The bundled sample's pre-provision checks include the isolated P2 stages, sorted-key JSON hand-offs, execution-history
-pagination, fairness-agent invocation and scheduled-learning contracts. A regression in those paths stops locally before
-starting a cloud learning job, not only after provisioning. Voice bridge and hosted simulation checks also run here,
-including paraphrased teach-back questions and the unchanged resolved-state acceptance gate.
-These offline checks are not a claim of live Azure acceptance.
-The in-network channel proof's authentication, idempotency, handover and audit regressions also run before provisioning.
-
-### Post-deployment acceptance
+Use Python 3.14, Azure CLI, Azure Developer CLI, Bicep and the existing verified
+`requirements-azure.txt` environment:
 
 ```bash
-python -m scripts.acceptance --environment gg-dev
-python -m scripts.acceptance --status
-python -m scripts.deploy --status
+.venv/bin/python -m scripts.deploy --inputs .azure/private-delivery.json --plan
+.venv/bin/python -m scripts.deploy --inputs .azure/private-delivery.json
+.venv/bin/python -m scripts.run_foundry_evals --environment gg-dev \
+  --output .run/foundry-evaluation-new.json
 ```
 
-Acceptance requires completed deployment checkpoints, safe learning receipts and matching runtime inputs, scope,
-project and numeric agent pins. It runs the existing strict in-network channel and voice-text proofs, verifies
-synthetic conversation capture when enabled, and runs fresh hosted grading. Only the probe image is built during
-acceptance; application services, agent definitions and the learning plane are not redeployed.
+`--plan` validates the local input/composition contract and prints the sequence;
+it makes no cloud calls. Obtain the required authorized Azure preview before
+applying the delivery. Delivery prints each major operation and each image
+build/reuse, without exposing private inputs. The evaluation command is separate and incurs model and
+judge usage; it never provisions, starts channel probes or issues member tokens.
+An output file must be new, preserving previous evidence.
 
-The `evaluations` check runs the existing pinned writers and semantic agents on the synthetic corpus with local
-deterministic adapters, then creates a remote guarded-output evaluation in this deployment's Foundry project.
-It prints the results link and retains project-scoped evidence. Model and judge calls incur usage costs;
-no new identity, permission, agent or model is created. Failed deterministic or quality gates block **acceptance**.
-See [evaluation visibility and limitations](evaluation.md#foundry-results-for-this-deployment).
-
-The saved state records deployment status separately from the latest acceptance attempt. Each explicit invocation
-creates new evidence under `.run/acceptance/`; earlier attempts and Foundry reports are retained, never overwritten.
-Acceptance is `passed`, `failed`, `unavailable` (the grader could not produce valid evidence), `running`, or
-`incomplete` for partial diagnostics. The status command reports `stale` when its binding no longer matches,
-and `not_run` when no tracked attempt exists. Exit codes are 0 for successful checks, 1 for failed checks and
-2 for evaluator unavailability; both failure outcomes remain unaccepted. There are no automatic retries until green.
-
-Fix an acceptance failure and rerun **acceptance**, not deployment. Evaluation-only changes rerun local checks as
-needed without provisioning. `--only verify` and `--only evaluations` are diagnostics and cannot certify full
-acceptance, even after an earlier full pass. The old deployment flags for those checks redirect to these partial
-diagnostics; use the full acceptance command for a new complete receipt.
-
-Legacy deployment files have no separate runtime fingerprint or acceptance binding. Status inspection is read-only;
-old step names are not fabricated into current acceptance. The first subsequent deployment resume conservatively
-revalidates affected runtime checkpoints once to establish the new fingerprint. Acceptance never performs that
-migration by provisioning on your behalf.
-
-For Foundry-only diagnosis, `python -m scripts.run_foundry_evals --environment gg-dev` remains available, but does
-not certify the full solution. A fresh project starts with no evaluation history; old reports cannot certify it.
-Neither deployment completion nor synthetic acceptance is production approval: all existing safety gates and
-human approval requirements remain mandatory before real member use.
-
-### Learning plane (automatic)
-
-After the final provision, the `learning` step remotely builds the immutable P2 image (and, for the sample's synthetic dev
-inputs, the fixture-publisher image) into the deployment's dedicated Azure ML registry, publishes the synthetic aggregates,
-runs one complete P2 cycle on the Azure ML hosting jobs and, when the sample declares it, runs the protective fairness agent
-once on its isolated fairness job. Only after both succeed does it enable the four-hourly schedule and re-provision. A failed
-cycle or agent proof leaves the schedule off and the step pending. Inspect the original cycle before retrying:
-an observation failure is not a confirmed stage failure, and an existing watchdog must not be abandoned by
-blindly starting a replacement cycle. Normal learning bootstrap is automated. The runbook's recurrence checks
-(two scheduled cycles and a skipped-audit freeze-and-alert proof) are observations made
-over time and are not claimed by the script.
-
-P2 job artifacts use sorted-key JSON. Candidate verification matches complete rows by request key, independent of the
-order of those rows; each row's strategy order, scores, baseline and shift must still match exactly. Duplicate, missing
-or modified rows fail closed. A cycle already frozen by a failed stage is not unfrozen by a code fix or resume: the
-existing audited human recovery remains required, and no schedule or completed learning receipt is issued on failure.
-The watchdog and recovery audit lookup read every execution-history page, rather than treating ordinary pagination as a
-failure. Continuation links must remain on the same HTTPS ARM job endpoint and must not repeat; malformed pages or a
-failed component on any page still fail closed.
-ARM's documented `Unknown` execution metadata is never completion evidence. The watchdog
-re-observes it at most five times within its original deadline before failing closed;
-an actual failed, stopped or degraded component still requests protection immediately,
-even when another component has unknown metadata. This does not release an existing freeze
-or permit replacing a failed watchdog.
-
-#### ARM polling outages and same-cycle recovery
-
-The operator coordinator retries transient ARM **reads** up to five times, with bounded exponential backoff and jitter,
-within the execution's original polling deadline. A 503 during a status GET does not mean that the job failed.
-Exhausted reads return exit 3 (`observation_unavailable`); deployment keeps learning pending and the schedule disabled,
-without claiming that a freeze occurred. Job-start POSTs are never automatically retried: their outcome can be ambiguous.
-An expired ARM authentication token on a read also returns exit 3 without retrying:
-refresh the operator login, then inspect the original cycle and watchdog. A refreshed
-login cannot release a freeze or turn a failed watchdog into completion.
-The cycle ID is printed before the first job start so that an interrupted attempt can be inspected.
-
-After confirming that the original coordinator stopped, inspect that exact cycle's stage and watchdog executions.
-For a verified unfinished cycle whose **original watchdog remains active**, resume using its original immutable image:
-
-```bash
-python -m scripts.run_p2_container_jobs --environment gg-dev \
-  --image '<original-ML-registry-image@sha256:digest>' \
-  --resume-cycle '<original-cycle-id>' --fairness-agent-proof
-```
-
-Resume reads every history page, binds evidence to the exact cycle, image and isolated job roles, rejects duplicate or
-out-of-order stages, and polls existing executions instead of restarting them. Only not-yet-started subsequent stages
-may be launched. It never replaces a watchdog, retries a failed stage, lifts a freeze, bypasses fairness/approval,
-or enables the schedule. A failed/stopped original watchdog is refused and requires the existing human recovery process.
-Do not use this command to retry an ambiguous job-start POST without first resolving its actual outcome.
-Successful coordinator output alone does not fabricate a completed deployment checkpoint.
-After the human personally completes audited freeze recovery, a failed original
-watchdog still cannot be resumed. Pass the recovery command's exact successful
-JSON to a full saved-state deployment resume:
-
-```bash
-python -m scripts.deploy --mode resume --learning-recovery-receipt '<successful recovery JSON>'
-```
-
-The driver checks the failed cycle's scope, isolated image, original failed/stopped
-watchdog, successful audit and absence of active stages, plus the current durable
-unfrozen Strategy state. It archives the old attempt and supplied human receipt
-without certifying that cycle, then requires a new complete governed cycle on the
-current source. It never calls freeze recovery itself. Subsequent retries use
-ordinary `--mode resume` without reusing the receipt.
-
-The deployment driver now saves the cycle ID, immutable image, runtime fingerprint and selected scope **before**
-starting the watchdog. A normal `python -m scripts.deploy --mode resume` reuses that pending cycle automatically,
-without republishing its input fixtures or starting another watchdog. Scope/image mismatches fail closed.
-For older interruptions without this saved handoff, finalize through the deployment driver:
-
-```bash
-python -m scripts.deploy --mode resume --resume-learning-cycle '<original-cycle-id>'
-```
-
-The driver rechecks the original stage/watchdog evidence, runs the fairness-agent proof against the current pinned
-version, enables the recurring schedule through provisioning, runs the admin health/auth checks, and only then
-records deployment completion. It does not lift freezes. A schedule-provisioning failure retains the original
-cycle for the next resume. The standalone coordinator command above remains a diagnostic/recovery tool, not a
-deployment finalizer.
-
-Operator-only edits to the deployment/P2 coordinator no longer invalidate deployed runtime checkpoints.
-An older fingerprint cannot be safely rewritten to the new input set: the first resume conservatively revalidates
-affected runtime steps once. Reusing an interrupted cycle across such a change requires an identical rebuilt P2
-image digest or verified identical application bytes, dependency manifests and execution defaults inside isolated
-registry tasks. In the latter case the driver retains the **original immutable image and its installed dependencies**;
-it never certifies or promotes the rebuilt image using old cycle evidence. This avoids silently upgrading a transitive
-dependency merely to finalize an interrupted deployment. Changed source/manifests fail closed.
-
-### Recovery operator access (automatic)
-
-The `recovery-access` step runs after Entra registration and before agent deployment or cloud learning acceptance. It
-configures the existing delegated `Strategy.Recover` scope, Azure CLI preauthorization and direct enterprise-application
-access for the saved deployment operator only. Assignment remains required; no new application role, credential,
-workload recovery authority or broad Azure RBAC grant is created. This setup does not lift a freeze.
-
-Existing deployments missing this step run it on resume. To repair operator access without running the learning cycle:
-
-```bash
-python -m scripts.deploy --mode resume --only recovery-access
-```
-
-`AADSTS50105` means the operator is not assigned access; signing in again does not create that assignment. The repair
-requires an authorized application owner or Entra administrator. If directory permissions are insufficient, deployment
-stops explicitly; it never disables assignment-required or grants access to a different human. After setup succeeds, the
-operator personally runs recovery and then resumes deployment. No fresh deployment is needed.
-Entra assignment propagation can briefly outlast the successful setup command. The human-run recovery helper retries
-only `AADSTS50105` token-acquisition failures, at most five times with 60-second waits; other authentication failures
-stop immediately. It never submits recovery without a token, changes an assignment or weakens authorization.
-Strategy API re-registration preserves delegated scopes, CLI preauthorization and the configured operator's existing
-Default Access assignment. It never creates human access itself, and foreign users/groups/workloads still fail the grant check.
-
-### Release approval (one human decision per release)
-
-The bundled initial synthetic sample is already authorized by the release owner as `HR-PENSION-WTP-INITIAL`.
-Run the normal deployment command; do not create a new approval for each environment or hand-edit version IDs.
-Its exact scope is recorded in [the initial sample release decision](evaluation.md#initial-synthetic-sample-release).
-
-Generated answers are released only for writer definitions that a human has approved at Tier 2 (B8). The approval belongs to
-the **release**, not to a deployment, and never mentions a version number: version numbers are project-local and a fresh
-Foundry project starts at `1`. It is the sample-owned file `examples/pension_wtp/release-approval.json`, committed through
-normal review:
+The private delivery JSON contains exactly these fields. The identifiers below
+are illustrative placeholders, not an Azure deployment:
 
 ```json
-{"tier": "tier2", "approved": true, "decision_ref": "HR-<human release decision>", "evidence_ref": "<decision/evidence reference>",
- "writers": {"gg-counsellor": {"definition_sha256": "<digest>"}, "gg-counsellor-voice-compact": {"definition_sha256": "<digest>"}}}
+{
+  "environment": "gg-dev",
+  "subscription": "00000000-0000-0000-0000-000000000001",
+  "resource_group": "rg-gg-dev-your-unique-name",
+  "naming_seed": "00000000-0000-0000-0000-000000000002",
+  "operator_id": "00000000-0000-0000-0000-000000000003",
+  "on_call_email": "synthetic@example.invalid",
+  "composition": "examples/pension_wtp/deployment.json",
+  "location": "swedencentral",
+  "search_location": "swedencentral",
+  "voice_demo": true
+}
 ```
 
-The shipped file records this initial authorization and the digests of the current definitions. Each run computes the current
-definitions' digests from the code and domain pack, then:
-
-- **before provisioning**, stops with the exact digests to approve unless the file is approved and covers them (nothing is
-  created, so an unapproved or stale release costs nothing);
-- after the agents are created, verifies the **actual immutable Foundry definitions** against the approval, binds the approval
-  to this deployment's project and new version pins, and applies it at the gateway in the second provision;
-- keeps the writers suspended (HTTP 503) whenever the file is unapproved, the digests differ, or the live definitions do not
-  match, so a changed prompt, schema, model or pack needs a new approval and a repin can never revive a rejected writer.
-
-Creating agents, passing tests or a successful deployment never approve anything; only the recorded human decision does.
-`HR-` identifies a human release-owner decision; `GB-` remains supported for governance-board decisions. Neither reference
-is generated by deployment. Board-only strategy reinstatement and delegated recovery requirements are unchanged. The
-authority and truth of the decision are the approver's responsibility: the script verifies binding, not who decided. To
-revoke, set `approved` to `false` and run `python -m scripts.deploy --mode resume --only agents`, then
-`--mode resume --only provision-2`; the gateway approval is cleared and generated answers are suspended again. Because the
-hold is protective, revocation never needs a new approval.
-
-The azd parameters file passes `GOVERNEDGRAPH_WRITER_APPROVAL_JSON` as a typed `writerApproval` object, not as JSON
-interpolated into a string. Bicep serializes it only at the gateway module boundary. Missing or cleared approval resolves
-to `null` and keeps writers suspended; existing azd environments need no manual conversion. After a parameter-parsing
-failure, use `python -m scripts.deploy --mode resume`, not a new fresh deployment.
-
-| Command | What it does |
-|---|---|
-| `python -m scripts.deploy --plan` | Shows the answers and the steps; runs nothing. |
-| `python -m scripts.deploy --status` | Shows the saved answers and which steps are done. |
-| `python -m scripts.deploy --mode fresh` | Starts a separate deployment with a new persisted random naming seed and a new resource group. Old resources remain and may incur costs. |
-| `python -m scripts.deploy --mode resume` | After a failure, keeps the saved names and skips completed steps. |
-| `python -m scripts.deploy --mode redeploy` | Re-runs all steps against the saved deployment, keeping its names, group and seed. |
-| `python -m scripts.deploy --mode resume --recover-soft-deleted` | Explicitly opts into scoped recovery of that deployment's soft-deleted resources; never purges. |
-| `python -m scripts.deploy --from-step agents` / `--only member-key` / `--force` | Re-run a step, a single step, or everything. |
-| `python -m scripts.deploy --mode fresh --yes --non-interactive --subscription <id> --location <region> --resource-group <new-name> --on-call-email <addr> [--no-voice-demo]` | Unattended fresh deployment (presenter, capture and the admin console are on by default). Without an explicit mode, unattended runs default to fresh only when no state exists, otherwise resume. |
-
-### Fresh versus existing deployments
-
-**Fresh** generates one random naming seed, saved in `.run/deploy-state.json` and the azd environment as
-`GOVERNEDGRAPH_NAMING_SEED`. Bicep derives resource-name suffixes from it; the three Entra registrations are seed-scoped too.
-The default resource group is `rg-gg-dev-<random suffix>`, or you can supply another **new** group. An existing group is refused
-even with `--ignore-warnings`, because fixed-name jobs and other group-scoped resources must not overwrite an older deployment.
-Fresh does not delete, purge, recover, migrate or reuse old Azure resources or app registrations.
-
-After you confirm a fresh start, any previous local state is saved under `.run/deploy-history/<new-seed>/state.json`.
-Before initializing azd, its previous `.azure/gg-dev` directory is moved to the same history directory as `azd-environment`.
-This preserves the old local configuration without carrying old images, client IDs, public keys or outputs into the new
-deployment. Exported settings from an older deployment are also excluded from the new deployment's parameter environment.
-Local definition plans and sample checks also override inherited agent names and model-deployment settings with the
-reference defaults. After environment initialization, agent helpers use the selected azd configuration, with explicit
-defaults for settings it does not export. A stale shell cannot silently rename a planned agent or change its digest.
-Unexpected agent names and missing/invalid digests are reported separately; neither bypasses release approval.
-Cancelling the fresh confirmation leaves existing state and configuration unchanged.
-
-**Resume** and **redeploy** never generate a seed. They preserve the saved seed and group; legacy state with no seed keeps the
-original deterministic naming formula. A seed mismatch between saved state and azd stops the run instead of renaming resources.
-Use **resume** after a failed fresh attempt; repeating `--mode fresh` deliberately starts another deployment.
-Redeploy re-runs every step; resume can also use `--only`, `--from-step`, or `--force`.
-
-The history is local, ignored by Git, and is not an Azure backup. To operate an older deployment again, first preserve the
-current local state/environment, then restore both that older deployment's archived state and azd directory to their original
-paths. Do not mix state from one deployment with the environment of another. Old Azure resources keep incurring charges until
-you separately review and delete them; fresh never performs that cleanup.
-
-Answers are saved in `.run/deploy-state.json` (ignored by Git) and reused on the next run; `--reconfigure` asks again, but only before
-the infrastructure is provisioned, because changing the resource group afterwards would create a second deployment. The script
-explicitly scopes azd commands, hooks and verification to `gg-dev`, regardless of the selected environment or an inherited
-`AZURE_ENV_NAME`. On resume it revalidates the environment and reapplies saved configuration even when the environment step
-was previously completed. A different subscription, primary region or resource group in that environment stops the run rather
-than redirecting deployment. Subscription-scoped Azure CLI operations and the proof job also use the saved subscription
-explicitly. Tenant-level Entra queries, sign-in and subscription discovery do not receive an injected `--subscription`;
-preflight selects the saved subscription before looking up the signed-in operator.
-The synthetic contact-centre flag is set **before the first provision**, so its tagged Container App exists before
-`azd deploy`. Before any remote builds, the script checks that each of the four services has exactly one tagged
-Container App in the saved resource group and subscription. On resumes from older runs that omitted the contact centre,
-it reapplies the infrastructure once and verifies the targets again, without rerunning Entra registration or agent creation.
-Persistent missing targets, ambiguous tags, conflicting environment tags or an inventory failure stop before builds.
-The final sample proofs use the existing in-network dev-issuer job. `ORCHESTRATOR_URL` remains the public APIM `/journey`
-URL; the proof resolves the private orchestrator FQDN from the unique `gg-dev`/`orchestrator`-tagged Container App in the
-saved resource group and subscription. Legacy direct Container App URLs are also supported. No token is minted locally,
-no endpoint is guessed, and no new identity, permission or network path is created.
-The channel proof retries only HTTP 409 responses with the API's documented journey-busy details:
-at most six attempts with waits of 1, 2, 4, 8 and 16 seconds. Turn retries retain the exact idempotency key,
-body and member authorization; advisor-queue and report reads use the same bounded handling.
-Persistent contention, other conflicts, malformed errors, authentication failures and HTTP 503 still fail acceptance.
-Failed turn, queue and report gates include the HTTP status, never error bodies or tokens.
-Voice verification also respects B10 assignment: a control journey must use static S1 and pass all other
-disclosure, suspension, numeric, resolution, audit and duration gates. It then tries another journey, up to five
-in total, without changing assignment. Completion still requires a treatment journey selecting S5 and passing
-every original gate. A failed gate, unknown arm or five control journeys stops verification.
-Verification is complete only after every declared proof execution reports `Succeeded`; launch errors, failed jobs and timeouts stop
-the script and leave `verify` pending. Resume retries verification without repeating completed deployment steps, including
-older state incorrectly marked complete without a recorded successful channel-proof execution.
-If a failed job no longer has replicas, retrieve its content-free PASS/FAIL diagnostics from the existing Log Analytics
-workspace instead of repeatedly rerunning the proof. The Strategy Service client permits five seconds per transport phase
-(previously one); timeouts and HTTP errors still propagate to the governed handover path without retries or substitute
-rankings. A runtime source change requires rebuilding the services, even when the deployment checkpoint already passed.
-Use `--mode resume --only deploy` followed by `--mode resume --only provision-2` to apply it without recreating agent versions.
-The script
-never reads, creates or prints a secret: the only key material it touches is a public key, which it refuses to store if it carries any
-private parameter. One thing stays manual: **if Azure sent a verification email to the on-call address, open it and confirm it**. Azure Monitor is
-rolling out one-time-passcode verification of new email recipients region by region, so you may not get one; an alert email
-arriving is proof of delivery either way.
-
-### Managed-identity image-pull propagation
-
-The synthetic fixture publisher has separate, bounded image-pull handling. When Azure rejects its exact configured
-image using its dedicated identity, deployment verifies the image digest, registry authentication mode and existing
-registry-scoped `AcrPull` assignment, then retries provisioning up to five times with a 60-second wait. ARM dependency
-ordering does not guarantee a newly created grant has reached the registry data plane. Missing access, missing images,
-incompatible registry settings, foreign targets, mixed errors and persistent failures stop; no grant, credential, image,
-region or name is changed to bypass the failure. Resume keeps completed steps and existing resources.
-
-### Regional capacity fallback
-
-Search starts in the primary region, or the preferred EU region passed with `--search-location <region>`.
-If provisioning returns `InsufficientResourcesAvailable`, the script checks the current ARM `data` deployment's operations
-to confirm that **Search creation** failed for that reason. It checks that the target Search service does not already exist,
-then retries supported EU regions in this order (skipping regions already tried):
-`swedencentral`, `germanywestcentral`, `northeurope`, `westeurope`, `francecentral`, `polandcentral`, `italynorth`, `spaincentral`.
-Provider metadata filters out unsupported regions; only a successful provisioning attempt proves capacity, which can change
-between attempts. See [Search regional availability](https://learn.microsoft.com/azure/search/search-region-support).
-
-Each switch is printed and saved in both the resume state and `AZURE_SEARCH_LOCATION`. Failed regions are remembered so a
-resume does not cycle through them again. Repeating the original `--search-location` preference on resume keeps the saved
-fallback rather than switching back. If all supported alternatives fail, the script stops; once capacity returns,
-`--reconfigure` resets the attempts **before the first successful provision only**. Existing services, even ones in a failed
-state, are never automatically moved or deleted. Such a service requires operator review.
-
-Only Search has automatic regional fallback: the rest of the topology and all model deployments stay in their configured
-regions. A mixed failure is not treated as a Search-only problem: other failed resources or error codes stop regional retries.
-Quota, permissions, policy, name conflicts and capacity errors on other resources stop with the cause rather than
-triggering an unsafe whole-deployment relocation. Diagnostic failures also stop without assuming a region is available.
-Other usual causes are a resource provider still registering or the Search private link not appearing yet.
-
-### Recoverable soft-deleted resource conflicts
-
-`FlagMustBeSetForRestore` on an AI account and a Key Vault `ConflictError` mentioning a deleted vault are separate blockers,
-not regional-capacity problems. By default the script stops and shows the blockers; recovery is **not automatic**.
-Pass `--mode resume --recover-soft-deleted` to authorize recovery for that invocation. The flag is not saved or inherited
-by future runs. The script then checks the exact failed targets against Azure's deleted-resource inventory.
-It **recovers**, never purges, matching Key Vault and AI resources only when their original resource IDs,
-`gg-dev` environment ownership tags and expected regions match the saved deployment. Key Vault is recovered first;
-Content Safety stays in `francecentral`, and Foundry stays in the primary region. Recovery preserves stored data and keys.
-The script verifies the recovered resource IDs before retrying provisioning; Bicep then reapplies its declared configuration
-and role assignments. A repeated conflict, missing metadata, foreign ownership or insufficient recovery permissions stops
-with an actionable error. Unknown names are not guessed or recreated.
-
-Do **not** use `azd down --purge` as a generic fix for these errors: it deletes resources and data, and a purge-protected vault
-cannot be purged during its retention period. Review resources from an older environment separately; the script will not
-recover or modify a resource tagged for that other environment. If you want new resources instead of recovery, choose
-`--mode fresh` and a new resource group.
-
-The rest of this page documents what the script does, step by step, for review or for doing it by hand.
-
-## The stages
-
-The deployment is staged because some inputs exist only after the first provision (managed-identity principal IDs, the signing key
-vault, the AI project). The stages are: **provision, approve, register, deploy, re-provision, bootstrap the token key, re-provision,
-verify.**
-
-## 0. Before you start
-
-**Tools:** Azure CLI (`az`), Azure Developer CLI (`azd`), Python 3.14. Docker is not needed; images are built remotely in your registry.
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements-azure.txt
-az login && azd auth login
-```
-
-**Permissions**
-- Azure: the template deploys at subscription scope, creates the resource group and assigns roles, so you need Owner, or Contributor
-  plus User Access Administrator, on the subscription.
-- Entra ID: you must be able to create app registrations and assign app roles (for example Application Administrator and an
-  assignment-capable role such as Cloud Application Administrator).
-
-**Quota** in your region (default `swedencentral`): `gpt-4.1` and `gpt-4.1-mini` on DataZoneStandard (50 each) and
-`text-embedding-3-large` on Standard (50). Check with `az cognitiveservices usage list -l swedencentral -o table`. Prompt Shields is
-deployed as a separate keyless resource in `francecentral`.
-
-**Providers:** make sure `Microsoft.App`, `Microsoft.CognitiveServices`, `Microsoft.Search`, `Microsoft.ApiManagement`,
-`Microsoft.ContainerRegistry`, `Microsoft.MachineLearningServices`, `Microsoft.ServiceBus`, `Microsoft.KeyVault`,
-`Microsoft.Storage`, `Microsoft.Network`, `Microsoft.Insights` and `Microsoft.OperationalInsights` are registered
-(`az provider register -n <namespace>`).
-
-**Cost.** The reference topology includes API Management (StandardV2), Azure AI Search, two Container Registries, Container Apps
-(the orchestrator and Strategy service keep minimum replicas), an Azure ML workspace with private networking, Key Vaults, ZRS storage and
-model deployments. It is not a free-tier deployment. Remove it with `python -m scripts.teardown` when finished.
-
-### Clean up a previous environment (if you are replacing one)
-
-A fresh deployment never needs this (it gets a new seed and a new resource group), but the old one keeps costing money and
-holding model quota. One command does the whole clean-up:
-
-```bash
-python -m scripts.teardown --plan     # inventory only: resource counts, soft-deleted records, Entra objects; changes nothing
-python -m scripts.teardown            # asks you to type the resource group name, then cleans up and reports progress
-```
-
-Teardown removes each Search service's shared private link resources before deleting
-the service. Azure can otherwise refuse parent deletion when it cannot verify locks
-on the linked storage resource; this dependency cleanup is automatic and stays scoped
-to the approved deployment.
-
-It reads the saved deployment (or `--subscription`, `--resource-group`, `--seed`) and, in order:
-
-1. deletes container apps/jobs, then their environments, and waits for Azure to remove the environments' managed
-   infrastructure resource groups. It never directly deletes managed load balancers. It then removes network consumers
-   (API Management, ML workspaces, Search and private endpoints), virtual networks, NAT gateways, and finally NSGs/public IPs,
-   before deleting the resource group. A group delete already running is monitored, not repeated. Progress includes
-   `N of M resources still to remove`, per-type counts, and warnings naming resources that appear/reappear;
-2. purges only this resource group's soft-deleted AI accounts and API Management services, which frees model quota and names
-   (it waits for the records to appear). Key Vaults are purged only when purge protection is off; protected ones are listed with their
-   retention date and left alone. Another group's soft-deleted resources are never touched;
-3. deletes the Entra apps and security groups by the exact names the deployment registered for this naming seed
-   (`--keep-entra` skips this; deleted apps stay recoverable in Entra for 30 days);
-4. archives, never deletes, the local azd environment and deployment state under `.run/deploy-history/<seed>/torn-down/`
-   (`--keep-local` skips this; it is also skipped when an earlier step failed, so a re-run can finish the job).
-
-It refuses a resource group that is not tagged `azd-env-name=gg-dev`, requires `--yes` when unattended, never grants access, and is safe
-to re-run. Entra clean-up needs permission to delete the registrations and groups the deployment created for you. Do not use
-`azd down` for a deployment with a custom `--resource-group`; it can look for the default group name instead.
-
-**Before teardown, coordinate with subscription governance automation.** Obtain an approved teardown exclusion through
-its existing operator process, so it does not recreate NSGs while the environment is being removed. In the shared development
-subscription, `MCAPSGovernance-AutomationApp` has done this during cleanup. The script does not disable that application,
-change policies, create exemptions, or grant permissions. No particular tag is assumed to suppress automation.
-
-The script checks delete failures in the Azure Activity Log, reports nested dependency errors, and stops if the resource group
-rolls back out of `Deleting`; an existing group is not sufficient evidence that a delete is still running. Known transient
-errors receive at most three delete submissions per resource or group; permission, policy and dependency errors do not receive
-blind retries. Activity Log and resource-list failures are surfaced, not treated as success. The operator needs read access to
-the target resources, their delete activity, and owned managed infrastructure, plus permission to delete individual resources.
-No new permissions are granted by the script.
-
-The shared teardown deadline is `--timeout-minutes` (default 120); `--stall-minutes` (default 30) stops waits without progress
-earlier and prints pending resource IDs/names. Local state is retained on failure. Resolve the reported dependencies or
-automation conflict, then re-run. If an environment is absent but its managed infrastructure persists, use Azure support or
-the authorized service operator; do not force-delete platform-managed networking.
-
-The new environment uses new resource names (they derive from the naming seed), so nothing from the old one collides with it.
-
-## 1. Create the azd environment
-
-The environment **must be named `gg-dev`**: the dev token issuer, the voice demo, the synthetic contact centre and the proof scripts are
-enabled only there. The resource group is `GOVERNEDGRAPH_RESOURCE_GROUP_NAME`, or `rg-gg-dev` if you leave it unset.
-
-```bash
-azd env new gg-dev --subscription <subscription-id> --location swedencentral
-azd env set GOVERNEDGRAPH_RESOURCE_GROUP_NAME <resource-group-name>   # optional; default rg-gg-dev
-azd env set ON_CALL_EMAIL <your-address>                  # alert receiver; confirm its verification email if Azure sends one
-azd env set GOVERNEDGRAPH_ENABLE_DEV_MEMBER_ISSUER true   # creates the dev signing key and issuer job
-azd env set MEMBER_TOKEN_ISSUER https://gg-dev.synthetic.invalid
-```
-
-For a genuinely fresh **manual** deployment, use a new resource group and set a naming seed **once**:
-
-```bash
-azd env set GOVERNEDGRAPH_NAMING_SEED "$(python -c 'from uuid import uuid4; print(uuid4().hex)')"
-```
-
-Keep that value for every retry and update. Never add or change a seed on an existing unseeded deployment: leaving it empty
-preserves its legacy names. The automated script manages the seed and separate local deployment history for you.
-
-The member-token **public** key is needed by the deployment, but the real key is created inside it. Supply a throwaway public key now
-and replace it in step 7 (the private half is discarded; nothing verifies against this key until it is replaced):
-
-```bash
-azd env set MEMBER_TOKEN_PUBLIC_JWK "$(python - <<'PY'
-import json
-from cryptography.hazmat.primitives.asymmetric import rsa
-from jwt.algorithms import RSAAlgorithm
-jwk = json.loads(RSAAlgorithm.to_jwk(rsa.generate_private_key(65537, 2048).public_key()))
-jwk.update(alg="RS256", use="sig")
-print(json.dumps(jwk))
-PY
-)"
-```
-
-## 2. First provision
-
-```bash
-azd provision --preview     # review what will be created
-azd provision               # can take 30+ minutes (API Management is the slow part)
-```
-
-The postprovision hook prints "Skipping approved-content publication" at this stage; that is expected.
-The APIM model endpoint deliberately returns HTTP 503 (`AgentConfigurationIncomplete`) until all five approved agent
-versions have been registered and pinned. Empty pins are not created as APIM Named Values. The next provision after the
-agent-registration step installs the existing caller/version checks and protective writer hold unchanged. Removing a pin
-on a later redeploy reinstalls the deny policy rather than leaving a previously active model endpoint available.
-
-## 3. Approve the Search private link
-
-Azure AI Search reaches the content storage through a shared private link that the storage owner must approve:
-
-```bash
-STORAGE_ID=$(azd env get-value CONTENT_STORAGE_RESOURCE_ID)
-az network private-endpoint-connection list --id "$STORAGE_ID" \
-  --query "[?properties.privateLinkServiceConnectionState.status=='Pending'].{id:id,desc:properties.privateLinkServiceConnectionState.description}" -o table
-az network private-endpoint-connection approve --id <connection-id> --description "approved-content indexer"
-```
-
-Approve only the connection whose description names the approved-content indexer.
-
-## 4. Register the Entra applications and operator IDs
-
-```bash
-export PYTHONPATH=src
-RG=$(azd env get-value AZURE_RESOURCE_GROUP)
-
-# Strategy API (plan first, then apply). Copy the STRATEGY_API_CLIENT_ID it prints.
-ARGS=(--environment gg-dev
-      --pipeline "$(azd env get-value STRATEGY_PUBLISHER_PRINCIPAL_ID)"
-      --fairness "$(azd env get-value STRATEGY_FAIRNESS_PRINCIPAL_ID)"
-      --runtime  "$(azd env get-value STRATEGY_RUNTIME_PRINCIPAL_ID)")
-python -m governedgraph.strategy_service.provision_auth "${ARGS[@]}"
-python -m governedgraph.strategy_service.provision_auth "${ARGS[@]}" --apply
-azd env set STRATEGY_API_CLIENT_ID <printed-client-id>
-
-# Synthetic contact centre API (plan, then --apply). Copy client_id and audience from the JSON.
-python scripts/configure_contact_centre.py --environment gg-dev \
-  --runtime-principal "$(azd env get-value STRATEGY_RUNTIME_PRINCIPAL_ID)"
-python scripts/configure_contact_centre.py --environment gg-dev \
-  --runtime-principal "$(azd env get-value STRATEGY_RUNTIME_PRINCIPAL_ID)" --apply
-azd env set CONTACT_CENTRE_CLIENT_ID <client_id>
-azd env set CONTACT_CENTRE_AUDIENCE <audience>
-azd env set GOVERNEDGRAPH_SYNTHETIC_CONTACT_CENTRE true
-
-# You are the recovery and presenter operator
-OPERATOR=$(az ad signed-in-user show --query id -o tsv)
-azd env set STRATEGY_RECOVERY_OPERATOR_ID "$OPERATOR"
-azd env set VOICE_DEMO_OPERATOR_ID "$OPERATOR"
-```
-
-Each script plans by default and changes nothing until `--apply`. Both refuse to widen existing grants.
-
-## 5. Create the Foundry agents and pin their versions
-
-The agent prompts come from the domain pack. Provisioning is idempotent and creates immutable versions:
-
-```bash
-eval "$(python -m scripts.azd_env export --task agents)"
-for role in counsellor voice-compact intent understanding answer-review fairness; do
-  python scripts/create_agents.py --role "$role"            # plan only
-done
-for role in counsellor voice-compact intent understanding answer-review fairness; do
-  python scripts/create_agents.py --role "$role" --apply    # prints agent_version
-done
-azd env set AZURE_AI_AGENT_VERSION            <counsellor version>
-azd env set AZURE_AI_VOICE_COMPACT_VERSION    <voice-compact version>
-azd env set AZURE_AI_INTENT_AGENT_VERSION     <intent version>
-azd env set AZURE_AI_UNDERSTANDING_AGENT_VERSION <understanding version>
-azd env set AZURE_AI_REVIEW_AGENT_VERSION     <answer-review version>
-azd env set AZURE_AI_FAIRNESS_AGENT_VERSION   <fairness version>
-```
-
-Your signed-in identity needs rights on the AI project to create agents; the deployment grants the `AZURE_PRINCIPAL_ID` operator that access.
-
-## 6. Deploy the services, then re-provision
-
-```bash
-azd deploy        # builds the four services remotely from the Dockerfile and records SERVICE_*_IMAGE_NAME
-azd provision     # applies the client IDs, agent pins and real images (including the issuer and publisher jobs)
-```
-
-This second provision now runs the postprovision hook, which publishes the approved content through the private publisher job. If it
-reports that the Search private link needs owner approval, finish step 3 and run `azd hooks run postprovision`.
-
-## 7. Bootstrap the real member-token key
-
-The dev issuer job exports the public key of the signing key that never leaves Key Vault:
-
-```bash
-RG=$(azd env get-value AZURE_RESOURCE_GROUP); JOB=job-gg-dev-member-issuer
-EXEC=$(az containerapp job start -g "$RG" -n "$JOB" --query name -o tsv)
-az containerapp job execution show -g "$RG" -n "$JOB" --job-execution-name "$EXEC" --query properties.status -o tsv   # wait for Succeeded
-az containerapp job logs show -g "$RG" -n "$JOB" --execution "$EXEC" --container issuer --tail 20
-```
-
-Copy the JSON line the job printed (it is a public key only) and replace the placeholder, then provision once more:
-
-```bash
-azd env set MEMBER_TOKEN_PUBLIC_JWK '<the JSON line>'
-azd provision
-```
-
-If the replica has already expired, read the same line from `ContainerAppConsoleLogs` in Log Analytics. Never grant yourself Key Vault
-access to fetch it.
-
-## 8. Verify
-
-```bash
-python -m scripts.azd_env show                       # every task should read OK or list what is still optional
-python -m scripts.run_dev_proof channel --logs       # optional: re-read the channel proof's PASS lines (the script already ran it)
-bash scripts/reset_demo.sh                           # offline rehearsal, no Azure needed
-```
-
-Then confirm the on-call alert receiver (click the verification email if Azure sent one) and follow [Azure acceptance](../examples/pension_wtp/docs/demo-runbook.md#azure-acceptance)
-in the runbook. Every later operation (presenter, voice proof, explainability, recovery) is in the
-[runbook](../examples/pension_wtp/docs/demo-runbook.md) and reads its values from the azd environment.
-
-## 9. Optional features
-
-- **Browser presenter (voice demo).** `azd env set DEPLOY_VOICE_DEMO true`, then `azd provision`. The preprovision hook registers the
-  presenter app and writes `VOICE_DEMO_CLIENT_ID`; if it was empty during that run, run `azd provision` once more. Open the URL printed by
-  `python -m scripts.azd_env show --task presenter`.
-- **Learning plane (P2) and dev fixtures.** Automatic: the `learning` step builds the images, publishes the sample's labelled
-  synthetic aggregates, discovers the Azure ML workspace's artifact containers (container-scoped grants only), runs the
-  acceptance cycle and enables the schedule. See [Learning plane](#learning-plane-automatic).
-
-## What has and has not been verified
-
-The Bicep templates build with no warnings, and `scripts/deploy.py` is unit-tested end to end against a simulated Azure (ordering, resume
-after failure, refusals, key handling), but the command sequence was derived from the code and templates. **A full deployment from an
-empty subscription has not been run from this repository**, so expect to meet environment-specific issues (quota, region capacity, a
-provider not yet registered, an approval step). When a step fails, the script names the cause; fix it and run it again.
+Subscription, group, seed, operator, on-call destination and composition are
+required. Optional fields default to the approved environment/regions and an
+enabled presenter. Unknown fields are rejected. Store actual identifiers in
+private ignored configuration, never source control. Preserve the exact seed,
+group and subscription on redeploy; a conflicting azd environment is refused.
+`voice_demo: false` disables the presenter, synthetic capture and console trace
+lookup together. The console still uses its own reviewed sign-in.
+
+The extension manifest contains only its name, synthetic watermark, approved
+data directory, release-approval file, overlay Dockerfile, workload Bicep
+composition, values application module and explicit domain environment. It
+cannot declare tests, evaluation policy, learning proofs or operator recovery.
+
+## Templates and fixed sequence
+
+1. **`infra/main.bicep`: foundation once.** Networking, identities, registry,
+   Container Apps environment, storage, monitoring, signing keys, Search,
+   Foundry project/models, APIM parent and dedicated Azure ML dependencies/RBAC.
+   No hello-world images, member routes or prompt-agent ARM resources.
+2. **Immutable images.** `Dockerfile` and `Dockerfile.p2` build framework
+   runtime and P2 respectively. The extension's matching Dockerfiles build
+   `runtime`/`probe` and `p2`/`fixtures` from their own framework digest references.
+   Separate dependency families prevent ACR's classic builder from processing
+   unrelated private-registry stages or installing the other family's SDKs. Identical
+   extension runtime images serve all five applications. P2/fixtures use the
+   ML registry; runtime/probe use the application registry. Each distinct target
+   is built once, or its source-keyed immutable image is reused.
+3. **Bounded bootstrap.** Exact prompt definitions are created/reused with
+   `AIProjectClient.agents.create_version`, DefaultAzureCredential and pinned
+   `azure-ai-projects==2.9.0`; matching definitions reuse numeric versions.
+   Entra applications/groups preserve browser self-scopes and self-preauthorization.
+   Only the exact Search indexer private-link request is approved.
+   `infra/bootstrap.bicep` declares the existing isolated content publisher,
+   dev-issuer and dev-fixture jobs. `infra/bootstrap-job.bicep` is applied only
+   for the P2 signing and Strategy initialization jobs, never the foundation.
+   Private key/content/state operations run inside the existing role contracts.
+4. **`examples/pension_wtp/infra/workloads.bicep`: complete workloads once.**
+   This explicit domain composition calls `infra/workloads.bicep` with immutable
+   images, approved writer record, actual agent pins and complete domain inputs.
+   Native fairness and learning schedules run at the existing four-hour cadence
+   from the first release, using the guarded lease/same-cycle-audit runtime.
+   ML datastore names are read without secrets; Bicep grants only verified
+   dedicated-container access, including the scheduler's `azureml` container.
+   ML-owned dependencies and their automatic permissions are retained.
+   The synthetic values adapter has its own identity with registry pull only;
+   it never inherits the orchestrator's key/storage/Foundry permissions.
+   Optional developer Blob access is limited to the approved-content container;
+   deployment does not grant developer access to the shared storage account.
+      A provider rejection specifically identifying managed-identity image pull
+      propagation is retried at most three times (30/60/120 seconds), using the
+      same template and parameters. Other failures are not retried.
+5. **Readiness only.** Check running application provisioning, enabled native
+   schedules and the console page; retain `.run/delivery.json` and print URLs/IDs.
+   No pytest, demo, paid evaluation, conversational proof or operator-run
+   nine-stage learning cycle occurs during delivery.
+
+## Artifacts, isolation and redeployment
+
+Framework images contain no extension files or default pension dataset.
+Extension runtime/P2 images contain approved catalogue/content/thresholds;
+only runtime adds the synthetic deterministic adapter/member records.
+Cohort aggregates and outcome fixtures belong solely to the fixture image;
+adversarial personas belong solely to the non-member-facing probe image.
+Runtime and P2 dependency manifests remain isolated and are installed once in
+their respective framework targets.
+
+Build metadata retained in the public delivery receipt includes immutable image
+digest, target, Dockerfile, source SHA-256 and framework base references. OCI
+`org.opencontainers.image.revision` carries the source SHA. These are artifact
+identities, not step checkpoints. The driver never reads a per-step ledger.
+
+Required public job outputs are the member **public RSA JWK** (never a token or
+private key), `GG_BOOTSTRAP={"snapshot": ...}` from the isolated signer, and
+`GG_BOOTSTRAP={"initialized": true|false, "snapshot_id": ...}` from the Strategy
+initializer, plus actual successful execution IDs. Missing, unknown, timed-out
+or failed job status never becomes successful bootstrap evidence.
+
+Initial priors are signature/catalogue verified and created only if shared
+Strategy state is absent. Invalid existing state fails closed. Ordinary
+redeployment never replaces learned rankings, approvals, suspensions, freeze
+state or existing upstream fixtures/content. Fixture initialization fills only
+missing inputs; concurrent upstream publication wins. Content publication
+retains the authoritative approved feed. No recovery is attempted by delivery.
+
+## Evaluation and operator tools
+
+Hosted evaluation validates exact deployed writer/semantic definitions, retains
+incremental case/remote evidence and enforces deterministic hard gates before
+claiming a pass: exit 0 passed, 1 failed, 2 unavailable. It uses local
+deterministic adapters and fixed synthetic cases, **not** the real channel.
+See [evaluation](evaluation.md).
+
+For explicitly authorized live-channel checks, use `scripts.run_dev_proof`
+under the existing in-network dev-issuer job; select the receipt's `probe` image
+for voice. Tokens remain in probe memory and expire within fifteen minutes.
+Never issue member tokens or grant developer Key Vault access locally.
+
+Genuine operational APIs remain: `scripts.run_p2_container_jobs` for inspecting
+an exact legacy operator cycle, `scripts.configure_strategy_recovery` for
+existing restricted operator access, and `scripts.lift_dev_freeze` for
+personally authorized audited recovery. Unknown status is never completion;
+failed watchdogs are not resumed/replaced, and reinstatement still requires
+the existing human board decision. These tools do not finalize deployment.
+
+`python -m scripts.teardown --plan` inventories the exact scoped deployment.
+Explicit `--subscription`, `--resource-group`, `--seed` remain supported for
+historical deployments. `.run/deploy-state.json` is read only for historical
+scope/archive ownership; teardown imports no deployment classes. Child-first
+Search cleanup, managed-network deletion waits, protected tombstones and
+azd/history archival remain intact. No legacy fresh/resume or acceptance wrapper
+is retained.
+
+## Delivery test coverage
+
+Obsolete delivery state-machine, multi-provision, recovery-handoff and automatic
+acceptance mock contracts have been replaced, not retained through shims.
+Coverage is now explicit-input/closed-approval validation, immutable build reuse,
+foundation/bootstrap/workload composition, unknown-status failure, signature
+gates, byte-for-byte protective-state preservation and image isolation.
+Existing runtime B1-B10/GNA/disclosure and operator recovery tests remain
+controlling; infrastructure/image assertions follow the relocated enforcement
+points with equivalent or stronger checks. Pension composition/selection/case
+tests live under `examples/pension_wtp/tests`; framework tests live in `tests`.

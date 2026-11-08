@@ -477,8 +477,3 @@ resource devSearchSvc 'Microsoft.Authorization/roleAssignments@2022-04-01' = if 
   name: guid(search.id, developerPrincipalId, roles.searchServiceContributor)
   properties: { principalId: developerPrincipalId, principalType: 'User', roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.searchServiceContributor) }
 }
-resource devBlob 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(developerPrincipalId)) {
-  scope: st
-  name: guid(st.id, developerPrincipalId, roles.blobDataContributor)
-  properties: { principalId: developerPrincipalId, principalType: 'User', roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataContributor) }
-}

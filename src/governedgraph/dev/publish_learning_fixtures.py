@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import argparse
 import json
 import os
 from pathlib import Path
@@ -52,6 +53,9 @@ def publish(clients: dict, payloads: dict[tuple[str, str], bytes]) -> None:
 def main() -> None:
     if os.environ.get("AZURE_ENV_NAME") != "gg-dev" or os.environ.get("DEPLOY_DEV_FIXTURES") != "true":
         raise RuntimeError("fixture publishing requires explicit gg-dev deployment opt-in")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--initialize-only", action="store_true", help="preserve every existing upstream input")
+    args = parser.parse_args()
     payloads = fixture_payloads(DATA_DIR)
     from azure.identity import DefaultAzureCredential
     from azure.storage.blob import BlobServiceClient
@@ -65,9 +69,31 @@ def main() -> None:
             os.environ["RANKING_STORAGE_URL"], credential=credential,
         ).get_container_client("cohort-zone"),
     }
-    publish(clients, payloads)
+    if args.initialize_only:
+        initialize(clients, payloads)
+    else:
+        publish(clients, payloads)
     print(json.dumps({"fixture_publisher": "passed", "watermark": WATERMARK,
                       "blob_ids": [f"{container}/{name}" for container, name in payloads]}))
+
+
+def initialize(clients: dict, payloads: dict[tuple[str, str], bytes]) -> None:
+    from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
+
+    for (container, name), data in payloads.items():
+        blob = clients[container].get_blob_client(name)
+        try:
+            blob.get_blob_properties()
+        except ResourceNotFoundError as error:
+            if getattr(error, "error_code", None) != "BlobNotFound":
+                raise
+            try:
+                blob.upload_blob(data, overwrite=False, metadata={
+                    "watermark": WATERMARK, "sha256": hashlib.sha256(data).hexdigest(),
+                    "source": "repository-dev-fixture",
+                })
+            except ResourceExistsError:
+                pass  # A concurrent upstream publication always wins over bootstrap.
 
 
 if __name__ == "__main__":

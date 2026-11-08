@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guided teardown of a GovernedGraph gg-dev deployment: the counterpart of scripts/deploy.py.
+"""Scoped operator teardown of a GovernedGraph gg-dev deployment.
 
     python -m scripts.teardown --plan     # inventory only; nothing is changed
     python -m scripts.teardown            # inventory, typed confirmation, then the clean-up
@@ -11,7 +11,7 @@ One run removes everything the deployment left behind and reports progress as it
 2. the soft-deleted AI and API Management records that keep model quota and names reserved, purged only
    when they belong to this resource group; Key Vaults are purged only when purge protection allows it;
 3. the Entra apps and security groups, found by the exact seed-scoped names the deployment created;
-4. the local azd environment and deployment state, archived (never deleted) under .run/deploy-history.
+4. the local azd environment and historical deployment scope, archived under .run/deploy-history.
 
 Scope is deliberately narrow: only the saved (or flagged) resource group, which must carry the
 `azd-env-name=gg-dev` tag, and only Entra objects named for this deployment's naming seed. Re-running
@@ -24,6 +24,7 @@ import argparse
 import json
 import re
 import shutil
+import subprocess
 import sys
 import time
 from collections import Counter
@@ -32,18 +33,59 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-from scripts.deploy import (
-    ENV_NAME,
-    REPO_ROOT,
-    STATE_FILE,
-    CommandError,
-    DeployError,
-    Prompter,
-    Runner,
-    State,
-    validate_guid,
-    validate_rg,
-)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+ENV_NAME = "gg-dev"
+STATE_FILE = REPO_ROOT / ".run/deploy-state.json"  # Historical scope only; never a delivery ledger.
+
+
+class DeployError(RuntimeError):
+    """An operator cleanup failed without widening its scope."""
+
+
+class CommandError(DeployError):
+    def __init__(self, args, code, stderr=""):
+        self.args_, self.code, self.stderr = list(args), code, stderr.strip()
+        super().__init__(f"{args[0]} {args[1]} failed ({code}): {self.stderr[-600:]}")
+
+
+class Runner:
+    def run(self, args, *, quiet=False) -> str:
+        result = subprocess.run(args, cwd=REPO_ROOT, capture_output=True, text=True)
+        if result.returncode:
+            raise CommandError(args, result.returncode, result.stderr)
+        return result.stdout.strip()
+
+
+class Prompter:
+    def __init__(self, *, interactive: bool, ask=input, echo=print):
+        self.interactive, self.ask, self.echo = interactive, ask, echo
+
+    def question(self, text: str, default: str = "") -> str:
+        if not self.interactive:
+            raise DeployError("typed confirmation requires an interactive terminal or --yes")
+        return self.ask(text).strip() or default
+
+
+def validate_guid(value: str) -> str | None:
+    try:
+        UUID(value)
+    except ValueError:
+        return "must be a UUID"
+    return None
+
+
+def validate_rg(value: str) -> str | None:
+    return None if re.fullmatch(r"[A-Za-z0-9_().-]{0,89}[A-Za-z0-9_()-]", value) else "invalid name"
+
+
+def historical_answers(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    raw = json.loads(path.read_text())
+    answers = raw.get("answers", {})
+    if not isinstance(answers, dict):
+        raise DeployError("historical teardown scope has an invalid answers object")
+    return answers
 
 ENVIRONMENT_FILE = REPO_ROOT / ".azure" / ENV_NAME / ".env"
 AI_ACCOUNT = "microsoft.cognitiveservices/accounts"
@@ -116,8 +158,7 @@ def read_environment(path: Path = ENVIRONMENT_FILE) -> dict[str, str]:
     return values
 
 
-def resolve_target(args, state: State, environment: dict[str, str]) -> Target:
-    answers = state.answers
+def resolve_target(args, answers: dict, environment: dict[str, str]) -> Target:
     subscription = args.subscription or answers.get("subscription_id") or environment.get("AZURE_SUBSCRIPTION_ID", "")
     group = args.resource_group or answers.get("resource_group") or environment.get("AZURE_RESOURCE_GROUP", "")
     seed = args.seed if args.seed is not None else (answers.get("naming_seed") or environment.get("GOVERNEDGRAPH_NAMING_SEED", ""))
@@ -578,7 +619,7 @@ class Teardown:
     def archive_local(self) -> None:
         name = "Local state"
         self.say(f"\n== 4/4 {name}")
-        state_ok = self.state_path.exists() and State.load(self.state_path).answers.get("naming_seed", "") == self.target.seed
+        state_ok = self.state_path.exists() and historical_answers(self.state_path).get("naming_seed", "") == self.target.seed
         env_ok = self.environment_path.exists() and not self.environment_path.is_symlink()
         if not (state_ok or env_ok):
             return self.record(name, True, "nothing to archive")
@@ -617,7 +658,7 @@ class Teardown:
             self.archive_local()
         failed = [r for r in self.results if not r[1]]
         self.say("\nTeardown " + ("finished with problems; re-run `python -m scripts.teardown` after fixing them." if failed else
-                                  "finished. Start clean with `python -m scripts.deploy --mode fresh`."))
+                                  "finished. Deliver with `python -m scripts.deploy --inputs <private-delivery.json>`."))
         self.say("Log Analytics workspace names stay reserved for 14 days after deletion; a fresh deployment uses a new seed, so it is not affected.")
         return 1 if failed else 0
 
@@ -645,7 +686,7 @@ def main(argv: list[str] | None = None, *, runner: Runner | None = None, prompte
     prompter = prompter or Prompter(interactive=not args.non_interactive and sys.stdin.isatty())
     try:
         env_dir = environment_path or REPO_ROOT / ".azure" / ENV_NAME
-        target = resolve_target(args, State.load(state_path), read_environment(env_dir / ".env"))
+        target = resolve_target(args, historical_answers(state_path), read_environment(env_dir / ".env"))
         teardown = Teardown(runner or Runner(), prompter, target, sleep=sleep, monotonic=monotonic,
                             poll_seconds=args.poll_seconds, timeout_minutes=args.timeout_minutes,
                             stall_minutes=args.stall_minutes,

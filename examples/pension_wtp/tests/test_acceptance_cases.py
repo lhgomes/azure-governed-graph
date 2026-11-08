@@ -28,5 +28,9 @@ def test_sample_cases_keep_the_baseline_human_access_and_adversarial_coverage():
 def test_sample_deployment_requires_both_channel_modes_and_its_own_evaluation():
     definition = json.loads((SAMPLE / "deployment.json").read_text())
     assert definition["watermark"] == "ILLUSTRATIVE - synthetic data"
-    assert definition["deployed_checks"] == ["channel", "voice"]
-    assert {"kind": "module", "targets": ["pension_wtp.evaluation.run_evals"]} in definition["local_checks"]
+    assert "deployed_checks" not in definition and "local_checks" not in definition
+    assert (SAMPLE / "evaluation/run_evals.py").exists()
+    from scripts.run_dev_proof import build_template
+    for mode, argument in (("channel", "--probe-channel"), ("voice", "--probe-voice")):
+        template = build_template({"containers": [{}]}, mode, "https://synthetic.invalid", "https://synthetic.invalid", None)
+        assert template["containers"][0]["args"][0] == argument

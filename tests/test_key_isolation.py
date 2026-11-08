@@ -78,7 +78,9 @@ def block(source, name):
 def test_b1_b3_dev_issuer_is_explicitly_opt_in_and_uses_only_its_own_identity():
     main = (ROOT / "infra/main.bicep").read_text()
     assert "param deployDevIssuer bool = false" in main
-    assert "module devMemberIssuer 'modules/dev-member-issuer.bicep' = if (deployDevIssuer)" in main
+    bootstrap = (ROOT / "infra/bootstrap.bicep").read_text()
+    assert "param deployDevIssuer bool = false" in bootstrap
+    assert "module issuer 'modules/dev-member-issuer.bicep' = if (deployDevIssuer)" in bootstrap
     params = json.loads((ROOT / "infra/main.parameters.json").read_text())["parameters"]
     assert params["deployDevIssuer"]["value"] == "${GOVERNEDGRAPH_ENABLE_DEV_MEMBER_ISSUER=false}"
     assert "enableDevMemberIssuer" not in params
@@ -112,6 +114,16 @@ def test_b3_all_key_vault_assignments_are_key_scoped_not_vault_scoped():
     assert "principalId: devIssuerPrincipalId" in block(source, "devIssuerPull")
     assert "resource devKv " not in source
     assert "vaultMetadataReader" not in (ROOT / "infra/modules/learning.bicep").read_text()
+
+
+def test_developer_storage_access_is_content_container_scoped():
+    source = (ROOT / "infra/modules/rbac.bicep").read_text()
+    assert "resource devBlob " not in source
+    assert "scope: contentContainer" in block(source, "devContentPublish")
+    for resource in source.split("\nresource "):
+        if "'Microsoft.Authorization/roleAssignments@" in resource.split("\n", 1)[0]:
+            if "principalId: developerPrincipalId" in resource:
+                assert not re.search(r"^\s*scope: st\s*$", resource, re.MULTILINE)
 
 
 def test_b3_signer_has_no_encryption_key_management_or_other_key_permissions():

@@ -1368,7 +1368,7 @@ def test_b9_france_safety_is_keyless_scoped_and_both_models_have_blocking_layers
     embedding = ai.split("resource embedding ", 1)[1]
     assert "raiPolicyName: 'Microsoft.DefaultV2'" in embedding
     assert ai.count("versionUpgradeOption: 'OnceNewDefaultVersionAvailable'") == 3
-    main = (REPO_ROOT / "infra/main.bicep").read_text()
+    main = (REPO_ROOT / "infra/workloads.bicep").read_text()
     assert "CONTENT_SAFETY_ENDPOINT: ai.outputs.contentSafetyEndpoint" in main
     rbac = (REPO_ROOT / "infra/modules/rbac.bicep").read_text()
     assignment = rbac.split("resource runtimeSafety ", 1)[1].split("resource sb ", 1)[0]

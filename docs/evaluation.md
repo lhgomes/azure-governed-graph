@@ -100,8 +100,8 @@ change that needs a gate loosened is wrong.
 
 ## Foundry results for this deployment
 
-After deployment completes, `python -m scripts.acceptance --environment gg-dev` runs strict channel/voice proofs,
-conversation-capture verification when enabled, and its `evaluations` check creates a **fresh remote evaluation run**
+After deployment readiness passes, the separate
+`python -m scripts.run_foundry_evals --environment gg-dev` creates a **fresh remote evaluation run**
 in the project selected by the
 `gg-dev` azd environment. It uses the two pinned writers and the pinned intent, understanding and answer-review agents,
 with local deterministic adapters and fixed synthetic openings. It does not mint member tokens or create agents,
@@ -125,12 +125,11 @@ Retained remote IDs and partial evidence remain available for diagnosis. Judge s
 `SIMULATED PASS` lines cover individual deterministic case checks, not the later judge scores
 or the complete run. A completed remote run with `evaluation_passed: false` is a failed
 acceptance gate, not a provisioning failure. Inspect failed case flags and judge scores
-in the retained report, fix the cause, then use `python -m scripts.acceptance --environment gg-dev`.
-Full acceptance attempts and their reports are retained under `.run/acceptance/`; direct Foundry-only runs retain
-their `.run/foundry-evaluation-*.json` reports but cannot certify channel/voice acceptance.
-Runtime/domain-catalogue changes require deployment resume before acceptance; evaluation-only changes do not
-rebuild services, recreate agent pins or rerun signed learning. Acceptance status is independently bound to the
-deployment generation, runtime inputs, evaluation contract, project and pins.
+in the retained report, fix the cause, then rerun the evaluation with a new output path.
+Reports remain under `.run/foundry-evaluation-*.json` and cannot certify channel/voice acceptance.
+Runtime/domain-catalogue changes require explicit delivery with approved definitions;
+evaluation-only changes do not rebuild services, recreate agent pins or rerun learning.
+Each report retains its actual project, immutable versions and dataset digest.
 
 The offline CI sweep does **not** create Foundry runs. Historical checked-in reports do not establish that an evaluation
 exists in the current project: recreating a project removes its remote evaluation history, even if its display name is

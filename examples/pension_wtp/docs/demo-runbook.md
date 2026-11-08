@@ -6,7 +6,7 @@
 
 ## Get your deployment details
 
-After `azd up` (or `azd provision`) the azd environment holds everything the commands below need: URLs, resource names
+After explicit delivery (`python -m scripts.deploy --inputs .azure/private-delivery.json`) the azd environment holds URLs, resource names
 and object/client IDs. It never holds a secret, key or token. `scripts/azd_env.py` reads it, validates what each task
 needs and exports it to your shell.
 
@@ -30,9 +30,8 @@ deployment fails early instead of running against the wrong target. Use `--env-f
 | `p2` | Azure ML hosting of the learning cycle | [P2 Azure ML acceptance](#p2-azure-ml-acceptance) |
 | `agents`, `fairness` | Foundry agent provisioning and the fairness operator | [Fairness Foundry operator](#fairness-foundry-operator) |
 
-Some values are set by you rather than by Bicep, for example `P2_CONTAINER_IMAGE` and `FAIRNESS_AGENT_IMAGE` after you
-build those images (`azd env set NAME value`), and `VOICE_DEMO_CLIENT_ID`, which the preprovision hook writes when
-`DEPLOY_VOICE_DEMO=true`. `show` lists each as optional or missing so you know what is left to do.
+Delivery records the immutable `P2_CONTAINER_IMAGE`, `DEV_ISSUER_IMAGE` and the presenter client ID after bounded
+bootstrap. Optional operator-only settings are listed as missing by `show`; they do not cause duplicate delivery builds.
 
 ## The two-minute demo
 
@@ -162,14 +161,12 @@ utterance enters Speech or the orchestrator, never the persona profile.
 eval "$(python -m scripts.azd_env export --task voice-proof)"   # subscription, resource group, registry, orchestrator, gateway
 az login && az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 
-# 1. Build the dev-voice image (it includes the synthetic persona) and read its immutable digest
-REGISTRY="${AZURE_CONTAINER_REGISTRY_ENDPOINT%%.*}"
-az acr build --registry "$REGISTRY" --target dev-voice --image governedgraph/voice-issuer:proof .
-DIGEST="$(az acr repository show --name "$REGISTRY" --image governedgraph/voice-issuer:proof --query digest -o tsv)"
+# 1. Read the already-built explicit probe image; do not rebuild application/runtime artifacts
+PROBE_IMAGE="$(python -c 'import json; print(json.load(open(".run/delivery.json"))["images"]["probe"]["image"])')"
 
 # 2. Start the proof; the job's stored template, identity and permissions are not changed
 python -m scripts.run_dev_proof voice --logs \
-  --image "$AZURE_CONTAINER_REGISTRY_ENDPOINT/governedgraph/voice-issuer@$DIGEST"
+  --image "$PROBE_IMAGE"
 ```
 
 `run_dev_proof` reads the resource group, orchestrator and gateway from the azd environment, refuses any environment other than
@@ -211,7 +208,7 @@ an explicit exception saved locally by the browser.
 
 **Opt-in and configuration.** `DEPLOY_VOICE_DEMO=true` is honoured only in `gg-dev`; `deployVoiceDemo` defaults to false
 everywhere. `scripts/configure_voice_demo.py` idempotently maintains the owned registration, the exact redirect origin and the
-two assignments from the azd preprovision hook. Setting the flag to false and deploying disables the channel and its dedicated
+two assignments in bounded delivery bootstrap. Setting `voice_demo: false` in delivery inputs disables the channel and its dedicated
 service principal without deleting data. The SPA and Azure CLI are preauthorized delegated clients, not extra assigned users;
 no tenant-wide consent or client secret is needed. Physical laptop microphone and speaker behaviour still needs an on-stage
 rehearsal.
@@ -259,11 +256,12 @@ A protective freeze (a failed or skipped fairness audit, a failed P2 stage) is l
 personally run recovery; an assistant, agent or workload must not.** Recovery is delegated, interactive and bound to the
 operator configured at deployment (`STRATEGY_RECOVERY_OPERATOR_ID`).
 
-The deployment automatically configures delegated recovery access for its own API and saved operator in the
-`recovery-access` step. For an older deployment missing that setup, use the normal deployment command:
+Delivery bootstrap configures delegated recovery access for its own API and configured operator.
+For an older deployment missing that setup, use the existing restricted operator configurator:
 
 ```bash
-python -m scripts.deploy --mode resume --only recovery-access
+python -m scripts.configure_strategy_recovery \
+  --api-client-id "$STRATEGY_API_CLIENT_ID" --human-id "$STRATEGY_RECOVERY_OPERATOR_ID" --apply
 ```
 
 This needs an authorized application owner or Entra administrator. `AADSTS50105` means the assignment is missing;
@@ -318,10 +316,10 @@ closed audit gate, not a reason to ignore the pin, choose an older audit, grant 
 
 ## P2 Azure ML acceptance
 
-`python -m scripts.deploy` performs this section's first acceptance automatically: it builds the immutable `p2` image into the
-deployment's Azure ML registry, publishes the sample's synthetic dev inputs, discovers the workspace artifact containers for
-the scoped grants, runs one complete cycle and the protective fairness-agent proof, and enables the schedule only afterwards.
-The manual commands below are for operator investigation, re-runs and the recurrence checks that need time to elapse.
+Explicit delivery builds/reuses the extension `p2` image, initializes only missing synthetic upstream inputs and
+discovers ML-owned datastore containers for scoped Bicep grants. It enables the guarded native four-hour learning/fairness
+schedules from the first release; it never runs this operator cycle or a fairness-agent proof as deployment acceptance.
+The manual commands below remain for explicitly authorized operator investigation of existing cycles.
 
 Source packaging lives in `governedgraph.learning.azure_ml`; the Azure dependencies pin `azure-ai-ml` and `fairlearn` in
 `requirements-p2.txt`. Build the immutable image from Docker target `p2` into the deployment's Azure ML registry

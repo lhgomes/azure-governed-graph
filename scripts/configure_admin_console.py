@@ -1,7 +1,7 @@
 """Plan (default) or apply the gg-dev admin console sign-in: two Entra groups, a sign-in app and its assignments.
 
-Mirrors the voice presenter registration and runs in the same places (the azd `preprovision` hook and the guided
-deployment). It creates a reader group and an operator group, adds the user running the deployment to both, registers a
+Mirrors the voice presenter registration in bounded delivery bootstrap. It creates a reader group and an operator
+group, adds only the configured deployment operator to both, registers a
 single-page app (PKCE, no secret, no API permissions) and assigns both groups so they appear in sign-in tokens.
 If either group ID is already set in the environment it is used as supplied and its membership is left untouched.
 Set GOVERNEDGRAPH_ADMIN_ACCESS_CONTROL=false to skip all of this and leave the console open (banner shown).

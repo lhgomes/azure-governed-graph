@@ -5,6 +5,8 @@ param deployDevFixtures bool = false
 param image string
 param recordsStorageName string
 param rankingStorageName string
+param domainEnv object
+var domainEnvList = [for item in items(domainEnv): { name: item.key, value: string(item.value) }]
 
 var enabled = deployDevFixtures && environmentName == 'gg-dev'
 resource environment 'Microsoft.App/managedEnvironments@2024-03-01' existing = {
@@ -80,13 +82,14 @@ resource publisher 'Microsoft.App/jobs@2024-03-01' = if (enabled) {
         name: 'publisher'
         image: image
         command: ['python', '-m', 'governedgraph.dev.publish_learning_fixtures']
-        env: [
+        args: ['--initialize-only']
+        env: concat(domainEnvList, [
           { name: 'AZURE_CLIENT_ID', value: identity!.properties.clientId }
           { name: 'AZURE_ENV_NAME', value: environmentName }
           { name: 'DEPLOY_DEV_FIXTURES', value: 'true' }
           { name: 'EXPLAINABILITY_STORAGE_URL', value: records.properties.primaryEndpoints.blob }
           { name: 'RANKING_STORAGE_URL', value: ranking.properties.primaryEndpoints.blob }
-        ]
+        ])
         resources: { cpu: json('0.5'), memory: '1Gi' }
       }]
     }

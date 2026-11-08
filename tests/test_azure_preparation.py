@@ -80,20 +80,19 @@ def test_b3_runtime_key_vault_role_allows_only_verification():
 
 
 def test_remote_application_images_survive_reprovisioning():
-    parameters = json.loads((ROOT / "infra/main.parameters.json").read_text())["parameters"]
-    for name, service in (
-        ("orchestratorImage", "ORCHESTRATOR"),
-        ("strategyServiceImage", "STRATEGY_SERVICE"),
-        ("memberValuesImage", "MEMBER_VALUES"),
-    ):
-        assert parameters[name]["value"].startswith("${SERVICE_" + service + "_IMAGE_NAME=")
+    driver = (ROOT / "scripts/deploy.py").read_text()
+    helpers = (ROOT / "scripts/delivery.py").read_text()
+    for name in ("orchestratorImage", "strategyServiceImage", "memberValuesImage"):
+        assert f'"{name}": images["runtime"]["image"]' in driver
+    assert 'if not re.fullmatch(r"sha256:[a-f0-9]{64}", existing):' in helpers
+    assert "@{existing}" in helpers
 
 
 def test_persisted_seed_drives_new_names_but_empty_seed_keeps_legacy_names():
     parameters = json.loads((ROOT / "infra/main.parameters.json").read_text())["parameters"]
-    assert parameters["namingSeed"]["value"] == "${GOVERNEDGRAPH_NAMING_SEED=}"
+    assert parameters["namingSeed"]["value"] == "${GOVERNEDGRAPH_NAMING_SEED}"
     source = (ROOT / "infra/main.bicep").read_text()
-    assert "param namingSeed string = ''" in source
+    assert "param namingSeed string" in source
     token = source.split("var token = ", 1)[1].split("\nvar tags", 1)[0]
     assert "empty(namingSeed)" in token
     assert "? toLower(uniqueString(subscription().id, rg.id, environmentName))" in token
@@ -104,8 +103,9 @@ def test_persisted_seed_drives_new_names_but_empty_seed_keeps_legacy_names():
 def test_runtime_registry_access_precedes_container_app_creation():
     source = (ROOT / "infra/modules/compute.bicep").read_text()
     apps = source.split("resource ca ", 1)[1].split("\noutput ", 1)[0]
-    assert "dependsOn: [ runtimeAcrPull, strategyAcrPull ]" in apps
+    assert "dependsOn: [ runtimeAcrPull, strategyAcrPull, memberValuesAcrPull ]" in apps
     assert "scope: acr" in source.split("resource runtimeAcrPull ", 1)[1].split("\nresource ", 1)[0]
+    assert "scope: acr" in source.split("resource memberValuesAcrPull ", 1)[1].split("\nresource ", 1)[0]
 
 
 def test_b1_apim_uses_explicit_methods_for_read_only_rejections():
