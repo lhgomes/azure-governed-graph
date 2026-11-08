@@ -208,7 +208,10 @@ def test_b7_azure_never_falls_back_to_raw_persona_profiles(tmp_path, monkeypatch
         load_simulations()
 
 
-def test_sample_build_hash_tracks_persona_and_projection_sources(monkeypatch):
+@pytest.mark.parametrize("data_directory", [
+    DATA_DIR.resolve(), DATA_DIR.resolve().relative_to(ROOT),
+], ids=["absolute-data-directory", "relative-data-directory"])
+def test_sample_build_hash_tracks_persona_and_projection_sources(monkeypatch, data_directory):
     builds = []
 
     def build(runner, registry, target, dockerfile, paths, args):
@@ -218,10 +221,13 @@ def test_sample_build_hash_tracks_persona_and_projection_sources(monkeypatch):
     monkeypatch.setattr(deploy, "build", build)
     deploy.image_artifacts(None, {"compute": {"registryName": "runtime"},
                                  "learning": {"mlRegistryId": "/ml"}}, COMPOSITION)
+    checked_targets = set()
     for target, dockerfile, paths in builds:
         if dockerfile == COMPOSITION.dockerfile and target in ("runtime", "probe"):
-            assert DATA_DIR / "personas/personas.json" in paths
-            assert DATA_DIR.parent / "demo/build_simulations.py" in paths
+            checked_targets.add(target)
+            assert (data_directory / "personas/personas.json").resolve() in paths
+            assert (data_directory.parent / "demo/build_simulations.py").resolve() in paths
+    assert checked_targets == {"runtime", "probe"}
     dockerfile = (ROOT / COMPOSITION.dockerfile).read_text()
     runtime = dockerfile.split("FROM sample-base AS runtime", 1)[1].split("FROM runtime AS probe", 1)[0]
     assert "simulations.json" in runtime and "personas" not in runtime
