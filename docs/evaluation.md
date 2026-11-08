@@ -140,6 +140,16 @@ unchanged. Never use an old report as evidence of a fresh deployment's acceptanc
 Model selection is a human decision backed by paired, synthetic, descriptive replays. Nothing in a result changes a runtime pin,
 prompt, catalogue or ranking.
 
+Standalone commands require the selected domain's explicit configuration. For the
+bundled offline pension sample (also set at job scope in CI):
+
+```bash
+export GOVERNEDGRAPH_MODE=local
+export GOVERNEDGRAPH_DATA_DIR=examples/pension_wtp/data
+export GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER=pension_wtp.member_values_api.data:get_member_values
+export GOVERNEDGRAPH_TEXT_DEMO_MODULE=pension_wtp.demo.run_demo
+```
+
 | Tool | Purpose |
 |---|---|
 | `python evals/run_model_suite.py --check-config` | Offline schema check of the suite template; missing pins are listed, never reported as readiness. |

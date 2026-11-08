@@ -3,6 +3,11 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GOVERNEDGRAPH_MODE: local
+      GOVERNEDGRAPH_DATA_DIR: examples/pension_wtp/data
+      GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER: pension_wtp.member_values_api.data:get_member_values
+      GOVERNEDGRAPH_TEXT_DEMO_MODULE: pension_wtp.demo.run_demo
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -1,26 +1,39 @@
 """ILLUSTRATIVE - synthetic data. Automated comparison tests never call Azure."""
+import json
+import os
+import re
+import subprocess
+import sys
 from copy import deepcopy
 from dataclasses import asdict
 from decimal import Decimal
-import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
 
 import pytest
+from evals.run_evals import load, persona_cases
+from evals.run_model_comparison import UsageRecorder, collect_candidate
+from evals.run_model_suite import (
+    LABEL,
+    ROLES,
+    Candidate,
+    Suite,
+    analyze,
+    expected_definition,
+    main,
+    preflight,
+    run_suite,
+)
 
-from governedgraph.agents.decision_agents import FoundryDecisionAgent, agent_definition as decision_definition
 from governedgraph.agents.counsellor import INSTRUCTIONS, Counsellor
+from governedgraph.agents.decision_agents import FoundryDecisionAgent
+from governedgraph.agents.decision_agents import agent_definition as decision_definition
 from governedgraph.agents.foundry_runtime import agent_definition
 from governedgraph.agents.persona_simulator import PERSONA_INSTRUCTIONS, PERSONA_TEXT, ScriptedPersona
 from governedgraph.common.config import REPO_ROOT, settings
 from governedgraph.common.contracts import ContractError
 from governedgraph.common.io import load_json
 from governedgraph.evaluation import FLOORS, TokenRateCard, evidence_digest, summarize_candidate
-from evals.run_evals import load, persona_cases
-from evals.run_model_comparison import UsageRecorder, collect_candidate
-from evals.run_model_suite import (
-    LABEL, ROLES, Candidate, Suite, analyze, expected_definition, main, preflight, run_suite,
-)
 
 
 def configuration():
@@ -73,6 +86,29 @@ def test_b8_suite_template_has_all_three_models_but_never_invents_live_agent_pin
     assert {candidate.model for candidate in config.candidates} == {"gpt-4.1", "gpt-4.1-mini", "gpt-5.4-mini"}
     assert len(config.missing_pins()) == 6
     assert main(["--check-config"]) == 0
+
+
+def test_ci_model_suite_check_receives_explicit_sample_configuration_in_fresh_process():
+    workflow = (REPO_ROOT / ".github/workflows/ci.yml").read_text()
+    test_job = workflow.split("  test:\n", 1)[1].split("  bicep:\n", 1)[0]
+    job_environment = re.search(r"(?m)^    env:\n((?:^      GOVERNEDGRAPH_[^\n]+\n)+)", test_job)
+    assert job_environment is not None, "CI must configure the sample for all standalone test-job commands"
+    configured = dict(line.strip().split(": ", 1) for line in job_environment[1].splitlines())
+    assert configured == {
+        "GOVERNEDGRAPH_MODE": "local",
+        "GOVERNEDGRAPH_DATA_DIR": "examples/pension_wtp/data",
+        "GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER": "pension_wtp.member_values_api.data:get_member_values",
+        "GOVERNEDGRAPH_TEXT_DEMO_MODULE": "pension_wtp.demo.run_demo",
+    }
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GOVERNEDGRAPH_")}
+    result = subprocess.run(
+        [sys.executable, "evals/run_model_suite.py", "--check-config"], cwd=REPO_ROOT,
+        env={**environment, **configured}, capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report["configuration_valid"] is True and len(report["missing_pins"]) == 6
+    assert report["live_readiness"] == "not checked; no Azure calls"
 
 
 @pytest.mark.parametrize("change", [
