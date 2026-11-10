@@ -41,7 +41,7 @@ _CREDENTIAL = re.compile(
 
 
 def synthetic_capture_enabled() -> bool:
-    return (settings.is_azure and settings.environment_name == "gg-dev"
+    return (settings.environment_name == "gg-dev"
             and os.getenv("GOVERNEDGRAPH_DEPLOY_VOICE_DEMO") == "true"
             and os.getenv("GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS") == "true")
 
@@ -99,8 +99,6 @@ def dependency_outcome(journey_id: str, name: str, outcome: str, error=None, *,
         raise ValueError("unapproved dependency diagnostic context")
     if idle_seconds is not None and (not math.isfinite(idle_seconds) or idle_seconds < 0):
         raise ValueError("invalid sender idle age")
-    if not settings.is_azure:
-        return
     attributes = {"governedgraph.dependency.operation": name, "governedgraph.dependency.outcome": outcome}
     if queue:
         attributes["governedgraph.dependency.queue"] = queue

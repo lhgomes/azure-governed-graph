@@ -14,7 +14,7 @@ CLI_CLIENT = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
 
 
 def enabled() -> bool:
-    return settings.is_azure and settings.environment_name == "gg-dev" and os.getenv("GOVERNEDGRAPH_DEPLOY_VOICE_DEMO") == "true"
+    return settings.environment_name == "gg-dev" and os.getenv("GOVERNEDGRAPH_DEPLOY_VOICE_DEMO") == "true"
 
 
 def verify(token: str, *, application: bool = False) -> dict:

@@ -7,11 +7,9 @@ or decide is Tier 2 (human governance board) and is rejected here.
 """
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 
-from governedgraph.common.config import settings
 from governedgraph.common.contracts import DEMOGRAPHIC_FIELD_NAMES
 from governedgraph.strategy_service.catalogue import ESCALATION_STRATEGY, Catalogue
 from governedgraph.strategy_service.snapshot import RankingSnapshot
@@ -26,8 +24,8 @@ class Verdict:
 
 def review(snapshot: RankingSnapshot, previous: dict[str, list[str]], catalogue: Catalogue, suspended: dict[str, list[str]],
            max_shift: int, *, evidence_writer: Callable[[dict], None] | None = None) -> tuple[bool, list[Verdict]]:
-    if settings.is_azure and evidence_writer is None:
-        raise ValueError("Azure Tier 1 review requires a durable evidence writer")
+    if evidence_writer is None:
+        raise ValueError("Tier 1 review requires a durable evidence writer")
     v: list[Verdict] = []
     # Challenger: tries to break the candidate
     same_sets = all(set(s for s, _ in r) == set(previous.get(k, [s for s, _ in r])) for k, r in snapshot.rankings.items())
@@ -48,14 +46,8 @@ def review(snapshot: RankingSnapshot, previous: dict[str, list[str]], catalogue:
     v.append(Verdict("red_team", bool(snapshot.signature), "snapshot is signed"))
     approved = all(x.passed for x in v)
     pack = {"snapshot_id": snapshot.snapshot_id, "tier": snapshot.tier, "approved": approved,
-            "verdicts": [asdict(x) for x in v], "humans_notified": not settings.is_azure,
-            "notification_status": "pending_operator_review" if settings.is_azure else "simulated",
+            "verdicts": [asdict(x) for x in v], "humans_notified": False,
+            "notification_status": "pending_operator_review",
             "rollback_target_retained": True, "created_at": snapshot.created_at}
-    if evidence_writer is not None:
-        evidence_writer(pack)
-        return approved, v
-    out = settings.run_dir / "governance" / "evidence_packs.jsonl"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(pack) + "\n")
+    evidence_writer(pack)
     return approved, v

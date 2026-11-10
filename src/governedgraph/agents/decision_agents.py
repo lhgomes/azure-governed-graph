@@ -1,4 +1,4 @@
-"""Versioned semantic agents; offline rehearsals use labelled fixtures, not a classifier."""
+"""Versioned hosted semantic agents; closed schemas and pinned Foundry versions."""
 from __future__ import annotations
 
 import json
@@ -9,13 +9,12 @@ from dataclasses import asdict, dataclass
 from functools import lru_cache
 
 from governedgraph.common import domain
-from governedgraph.common.config import DATA_DIR, settings
+from governedgraph.common.config import settings
 from governedgraph.common.contracts import (
     EXPLANATION_CONCEPTS, HISTORICAL_REASONS, INTENT_DECISIONS, RESPONSE_LANGUAGES, REVIEW_ISSUES,
     UNDERSTANDING_DECISIONS, AnswerReview, ContractError, DecisionEvidence,
     ExplanationContext, IntentDecision, ReviewFeedback, UnderstandingDecision, _strict,
 )
-from governedgraph.common.io import load_json
 from governedgraph.observability import headers, model_usage, operation
 
 log = logging.getLogger("governedgraph.decision_agents")
@@ -363,34 +362,6 @@ class FoundryDecisionAgent:
                 raise DecisionUnavailable(f"{self.role} agent unavailable") from error
 
 
-class OfflineFixtureAgent:
-    """Only labelled synthetic rehearsal examples; never a production semantic fallback."""
-    def __init__(self, role: str):
-        if role not in {"intent", "understanding"}:
-            raise ValueError("unknown decision-agent role")
-        self.role = role
-        self.agent_name = f"offline-fixture-{role}"
-        self.agent_version = "fixture-1"
-
-    def run(self, tools, utterance: str, context: DecisionContext) -> IntentDecision | UnderstandingDecision:
-        fixtures = load_json(DATA_DIR / "synthetic" / "decision_agent_fixtures.json")
-        rows = fixtures[self.role]
-        # Exact fixture lookup deliberately does not pretend to understand unseen language.
-        key = utterance.strip().casefold()
-        row = next((row for row in rows if key in {text.casefold() for text in row["texts"]}), None)
-        if row is None:
-            log.error("offline_decision_fixture_missing",
-                      extra={"journey_id": tools.journey.journey_id, "agent_name": self.agent_name})
-            raise DecisionUnavailable("offline fixture agent cannot interpret an unseen example")
-        parser = IntentDecision if self.role == "intent" else UnderstandingDecision
-        decision = parser.from_dict(row["decision"])
-        tools.trace.decision_evidence.append(DecisionEvidence(
-            self.role, self.agent_name, self.agent_version, asdict(decision),
-        ))
-        return decision
-
-
 def run_decision(role: str, tools, utterance: str,
                  context: DecisionContext) -> IntentDecision | UnderstandingDecision:
-    agent = FoundryDecisionAgent.shared(role) if settings.is_azure else OfflineFixtureAgent(role)
-    return agent.run(tools, utterance, context)
+    return FoundryDecisionAgent.shared(role).run(tools, utterance, context)

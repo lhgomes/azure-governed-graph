@@ -33,7 +33,7 @@ class VoiceScriptRequest:
 
 
 async def run_hosted(script: VoiceScriptRequest, token: str, identity: MemberIdentity) -> dict:
-    if (not settings.is_azure or settings.environment_name != "gg-dev"
+    if (settings.environment_name != "gg-dev"
             or os.getenv("GOVERNEDGRAPH_ENABLE_VOICE_PROOF") != "true"):
         raise PermissionError("synthetic hosted voice proofs are disabled")
     if identity.member_ref != domain.demo()["member_ref"] or not identity.step_up_verified:

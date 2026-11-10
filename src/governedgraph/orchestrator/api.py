@@ -22,15 +22,15 @@ from governedgraph.common.member_auth import MemberAuthenticator, MemberIdentity
 from governedgraph.common.operational_logging import configure_operational_logging
 from governedgraph.observability import configure_events, operation
 from governedgraph.contact_centre.client import ContactCentreClient
-from governedgraph.contact_centre.service import Handover, SyntheticContactCentre, advisor_queue_html
+from governedgraph.contact_centre.service import advisor_queue_html
 from governedgraph.explainability.store import AuditUnavailable
 from governedgraph.orchestrator.consumer import InboxRecord, JourneyConsumer
-from governedgraph.orchestrator.messaging import FileJourneyPublisher, ServiceBusJourneyPublisher
+from governedgraph.orchestrator.messaging import ServiceBusJourneyPublisher
 from governedgraph.orchestrator.service import DeliveryPending, MemberScopeViolation, OrchestratorService
 from governedgraph.orchestrator.store import (
-    BlobJourneyStore, BlobRecordStore, FileJourneyStore, FileRecordStore, JourneyBusy, validate_id,
+    BlobJourneyStore, BlobRecordStore, JourneyBusy, validate_id,
 )
-from governedgraph.orchestrator.worker import FileJourneyWorker, ServiceBusJourneyWorker
+from governedgraph.orchestrator.worker import ServiceBusJourneyWorker
 from governedgraph.common.contracts import ContractError
 from governedgraph.voice.hosted import VoiceScriptRequest, run_hosted
 from governedgraph.voice.voice_live_bridge import VoiceError
@@ -43,28 +43,18 @@ member_authenticator: MemberAuthenticator = SignedClaimAuthenticator()
 def create_runtime() -> OrchestratorService:
     from governedgraph.learning.feedback_store import default_feedback_store
 
-    if settings.is_azure:
-        configure_operational_logging()
-        configure_events()
-        if not settings.journey_storage_url or not settings.service_bus_namespace:
-            raise RuntimeError("Azure journey storage and Service Bus namespace must be configured")
-        centre = ContactCentreClient(settings.contact_centre_url, settings.contact_centre_audience)
-        consumer = JourneyConsumer(BlobRecordStore(settings.journey_storage_url, "journey-inbox", InboxRecord.decode), centre)
-        return OrchestratorService(
-            BlobJourneyStore(settings.journey_storage_url),
-            ServiceBusJourneyPublisher(settings.service_bus_namespace), contact_centre=centre,
-            worker=ServiceBusJourneyWorker(settings.service_bus_namespace, consumer),
-            feedback_store=default_feedback_store(),
-        )
-    centre = SyntheticContactCentre(FileRecordStore(settings.run_dir / "handovers", Handover.decode))
-    consumer = JourneyConsumer(FileRecordStore(settings.run_dir / "journey-inbox", InboxRecord.decode), centre)
+    configure_operational_logging()
+    configure_events()
+    if not settings.journey_storage_url or not settings.service_bus_namespace:
+        raise RuntimeError("Azure journey storage and Service Bus namespace must be configured")
+    centre = ContactCentreClient(settings.contact_centre_url, settings.contact_centre_audience)
+    consumer = JourneyConsumer(BlobRecordStore(settings.journey_storage_url, "journey-inbox", InboxRecord.decode), centre)
     return OrchestratorService(
-        FileJourneyStore(settings.run_dir / "journeys"),
-        FileJourneyPublisher(settings.run_dir / "journey-queues"), contact_centre=centre,
-        worker=FileJourneyWorker(settings.run_dir / "journey-queues", consumer),
+        BlobJourneyStore(settings.journey_storage_url),
+        ServiceBusJourneyPublisher(settings.service_bus_namespace), contact_centre=centre,
+        worker=ServiceBusJourneyWorker(settings.service_bus_namespace, consumer),
         feedback_store=default_feedback_store(),
     )
-
 
 async def recover(runtime: OrchestratorService, stopped: asyncio.Event) -> None:
     while not stopped.is_set():
@@ -176,7 +166,7 @@ def benchmark_turn(journey_id: str, body: BenchmarkTurn, request: Request,
                    authorization: str = Header(""),
                    idempotency_key: str = Header("", alias="Idempotency-Key")):
     _, identity = authenticate(authorization)
-    if (not settings.is_azure or settings.environment_name != "gg-dev"
+    if (settings.environment_name != "gg-dev"
             or os.getenv("GOVERNEDGRAPH_DEPLOY_VOICE_DEMO") != "true"
             or identity.member_ref != domain.demo()["member_ref"] or not identity.step_up_verified):
         raise HTTPException(403, "synthetic voice comparison disabled")

@@ -64,8 +64,6 @@ def environment(runner, inputs, composition) -> None:
         "AZURE_RESOURCE_GROUP": inputs.resource_group, "GOVERNEDGRAPH_NAMING_SEED": inputs.naming_seed,
         "AZURE_PRINCIPAL_ID": inputs.operator_id, "GOVERNEDGRAPH_ON_CALL_EMAIL": inputs.on_call_email,
         "GOVERNEDGRAPH_SAMPLE": composition.name, "GOVERNEDGRAPH_DATA_DIR": str(composition.data_directory),
-        "GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER": composition.domain_environment["GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER"],
-        "GOVERNEDGRAPH_TEXT_DEMO_MODULE": composition.domain_environment["GOVERNEDGRAPH_TEXT_DEMO_MODULE"],
     }
     for key, value in values.items():
         runner.run(["azd", "env", "set", key, value, "--environment", inputs.environment])

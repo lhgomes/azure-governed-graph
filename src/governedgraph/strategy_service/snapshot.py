@@ -139,8 +139,6 @@ def verify_snapshot(snapshot: RankingSnapshot, signer: Signer) -> bool:
 def default_signer(*, signing: bool = False):
     from governedgraph.common.config import settings
 
-    if settings.is_azure:
-        if not settings.key_vault_url:
-            raise ValueError("AZURE_KEY_VAULT_URL is required in Azure mode")
-        return KeyVaultSigner(settings.key_vault_url, settings.snapshot_signing_key_name, signing_enabled=signing)
-    return LocalHmacSigner(settings.local_signing_secret)
+    if not settings.key_vault_url:
+        raise ValueError("AZURE_KEY_VAULT_URL is required in Azure mode")
+    return KeyVaultSigner(settings.key_vault_url, settings.snapshot_signing_key_name, signing_enabled=signing)

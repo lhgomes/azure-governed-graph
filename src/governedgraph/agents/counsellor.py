@@ -1,11 +1,8 @@
 """Counsellor = Member Communication Agent (L3) over the host-owned guardrail pipeline.
 
-Implements the runtime sequence described in docs/architecture.md. Two composers share the SAME
-guardrail pipeline:
-  * local mode - deterministic approved template (offline demo, tests, fallback)
-  * FoundryComposer - pinned Foundry prompt agent with journey-bound function tools; the model
-                      drafts wording around the approved template using placeholders only
-Post-processing (both): bind figures by reference -> numeric-fidelity gate ->
+Implements the runtime sequence described in docs/architecture.md using a pinned
+Foundry prompt agent with journey-bound function tools and placeholder-only drafts.
+Post-processing: bind figures by reference -> numeric-fidelity gate ->
 steering check -> explainability record. On any gate failure: template-only
 rendering, and escalate if that also fails.
 """
@@ -31,7 +28,7 @@ from governedgraph.explainability.store import default_store
 from governedgraph.guardrails import numeric_fidelity
 from governedgraph.guardrails.advice_intent import response_steers_choice
 from governedgraph.guardrails.binding import BindingError, bind, referenced_value_ids
-from governedgraph.guardrails.prompt_safety import ContentSafetyError, LocalPromptScreen
+from governedgraph.guardrails.prompt_safety import ContentSafetyError
 from governedgraph.orchestrator.state_machine import Event, Journey, State
 from governedgraph.search.approved_content import default_search
 from governedgraph.strategy_service.catalogue import ESCALATION_STRATEGY, Catalogue
@@ -110,13 +107,10 @@ class Counsellor:
         self.compact_voice = journey.channel == "voice" and selected_voice_model == "gpt-compact"
         self.journey = journey
         self.catalogue = Catalogue.load()
-        if settings.is_azure:
-            from governedgraph.agents.azure_safety import AzurePromptShields
+        from governedgraph.agents.azure_safety import AzurePromptShields
 
-            self.screen = AzurePromptShields(settings.content_safety_endpoint)
-            self.screen.journey_id = journey.journey_id
-        else:
-            self.screen = LocalPromptScreen()
+        self.screen = AzurePromptShields(settings.content_safety_endpoint)
+        self.screen.journey_id = journey.journey_id
         self.decision_agents = {}
         if audit_store is None:
             audit_store = default_store(journey, audit_enqueue)
@@ -127,15 +121,17 @@ class Counsellor:
         self.tools = CounsellorTools(
             journey, authenticated_member_ref, default_values_client(member_token), default_strategy_client(strategy_service),
             default_search(), audit_store,
-            model_deployment=settings.model_deployment if settings.is_azure else "local-template-composer",
+            model_deployment=settings.model_deployment,
             template_version=TEMPLATES["template_set_version"],
-            agent_name=settings.agent_name if settings.is_azure else "local-template-composer",
-            agent_version=settings.agent_version if settings.is_azure else TEMPLATES["template_set_version"],
-            prompt_screen=self.screen if settings.is_azure else None,
+            agent_name=settings.agent_name,
+            agent_version=settings.agent_version,
+            prompt_screen=self.screen,
             step_up_verified=step_up_verified,
         )
-        self.composer = composer or ("foundry" if settings.is_azure else "local")
-        if self.compact_voice and settings.is_azure:
+        if composer not in (None, "foundry"):
+            raise ValueError("only the hosted Foundry composer is supported")
+        self.composer = "foundry"
+        if self.compact_voice:
             self.tools.model_deployment = settings.compact_deployment
             self.tools.agent_name = "gg-counsellor-voice-compact"
             self.tools.agent_version = os.getenv("AZURE_AI_VOICE_COMPACT_VERSION", "")
@@ -193,27 +189,25 @@ class Counsellor:
 
     # ---- one member turn ----
     def handle(self, utterance: str) -> TurnResult:
-        if settings.is_azure:
-            from governedgraph.agents.foundry_tracing import journey_span
-            from governedgraph.agents.azure_safety import AzurePromptShields
+        from governedgraph.agents.foundry_tracing import journey_span
+        from governedgraph.agents.azure_safety import AzurePromptShields
 
-            if not isinstance(self.screen, AzurePromptShields):
-                raise RuntimeError("Azure mode requires fail-closed Prompt Shields")
-            started = time.perf_counter()
-            first_screen = self.screen.total_duration_ms
-            with journey_span(self.tools) as span:
-                try:
-                    return self._safe_handle(utterance)
-                finally:
-                    trace = self.tools.trace
-                    trace.turn_duration_ms = (time.perf_counter() - started) * 1000
-                    trace.screen_duration_ms = self.screen.total_duration_ms - first_screen
-                    span.set_attributes({"governedgraph.turn.duration_ms": trace.turn_duration_ms,
-                                         "governedgraph.prompt_shields.duration_ms": trace.screen_duration_ms})
-                    if self.journey.channel == "voice":
-                        span.set_attribute("governedgraph.voice_turn.slo_met", trace.turn_duration_ms < 2000)
-                        span.set_attribute("governedgraph.voice_turn.measurement", "guarded_processing_not_audio_slo")
-        return self._safe_handle(utterance)
+        if not isinstance(self.screen, AzurePromptShields):
+            raise RuntimeError("hosted runtime requires fail-closed Prompt Shields")
+        started = time.perf_counter()
+        first_screen = self.screen.total_duration_ms
+        with journey_span(self.tools) as span:
+            try:
+                return self._safe_handle(utterance)
+            finally:
+                trace = self.tools.trace
+                trace.turn_duration_ms = (time.perf_counter() - started) * 1000
+                trace.screen_duration_ms = self.screen.total_duration_ms - first_screen
+                span.set_attributes({"governedgraph.turn.duration_ms": trace.turn_duration_ms,
+                                     "governedgraph.prompt_shields.duration_ms": trace.screen_duration_ms})
+                if self.journey.channel == "voice":
+                    span.set_attribute("governedgraph.voice_turn.slo_met", trace.turn_duration_ms < 2000)
+                    span.set_attribute("governedgraph.voice_turn.measurement", "guarded_processing_not_audio_slo")
 
     def _safe_handle(self, utterance: str) -> TurnResult:
         from governedgraph.explainability.store import AuditUnavailable
@@ -287,7 +281,7 @@ class Counsellor:
             text = " ".join(passages)
             text += " Please complete step-up verification to see your personal figures, or ask for a human advisor."
             return TurnResult(text.strip(), self.journey.state.value)
-        if settings.is_azure and self.journey.channel == "voice":
+        if self.journey.channel == "voice":
             self._parallel_explanation_sources(utterance)
         try:
             if not self._prefetched:
@@ -400,8 +394,6 @@ class Counsellor:
         return ""
 
     def _compose(self, strategy, utterance: str) -> str:
-        if self.composer == "local":
-            return self._template_for(strategy)
         return self._foundry_composer().draft(self.tools, utterance, strategy)
 
     def _foundry_composer(self):
@@ -488,4 +480,4 @@ def new_session(member_ref: str, channel: str = "voice", accessibility_mode: str
                 accessibility_mode=accessibility_mode)
     return Counsellor(j, authenticated_member_ref=member_ref, strategy_service=strategy_service,
                             member_token=member_token,
-                            step_up_verified=not settings.is_azure if step_up_verified is None else step_up_verified)
+                            step_up_verified=False if step_up_verified is None else step_up_verified)

@@ -13,7 +13,7 @@ from governedgraph.common.config import settings
 from governedgraph.common.contracts import ContractError, EscalationRequest
 from governedgraph.common.operational_logging import configure_operational_logging
 from governedgraph.contact_centre.service import Handover, SyntheticContactCentre
-from governedgraph.orchestrator.store import BlobRecordStore, FileRecordStore, JourneyBusy
+from governedgraph.orchestrator.store import BlobRecordStore, JourneyBusy
 
 log = logging.getLogger("governedgraph.contact_centre")
 
@@ -52,13 +52,10 @@ def require_runtime(authorization: str = Header("")) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if settings.is_azure:
-        configure_operational_logging()
-        if not settings.contact_centre_storage_url:
-            raise RuntimeError("private contact-centre storage required")
-        store = BlobRecordStore(settings.contact_centre_storage_url, "handover-records", Handover.decode)
-    else:
-        store = FileRecordStore(settings.run_dir / "handovers", Handover.decode)
+    configure_operational_logging()
+    if not settings.contact_centre_storage_url:
+        raise RuntimeError("private contact-centre storage required")
+    store = BlobRecordStore(settings.contact_centre_storage_url, "handover-records", Handover.decode)
     app.state.centre = SyntheticContactCentre(store)
     yield
 

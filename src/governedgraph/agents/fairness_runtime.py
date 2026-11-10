@@ -187,7 +187,7 @@ def azure_runtime(request: FairnessRequest) -> tuple[FoundryFairnessAgent, Fairn
     from governedgraph.learning.azure_inputs import BlobLearningInputs
     from governedgraph.strategy_service.client import StrategyAdminClient
 
-    if (not settings.is_azure or os.environ.get("GOVERNEDGRAPH_P2_ROLE") != "fairness"
+    if (os.environ.get("GOVERNEDGRAPH_P2_ROLE") != "fairness"
             or not settings.fairness_identity_client_id
             or os.environ.get("AZURE_CLIENT_ID") != settings.fairness_identity_client_id):
         raise PermissionError("fairness runtime requires its isolated managed-identity host")

@@ -26,11 +26,10 @@ from governedgraph.strategy_service.telemetry import configure_audit
 from governedgraph.observability import emit, operation
 
 configure_audit()
-if settings.is_azure:
-    configure_operational_logging()
+configure_operational_logging()
 log = logging.getLogger("governedgraph.strategy_service")
 app = FastAPI(title="GovernedGraph Strategy Service", version="1.0.0")
-svc = StrategyService(exploration_enabled=settings.is_azure)
+svc = StrategyService(exploration_enabled=True)
 
 
 @app.post("/strategies/ranked")

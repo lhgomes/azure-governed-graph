@@ -18,7 +18,7 @@ def audit_health() -> str:
     from azure.core.exceptions import AzureError
     from azure.identity import DefaultAzureCredential
 
-    if (not settings.is_azure or settings.environment_name != "gg-dev"
+    if (settings.environment_name != "gg-dev"
             or not settings.p2_fairness_job_id.endswith("/Microsoft.App/jobs/job-gg-p2-fairness")
             or "@sha256:" not in settings.p2_image):
         raise StateUnavailable("dev recovery audit monitor is not configured")

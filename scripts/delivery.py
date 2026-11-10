@@ -74,8 +74,8 @@ class Composition:
         if any(not item.is_relative_to(path.parent) or not item.exists() for item in [*directories, docker, p2_docker, template]):
             raise DeliveryError("domain inputs must exist inside their extension")
         env = raw["domain_environment"]
-        if set(env) != {"GOVERNEDGRAPH_DATA_DIR", "GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER", "GOVERNEDGRAPH_TEXT_DEMO_MODULE"}:
-            raise DeliveryError("domain environment must contain explicit data, values provider and demo inputs only")
+        if set(env) != {"GOVERNEDGRAPH_DATA_DIR"}:
+            raise DeliveryError("domain environment must contain only the explicit domain data directory")
         return cls(raw["name"], directories[0], directories[1], raw["dockerfile"], raw["p2_dockerfile"], raw["workload_template"],
                    raw["member_values_module"], env)
 

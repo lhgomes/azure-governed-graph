@@ -48,7 +48,7 @@ class AccessPolicy:
             os.getenv(READER_VARIABLE, "").strip(), os.getenv(OPERATOR_VARIABLE, "").strip(),
             os.getenv("GOVERNEDGRAPH_ADMIN_CLIENT_ID", "").strip(),
             (os.getenv("GOVERNEDGRAPH_ADMIN_TENANT_ID") or os.getenv("STRATEGY_TENANT_ID", "")).strip(),
-            not settings.is_azure or os.getenv("GOVERNEDGRAPH_ADMIN_ALLOW_OPEN_ACTIONS", "").lower() == "true",
+            os.getenv("GOVERNEDGRAPH_ADMIN_ALLOW_OPEN_ACTIONS", "").lower() == "true",
         )
 
     @property

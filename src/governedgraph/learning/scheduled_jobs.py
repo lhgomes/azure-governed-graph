@@ -229,8 +229,6 @@ def main() -> None:
     from azure.storage.blob import BlobServiceClient
 
     configure_operational_logging()
-    if not settings.is_azure:
-        raise ValueError("native scheduled adapter requires Azure mode")
     role, cadence, image = os.environ["GOVERNEDGRAPH_P2_ROLE"], int(os.environ["GOVERNEDGRAPH_P2_CADENCE_SECONDS"]), os.environ["GOVERNEDGRAPH_P2_IMAGE"]
     if cadence == 300 and settings.environment_name != "gg-dev":
         raise ValueError("shortened schedule proof is dev-only")
