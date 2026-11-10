@@ -16,7 +16,7 @@ No developer workstation or generic GitHub-hosted runner is an approved applicat
 
 1. Pure logic and governance-boundary unit tests run on a verified Azure-hosted CI runner. The runner must carry the `azure-public` label.
 2. Application integration and synthetic channel probes run in the deployed Azure environment, using the existing scoped identity model.
-3. Paid Foundry evaluation and model comparisons run through Azure-hosted evaluation jobs with synthetic data and pinned agent versions.
+3. Curated/adversarial scenario probes run inside the Azure dev-issuer job. Paid Foundry model comparisons and judge calibration need their own Azure-hosted evaluation jobs and pinned agent versions.
 4. Bicep compilation runs on Azure-hosted infrastructure. Deployment remains an explicit separate action.
 5. Missing Azure runners, credentials, deployment inputs or test evidence are blockers; they are never treated as a successful test.
 
@@ -25,7 +25,8 @@ No developer workstation or generic GitHub-hosted runner is an approved applicat
 - [x] Replace the conflicting repository instruction that mandates offline runtime.
 - [x] Prevent Azure API clients and Search from silently falling back to local adapters when endpoints are missing.
 - [x] Move CI jobs to an explicitly Azure-hosted runner (runner provisioning/registration remains external).
-- [ ] Move Foundry and synthetic evaluations off the local-runtime composition.
+- [x] Add a curated/adversarial synthetic evaluation probe that runs inside the existing Azure dev-issuer job and keeps tokens in memory.
+- [ ] Migrate the paired Foundry model-comparison and judge-calibration harness off its legacy in-process adapters.
 - [ ] Consolidate the duplicate learning-cycle execution paths behind the audited Azure pipeline.
 - [x] Remove local-versus-Azure dispatch in member-facing services and the admin backend.
 - [ ] Remove remaining unused file adapters, offline demo entry points and fixture wiring.

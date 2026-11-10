@@ -19,5 +19,7 @@ FROM sample-base AS runtime
 COPY --from=simulation-builder --chown=10001:10001 /tmp/simulations.json ./examples/pension_wtp/data/demo/simulations.json
 
 FROM runtime AS probe
+ENV GOVERNEDGRAPH_EVAL_DATA_DIR=/app/examples/pension_wtp/evaluation/datasets
+COPY --chown=10001:10001 examples/pension_wtp/evaluation/datasets ./examples/pension_wtp/evaluation/datasets
 COPY --chown=10001:10001 examples/pension_wtp/data/personas/personas.json ./examples/pension_wtp/data/personas/personas.json
 CMD ["python", "-m", "governedgraph.dev.issue_member_token", "--public-jwk"]

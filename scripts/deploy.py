@@ -39,7 +39,7 @@ def image_artifacts(runner, foundation: dict, composition) -> dict:
             data / "fairness/cohort_aggregates_illustrative.csv"], p2_args),
         "probe": build(runner, registry, "probe", composition.dockerfile, domain + [
             data / "synthetic/members.json", data.parent / "member_values_api", data / "personas/personas.json",
-            data.parent / "demo/build_simulations.py"], args),
+            data.parent / "demo/build_simulations.py", data.parent / "evaluation/datasets"], args),
     }
     return images
 

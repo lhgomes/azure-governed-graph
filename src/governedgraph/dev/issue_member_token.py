@@ -213,6 +213,7 @@ def main() -> None:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--public-jwk", action="store_true")
     mode.add_argument("--probe-channel", action="store_true")
+    mode.add_argument("--probe-evals", action="store_true")
     mode.add_argument("--probe-voice", action="store_true")
     parser.add_argument("--orchestrator-url")
     parser.add_argument("--apim-url")
@@ -220,7 +221,7 @@ def main() -> None:
     if os.getenv("GOVERNEDGRAPH_ENABLE_DEV_MEMBER_ISSUER") != "true":
         parser.error("set GOVERNEDGRAPH_ENABLE_DEV_MEMBER_ISSUER=true only for the synthetic development environment")
     credential: TokenCredential | None = None
-    if (args.probe_channel or args.probe_voice) and (not os.getenv("IDENTITY_ENDPOINT") or not args.orchestrator_url):
+    if (args.probe_channel or args.probe_voice or args.probe_evals) and (not os.getenv("IDENTITY_ENDPOINT") or not args.orchestrator_url):
         parser.error("channel proofs require the existing in-network dev-issuer job and --orchestrator-url")
     if os.getenv("IDENTITY_ENDPOINT"):
         from azure.identity import ManagedIdentityCredential
@@ -246,11 +247,18 @@ def main() -> None:
             signer = KeyVaultTokenSigner(os.environ["AZURE_KEY_VAULT_URL"], "dev-member-token-signing",
                                         credential=credential)
             with httpx.Client(timeout=120, follow_redirects=False) as client:
-                probe_channel(signer, os.environ["MEMBER_TOKEN_ISSUER"], args.orchestrator_url, client,
-                              apim_url=args.apim_url)
+                if args.probe_evals:
+                    from governedgraph.dev.eval_probe import probe_evaluations
+
+                    probe_evaluations(signer, os.environ["MEMBER_TOKEN_ISSUER"], args.orchestrator_url, client,
+                                      token_issuer=issue_token)
+                else:
+                    probe_channel(signer, os.environ["MEMBER_TOKEN_ISSUER"], args.orchestrator_url, client,
+                                  apim_url=args.apim_url)
         except (AzureError, httpx.HTTPError, ProbeFailure, ValueError, KeyError, TypeError, VoiceError,
                 TimeoutError, OSError) as error:
-            name = "voice_probe" if args.probe_voice else "channel_probe"
+            name = ("voice_probe" if args.probe_voice else
+                    "azure_evaluation" if args.probe_evals else "channel_probe")
             if isinstance(error, VoiceAuthorizationFailure):
                 name = f"voice_authorization_http{error.status_code}"
             print(f"FAIL {name} error_type={type(error).__name__}", flush=True)

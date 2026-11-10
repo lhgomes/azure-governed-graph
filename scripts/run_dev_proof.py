@@ -4,6 +4,7 @@ Everything environment-specific is read from the azd environment (`scripts/azd_e
 
     python -m scripts.run_dev_proof channel                       # --probe-channel through the orchestrator (+ gateway)
     python -m scripts.run_dev_proof voice --image <registry>/<repo>@sha256:<digest>   # explicit extension probe image
+    python -m scripts.run_dev_proof evals --image <registry>/<repo>@sha256:<digest>   # Azure-hosted curated/adversarial evaluation
 
 The job's stored template, identity and permissions are never changed: the image/command/arguments are overridden for
 this single execution only, and no member token exists on this machine (the job mints it in process memory).
@@ -35,6 +36,7 @@ def build_template(template: dict, mode: str, orchestrator_url: str, apim_url: s
         container["image"] = image
     container["command"] = ["python", "-m", "governedgraph.dev.issue_member_token"]
     container["args"] = (["--probe-voice", "--orchestrator-url", orchestrator_url] if mode == "voice"
+                         else ["--probe-evals", "--orchestrator-url", orchestrator_url] if mode == "evals"
                          else ["--probe-channel", "--orchestrator-url", orchestrator_url, "--apim-url", apim_url])
     return template
 
@@ -45,7 +47,7 @@ def validate(values: dict[str, str], mode: str, image: str | None) -> None:
         raise EnvError("; ".join(issues))
     if values["AZURE_ENV_NAME"] != "gg-dev":
         raise EnvError("synthetic proofs run only in the gg-dev environment")
-    if mode == "voice" and not (image and IMMUTABLE_IMAGE.fullmatch(image)):
+    if mode in {"voice", "evals"} and not (image and IMMUTABLE_IMAGE.fullmatch(image)):
         raise EnvError("--image must be an immutable registry digest reference built from the extension probe target")
     if image and not IMMUTABLE_IMAGE.fullmatch(image):
         raise EnvError("--image must be an immutable registry digest reference")
@@ -75,7 +77,7 @@ def orchestrator_endpoint(values: dict[str, str]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("mode", choices=("channel", "voice"))
+    parser.add_argument("mode", choices=("channel", "voice", "evals"))
     parser.add_argument("--image")
     parser.add_argument("--env-file", help="read values from a dotenv file instead of `azd env get-values`")
     parser.add_argument("--environment", help="explicit azd environment; otherwise use the selected environment")
