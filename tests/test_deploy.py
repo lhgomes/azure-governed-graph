@@ -146,11 +146,14 @@ def writer_plans():
             for role in delivery.AGENT_ROLES}
 
 
-def test_local_value_adapter_requires_explicit_domain_provider(monkeypatch):
+def test_azure_member_values_requires_explicit_apim_endpoint(monkeypatch):
     from governedgraph.agents import clients
-    monkeypatch.setattr(clients, "LOCAL_VALUES_PROVIDER", "")
-    with pytest.raises(ValueError, match="explicit GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER"):
-        clients.LocalValuesClient().get("synthetic", "synthetic")
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(clients, "settings", SimpleNamespace(member_values_url=""))
+    with pytest.raises(ValueError, match="MEMBER_VALUES_API_URL"):
+        clients.default_values_client()
+    assert not hasattr(clients, "LocalValuesClient")
 
 
 def test_each_member_facing_role_has_its_own_identity_and_values_have_only_registry_pull():

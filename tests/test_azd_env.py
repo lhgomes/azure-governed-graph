@@ -63,7 +63,7 @@ def test_export_emits_quoted_shell_assignments_and_derived_values_only_for_the_t
     assert "export PRESENTER_URL=https://apim-gg-synthetic.azure-api.net/demo/" in out
     assert not any("STRATEGY" in line for line in out)
     assert azd_env.main(["export", "--task", "reconcile", "--env-file", path]) == 0
-    assert "export GOVERNEDGRAPH_MODE=azure" in capsys.readouterr().out
+    assert "GOVERNEDGRAPH_MODE" not in capsys.readouterr().out
 
 
 def test_export_refuses_when_the_deployment_does_not_provide_a_required_value(tmp_path, capsys):
