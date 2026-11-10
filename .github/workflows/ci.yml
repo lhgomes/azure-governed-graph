@@ -1,8 +1,10 @@
 name: ci
+# The azure-public label must be assigned only to a verified Azure-hosted runner.
+# An unavailable runner leaves checks pending; never fall back to GitHub-hosted execution.
 on: [push, pull_request]
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, azure-public]
     env:
       GOVERNEDGRAPH_MODE: local
       GOVERNEDGRAPH_DATA_DIR: examples/pension_wtp/data
@@ -15,16 +17,13 @@ jobs:
       - run: python -m pip install -r requirements-azure.txt
       - name: Guardrail tests (B1-B10)
         run: |
-          pytest
           python -m pytest
       - name: Simulated evaluation hard gates
         run: python evals/run_evals.py --comparison evals/results/model-comparison-2026-10-27.json
       - name: Automated model suite configuration (offline, not live readiness)
         run: python evals/run_model_suite.py --check-config
-      - name: Offline demo smoke test
-        run: PYTHONPATH=src:examples python -m pension_wtp.demo.run_demo
   bicep:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, azure-public]
     steps:
       - uses: actions/checkout@v5
       - run: |

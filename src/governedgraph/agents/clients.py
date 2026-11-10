@@ -93,8 +93,16 @@ class HttpStrategyClient:
 
 
 def default_values_client(member_token: str = ""):
-    return ApimValuesClient(member_token) if settings.is_azure else LocalValuesClient()
+    if settings.is_azure:
+        if not settings.member_values_url:
+            raise ValueError("MEMBER_VALUES_API_URL is required in Azure mode")
+        return ApimValuesClient(member_token)
+    return LocalValuesClient()
 
 
 def default_strategy_client(service=None):
-    return HttpStrategyClient() if settings.is_azure and settings.strategy_service_url else LocalStrategyClient(service)
+    if settings.is_azure:
+        if not settings.strategy_service_url:
+            raise ValueError("STRATEGY_SERVICE_URL is required in Azure mode")
+        return HttpStrategyClient()
+    return LocalStrategyClient(service)

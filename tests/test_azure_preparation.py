@@ -122,3 +122,28 @@ def test_b1_apim_uses_explicit_methods_for_read_only_rejections():
     assert "for method in blockedValuesMethods" in operations
     assert "method: method" in operations
     assert "dependsOn: [ rejectValuesPost ]" in operations
+
+def test_azure_client_factories_fail_closed_without_endpoints(monkeypatch):
+    from dataclasses import replace
+    import pytest
+    from governedgraph.agents import clients
+
+    monkeypatch.setattr(clients, "settings", replace(
+        clients.settings, mode="azure", member_values_url="", strategy_service_url="",
+    ))
+    with pytest.raises(ValueError, match="MEMBER_VALUES_API_URL"):
+        clients.default_values_client("synthetic-token")
+    with pytest.raises(ValueError, match="STRATEGY_SERVICE_URL"):
+        clients.default_strategy_client()
+
+
+def test_azure_search_does_not_fall_back_to_local_when_unconfigured(monkeypatch):
+    from dataclasses import replace
+    import pytest
+    from governedgraph.search import approved_content
+
+    monkeypatch.setattr(approved_content, "settings", replace(
+        approved_content.settings, mode="azure", search_endpoint="",
+    ))
+    with pytest.raises(ValueError, match="AZURE_SEARCH_ENDPOINT"):
+        approved_content.default_search()

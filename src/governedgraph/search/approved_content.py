@@ -106,4 +106,8 @@ def _new_search_client(endpoint: str, index: str):
 
 
 def default_search():
-    return AzureContentSearch() if settings.is_azure and settings.search_endpoint else LocalContentSearch()
+    if settings.is_azure:
+        if not settings.search_endpoint:
+            raise ValueError("AZURE_SEARCH_ENDPOINT is required in Azure mode")
+        return AzureContentSearch()
+    return LocalContentSearch()
