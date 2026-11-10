@@ -27,9 +27,11 @@ No developer workstation or generic GitHub-hosted runner is an approved applicat
 - [x] Move CI jobs to an explicitly Azure-hosted runner (runner provisioning/registration remains external).
 - [ ] Move Foundry and synthetic evaluations off the local-runtime composition.
 - [ ] Consolidate the duplicate learning-cycle execution paths behind the audited Azure pipeline.
-- [ ] Remove local application adapters, mode switches, file stores and desktop-only demo entry points.
+- [x] Remove local-versus-Azure dispatch in member-facing services and the admin backend.
+- [ ] Remove remaining unused file adapters, offline demo entry points and fixture wiring.
 - [ ] Migrate tests to Azure execution and unit-level injected fakes; keep all B1-B10 regression gates.
-- [ ] Simplify production dependency manifests, images, delivery tooling and documentation.
+- [x] Remove local mode from deployment manifests, runtime images and application configuration; split P1 and P2 dependencies.
+- [ ] Complete the remaining evaluation entry-point migration and documentation cleanup.
 - [ ] Collect Azure-hosted test evidence and deployment readiness without automatically deploying.
 
-**Status:** migration in progress. The presence of a checked item is not evidence of Azure test execution; no tests may be reported as passed until an Azure runner or job produces a result.
+**Status:** implementation continuing without test execution at the user's request; Azure-hosted validation is pending. The presence of a checked item is not evidence of Azure test execution; no tests may be reported as passed until an Azure runner or job produces a result.

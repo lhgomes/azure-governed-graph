@@ -1,11 +1,9 @@
-"""Evidence and protective-action backends: local files for the demo, deployed stores on Azure.
+"""Azure evidence and protective-action backend for the governed admin console.
 
-Both backends project the same governed evidence. Neither reads the segregated cohort zone,
-conversation text or member values; they read references, closed decisions and aggregates.
+The projection excludes segregated cohorts, conversation text and member values.
 """
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import logging
@@ -18,12 +16,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from threading import Lock
 
-from governedgraph.admin.data import Context, build_overview, overview, tier1_decision, uplift_decision
+from governedgraph.admin.data import Context, build_overview, tier1_decision, uplift_decision
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import ExplainabilityRecord, SuspensionEvent
-from governedgraph.strategy_service.service import StrategyService
 from governedgraph.strategy_service.snapshot import RankingSnapshot
-from governedgraph.strategy_service.state import LocalStateStore
 
 log = logging.getLogger("governedgraph.admin")
 STATE_KEYS = {"current", "last_good", "frozen", "suspensions"}
@@ -32,58 +28,6 @@ BOARD_OPTIONS = ["revise as new version", "retire", "reinstate with recorded jus
 
 class AdminSourceError(RuntimeError):
     """An operator-safe explanation; its message may be shown in the console."""
-
-
-def append_action(path: Path, record: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as output:
-        fcntl.flock(output, fcntl.LOCK_EX)
-        output.write(json.dumps(record) + "\n")
-        output.flush()
-        os.fsync(output.fileno())
-
-
-class LocalSources:
-    mode = "local"
-
-    def __init__(self, directory: Path, evidence_directory: Path, demo: bool, service: StrategyService | None = None):
-        self.directory, self.evidence_directory, self.demo, self._service = directory, evidence_directory, demo, service
-
-    @property
-    def profile(self) -> str:
-        return "demo" if self.demo else "runtime"
-
-    def service(self) -> StrategyService:
-        if self._service is None:
-            state_path = self.evidence_directory / ("strategy" if self.demo else "strategy_service") / "state.json"
-            self._service = StrategyService(store=LocalStateStore(state_path))
-        return self._service
-
-    def context(self) -> Context:
-        return Context.from_service(self.service())
-
-    def state(self) -> dict:
-        return self.service().read_state()
-
-    def overview(self) -> dict:
-        return overview(self.service(), self.directory, self.evidence_directory)
-
-    def audit_records(self) -> tuple[list[dict], bool]:
-        from governedgraph.admin.data import audit_records
-
-        return audit_records(self.evidence_directory), False
-
-    def journal(self, record: dict) -> None:
-        append_action(self.directory / "admin" / "actions.jsonl", record)
-
-    def apply(self, action: str, event: SuspensionEvent | None) -> None:
-        service = self.service()
-        if action == "freeze":
-            service.freeze()
-        elif action == "revert_to_static":
-            service.revert_to_static()
-        elif event is not None:
-            service.suspend(event)
 
 
 @dataclass

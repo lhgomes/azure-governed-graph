@@ -165,7 +165,7 @@ def component_environment(config: MlConfig, stage: str) -> dict[str, str]:
         env.pop("AZURE_KEY_VAULT_URL")
         env.pop("SNAPSHOT_SIGNING_KEY_NAME")
     env.update({
-        "GOVERNEDGRAPH_MODE": "azure", "AZURE_CLIENT_ID": (
+        "AZURE_CLIENT_ID": (
             config.fairness_client_id if stage == "audit" else config.pipeline_client_id
         ), "GOVERNEDGRAPH_P2_PRINCIPAL_ID": config.pipeline_principal_id,
         "AZURE_SUBSCRIPTION_ID": config.subscription_id, "AZURE_RESOURCE_GROUP": config.resource_group,

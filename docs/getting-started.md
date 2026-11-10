@@ -1,90 +1,80 @@
-# Getting started
+# Getting started — Azure Public
 
-Read this after the [README](../README.md). It gets you from zero to a running example, explains how one answer is
-produced, defines the terms, and maps the repository. To build on your own domain, go to [adopting](adopting.md).
+GovernedGraph is an Azure-hosted reference for member journeys that explain trusted
+facts while enforcing ten governance boundaries (B1–B10). The pension example contains
+**ILLUSTRATIVE — synthetic data**; it is not a production pension service.
 
-## 1. Run it (5 minutes, offline)
+## Prerequisites
 
-You need **Python 3.14**. No Azure account, credentials or services.
+- An approved Azure Public subscription, resource group, region and managed-identity
+  permissions for the selected `gg-dev` reference deployment.
+- Azure CLI, Azure Developer CLI and Bicep on the **approved Azure-hosted delivery environment**.
+- A domain composition such as `examples/pension_wtp/deployment.json` and private
+  delivery inputs (see [deployment](deploying.md)).
+- An Azure-hosted CI runner labelled `azure-public` if automatic regression tests
+  are required. Until it exists, checks remain pending—not passed.
+
+## Deploy the reference environment
+
+Review `docs/deploying.md` and the concrete subscription, naming seed, operator
+and location inputs before deployment. From the approved Azure-hosted delivery environment:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate                 # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-export GOVERNEDGRAPH_MODE=local          # PowerShell: $env:GOVERNEDGRAPH_MODE = "local"
-export PYTHONPATH=src:examples           # PowerShell: $env:PYTHONPATH = "src;examples"
-pytest                                    # boundary and integration tests
-python evals/run_evals.py                 # evaluation hard gates
-python -m pension_wtp.demo.run_demo       # a scripted journey, end to end
+python -m scripts.deploy --inputs .azure/private-delivery.json --plan
+python -m scripts.deploy --inputs .azure/private-delivery.json
 ```
 
-Run from the repository root. The explicit pension demo configures its own
-offline inputs. `evals/run_evals.py` selects the bundled evaluation sample unless
-you set `GOVERNEDGRAPH_SAMPLE`; framework runtime inputs remain explicit
-(see [adopting](adopting.md)).
+The first command reviews the scope and sequence; the second provisions the
+Azure resources, publishes pinned agents, deploys the services and checks
+readiness. It does **not** run paid evaluations or claim acceptance.
 
-The demo shows the AI disclosure, values taken from the system of record, approved strategy selection with a fairness
-suspension, step-by-step explanation, teach-back, an explainability record and the fairness dashboard. It also shows an
-idempotent synthetic handover to a human. Local semantic decisions use labelled rehearsal fixtures, not a live model.
-`bash scripts/reset_demo.sh` resets local evidence (add `--presenter` to type the member's turns); it never touches Azure.
+## What happens during one journey
 
-To look at the results in a browser, start the [administration console](administration.md#run-locally).
+1. A verified member starts a journey through APIM and the durable Azure Container
+   Apps orchestrator. Member identity and step-up claims are host-validated.
+2. The intent/understanding agents identify the bounded request; advice and
+   ambiguous intent can escalate to a human.
+3. Approved strategy ranking comes from the Azure Strategy Service. A signed
+   snapshot is verified against the active catalogue; universal suspensions
+   override both treatment and control arms.
+4. Official member values come from the protected values API and approved
+   passages come from Azure AI Search. The model never determines or rounds a value.
+5. Pinned Foundry agents compose explanations with placeholders. The host binds
+   authoritative values, enforces numeric fidelity and records immutable audit
+   evidence before exposing a response.
+6. The journey and outbox are committed in Azure Blob storage and delivered via
+   Service Bus. Human escalation remains available.
 
-## 2. How one answer is produced
+## How governed learning works
 
-```text
-member question
-  -> orchestrator: authenticate, say "you are talking to AI", screen the input, route
-  -> values source: fetch the official value (read-only, scoped to this member)
-  -> approved content: retrieve only approved, versioned passages
-  -> strategy service: serve the ranked approved strategies (signed snapshot, suspensions applied)
-  -> counsellor (generative): draft an explanation around a placeholder such as {{value:<id>}}
-  -> host: bind the real value, check numeric fidelity and "no advice", at most one repair
-  -> explainability record written, then the answer is released
-  (a human handover is reachable from every step)
-```
+P2 is isolated from member-facing P1 and cannot read raw conversations or member
+values. Azure-hosted scheduled jobs aggregate outcome references, audit cohorts in
+the segregated fairness identity, enforce fairness vetoes and bounded rank shifts,
+sign an approved snapshot with Key Vault and publish through the Strategy API.
+The control arm remains on static expert rankings. Tier 2 changes require human
+governance. See [architecture](architecture.md) and [evaluation](evaluation.md).
 
-Then, separately and offline, the learning loop turns delivered outcomes into **aggregate counts**, reorders the
-approved strategies within hard limits, audits cohorts for fairness (which can veto a strategy for everyone), and publishes a
-new signed ranking. It never reads raw conversations and never writes new content. See [framework concepts](framework.md).
+## Verify after deployment
 
-## 3. Terms you will meet
+- Inspect readiness, identity boundaries, the admin console and the synthetic
+  member journey in Azure.
+- Run B1–B10 regression tests from the approved Azure runner. These tests may
+  use injected fakes for pure logic; no local application runtime is supported.
+- Run pinned Foundry and synthetic channel evaluations in Azure and retain
+  versioned evidence. A deployment-only green status is not evaluation success.
+
+Current branch status and outstanding validations are tracked in
+[Azure-only execution](azure-only-execution.md).
+
+## Terminology
 
 | Term | Meaning |
 |---|---|
-| **Member**, **journey** | The person being guided (customer, participant, patient, citizen) and their multi-step interaction with your organisation |
-| **Domain pack** | The directory of everything domain-specific: strategies, templates, prompts, vocabulary, approved content, fairness thresholds, personas. Selected by `GOVERNEDGRAPH_DATA_DIR` |
-| **Values source** | Your read-only system of record, exposed as `get_member_values(...)`. The only place a figure or outcome may come from |
-| **Placeholder** | `{{value:<id>}}` in a draft. The model writes the placeholder; the host fills in the real value |
-| **Strategy**, **catalogue** | An approved way of explaining (style, structure, teach-back) and the versioned list of them. Runtime can only pick from it |
-| **Ranking snapshot** | The signed, versioned ordering of strategies that offline learning produces and the Strategy Service verifies |
-| **Suspension** | A fairness veto that removes a strategy for **all** members. Protective, so always autonomous |
-| **Control arm** | Static expert ranking kept running so the graph must keep proving it beats it |
-| **P1 / P2** | P1 is the runtime that serves members and never learns; P2 is the offline plane that re-ranks and audits |
-| **Tier 0 / 1 / 2** | Bounded automatic ranking moves / agentic committee checks / human approval for anything that widens what the system may say, use or decide |
-| **Sample** | A worked domain in `examples/`. `pension_wtp` is bundled; yours sits next to it |
-
-## 4. Repository map
-
-| Path | Role |
-|---|---|
-| [src/governedgraph](../src/governedgraph) | **The framework.** Contracts, guardrails, strategy service, learning, fairness and explainability, orchestrator, agents, search, voice, the [administration console](../src/governedgraph/admin) and Azure adapters. Never imports a sample |
-| [examples/pension_wtp](../examples/pension_wtp) | **The sample.** Domain pack, values API, demo, evaluation cases, deployment definition, release approval and sample docs |
-| [tests](../tests), [evals](../evals) | Framework boundary and integration tests; shared evaluation tools. Full `pytest` also runs the sample's tests |
-| [infra](../infra), [azure.yaml](../azure.yaml), [Dockerfile](../Dockerfile) | Azure reference infrastructure (Bicep, `azd`) and the container build |
-| [scripts](../scripts) | [Deploy](deploying.md), [teardown](deploying.md#clean-up-a-previous-environment-if-you-are-replacing-one) and operational tooling |
-| [docs](.) | This documentation |
-
-The sample plugs in through explicit `GOVERNEDGRAPH_DATA_DIR` and
-`GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER` configuration, supplied by its own entry
-points/composition. The framework has no default sample.
-[tests/test_layering.py](../tests/test_layering.py) and [tests/test_domain_pack.py](../tests/test_domain_pack.py) fail if framework
-code imports a sample or carries sample-domain wording.
-
-## Where next
-
-- **Build on your domain:** [adopting](adopting.md).
-- **Understand the rules the framework enforces:** the ten boundaries in the [README](../README.md#the-ten-boundaries); each has an
-  enforcement point in the code and a regression test in `tests/`.
-- **Deploy it:** [deploying](deploying.md) (one command), then the [administration console](administration.md).
-- **Architecture on Azure:** [architecture](architecture.md).
+| Member | Person being guided, for example a customer or participant |
+| Journey | A stateful interaction across questions and channels |
+| Official value | A fact owned by a system of record, never calculated by the model |
+| Approved strategy | A versioned explanation style in the governed catalogue |
+| Ranking snapshot | Signed ordering of approved strategies, subject to a fairness veto |
+| P1 / P2 | Member-facing Azure runtime / isolated Azure learning and assurance plane |
+| Control arm | Static approved expert ranking used for governed comparison |
+| Explainability record | Immutable reference-only evidence of a delivered response |

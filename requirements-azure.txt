@@ -1,5 +1,5 @@
 -r requirements.txt
-# Azure mode. Pin exact versions after installing and record them in your decision log.
+# P1 Azure Public application runtime. Version pins must be reviewed before upgrade.
 # Versioned prompt agents, strict Responses text.format and safe trace capture reverified (IMP-11/51).
 azure-identity==1.26.0
 azure-ai-projects==2.9.0
@@ -9,7 +9,6 @@ azure-core-tracing-opentelemetry==1.0.0b13
 opentelemetry-api==1.45.1
 opentelemetry-sdk==1.45.1
 azure-monitor-opentelemetry-exporter==1.0.0b58
-azure-ai-evaluation>=1.0
 azure-search-documents==12.0.0
 # Conditional uploads / ETag pointer CAS reverified against current Learn (IMP-44).
 azure-storage-blob==12.31.0
@@ -19,7 +18,5 @@ azure-servicebus==7.15.0
 azure-monitor-opentelemetry==1.8.11
 # Admin console synthetic-trace lookup; query_workspace/LogsQueryStatus verified against 2.0.0 (IMP-106).
 azure-monitor-query==2.0.0
-azure-ai-ml==1.35.2
-fairlearn==0.15.0
 # P2-only tracking pins live in requirements-p2.txt; its Azure plugin requires
 # Blob <=12.27.1 and must not downgrade the audited runtime's 12.31.0 adapter.

@@ -12,7 +12,6 @@ DATA_DIR = Path(os.environ["GOVERNEDGRAPH_DATA_DIR"])
 
 @dataclass(frozen=True)
 class Settings:
-    mode: str = "azure"  # Compatibility for deployment metadata; no runtime mode selection.
     environment_name: str = os.getenv("AZURE_ENV_NAME", "")
     project_endpoint: str = os.getenv("AZURE_AI_PROJECT_ENDPOINT", "")
     project_resource_id: str = os.getenv("AZURE_AI_PROJECT_RESOURCE_ID", "")
@@ -67,8 +66,10 @@ class Settings:
     control_arm_share: float = float(os.getenv("GOVERNEDGRAPH_CONTROL_ARM_SHARE", "0.05"))  # ILLUSTRATIVE
     run_dir: Path = Path(os.getenv("GOVERNEDGRAPH_RUN_DIR", str(REPO_ROOT / ".run")))
 
+
     @property
     def is_azure(self) -> bool:
+        """Azure Public is the only supported execution backend."""
         return True
 
 

@@ -6,21 +6,19 @@ jobs:
   test:
     runs-on: [self-hosted, Linux, X64, azure-public]
     env:
-      GOVERNEDGRAPH_MODE: local
       GOVERNEDGRAPH_DATA_DIR: examples/pension_wtp/data
-      GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER: pension_wtp.member_values_api.data:get_member_values
-      GOVERNEDGRAPH_TEXT_DEMO_MODULE: pension_wtp.demo.run_demo
+      AZURE_ENV_NAME: gg-dev
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with: { python-version: '3.14' }
-      - run: python -m pip install -r requirements-azure.txt
+      - run: python -m pip install -r requirements-azure.txt pytest
       - name: Guardrail tests (B1-B10)
         run: |
           python -m pytest
       - name: Simulated evaluation hard gates
         run: python evals/run_evals.py --comparison evals/results/model-comparison-2026-10-27.json
-      - name: Automated model suite configuration (offline, not live readiness)
+      - name: Automated model suite configuration (static, not live readiness)
         run: python evals/run_model_suite.py --check-config
   bicep:
     runs-on: [self-hosted, Linux, X64, azure-public]

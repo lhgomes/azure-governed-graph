@@ -26,7 +26,6 @@ from governedgraph.admin.traces import SyntheticTraceReader, TraceUnavailable, m
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import ContractError, SuspensionEvent, _strict, utcnow
 from governedgraph.strategy_service.catalogue import ESCALATION_STRATEGY
-from governedgraph.strategy_service.service import StrategyService
 from governedgraph.strategy_service.state import StateUnavailable
 
 log = logging.getLogger("governedgraph.admin")
@@ -57,8 +56,7 @@ class ActionRequest:
         return result
 
 
-def create_app(service: StrategyService | None = None, run_dir: Path | None = None,
-               trace_reader: SyntheticTraceReader | None = None, access: AccessPolicy | None = None,
+def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessPolicy | None = None,
                sources: AzureSources | None = None) -> FastAPI:
     application = FastAPI(title="GovernedGraph Administration", docs_url=None, redoc_url=None, openapi_url=None)
     policy = access or AccessPolicy.from_env()

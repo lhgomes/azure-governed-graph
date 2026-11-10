@@ -133,7 +133,7 @@ def member_public_jwk(runner, inputs, job: str, execution: str) -> dict:
 
 def initial_priors(runner, inputs, composition, foundation: dict, images: dict) -> dict:
     security = foundation["security"]
-    env = {**composition.domain_environment, "GOVERNEDGRAPH_MODE": "azure",
+    env = {**composition.domain_environment,
            "AZURE_KEY_VAULT_URL": security["keyVaultUri"], "SNAPSHOT_SIGNING_KEY_NAME": security["signingKeyName"],
            "RANKING_STORAGE_URL": foundation["data"]["contentBlobEndpoint"]}
     results = {}
