@@ -7,8 +7,8 @@ at `/admin/`, reads deployed Blob and Strategy stores and uses the role-protecte
 Strategy API. It cannot reinstate, publish or widen a strategy.
 
 See [Deploying](deploying.md) for the Azure entry point, registered Entra roles,
-and the scoped operator/reader identities. There is no loopback or file-backed
-administration mode.
+and the scoped operator/reader identities. There is no loopback, anonymous or file-backed
+administration mode. Missing Entra group configuration disables the console.
 
 | Page | Governed Azure source |
 |---|---|

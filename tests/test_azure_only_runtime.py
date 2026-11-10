@@ -36,3 +36,13 @@ def test_snapshots_cannot_use_local_signing_by_default(monkeypatch):
     monkeypatch.setattr("governedgraph.common.config.settings", SimpleNamespace(key_vault_url=""))
     with pytest.raises(ValueError, match="AZURE_KEY_VAULT_URL"):
         snapshot.default_signer(signing=True)
+
+
+def test_admin_never_opens_without_entra_groups():
+    from fastapi import HTTPException
+    from governedgraph.admin.access import AccessPolicy
+
+    for policy in (AccessPolicy(), AccessPolicy(allow_open_actions=True)):
+        with pytest.raises(HTTPException) as failed:
+            policy.identify("")
+        assert failed.value.status_code == 503
