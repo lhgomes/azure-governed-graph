@@ -11,7 +11,7 @@ Knowledge comes only from approved, versioned content. A generative agent drafts
 around a **placeholder** (`{{value:<id>}}`) and never the value itself. The host binds the official value, checks
 numeric fidelity and advice-steering, records an explainability record and only then releases the answer.
 Which *explanation strategy* (style, structure, teach-back) the agent uses is chosen from a small **approved
-catalogue** by a **signed ranking snapshot** that offline learning may reorder within hard limits and a
+catalogue** by a **signed ranking snapshot** that Azure-hosted learning may reorder within hard limits and a
 fairness audit may veto for everyone.
 
 ## Two planes
@@ -19,7 +19,7 @@ fairness audit may veto for everyone.
 | Plane | Purpose | Learns? |
 |---|---|---|
 | **P1 runtime** | Serve a member journey: orchestrator state machine, counsellor agent, values facade, approved retrieval, strategy service, explainability store | No |
-| **P2 offline** | Re-rank approved strategies from immutable aggregate counts, audit cohorts for fairness, apply tiered approval, publish a signed snapshot | Yes, bounded |
+| **P2 isolated learning** | Re-rank approved strategies from immutable aggregate counts, audit cohorts for fairness, apply tiered approval, publish a signed snapshot | Yes, bounded |
 
 There is no path from raw conversations or telemetry to prompts, templates, models or the catalogue (B4). P2 reads aggregates only.
 
@@ -66,7 +66,7 @@ for the Azure design.
 
 ## Limits to state with any result
 
-- Passing local gates is not evidence of full conversational quality, live integration or production acceptance.
+- Passing isolated regression gates is not evidence of full conversational quality, live integration or production acceptance.
 - Conversational quality requires representative evaluation and human review.
 - Voice text-channel checks do not certify microphone behaviour or end-to-end audio latency.
 - Production cost and service-level targets require workload-specific validation.

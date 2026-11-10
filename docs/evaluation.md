@@ -1,5 +1,11 @@
 # Evaluation method
 
+> **Execution scope:** All evaluations and tests must be run in the authorized Azure
+> environment. Older sections referring to local adapters or offline replay document
+> historical evaluation artifacts; they do not authorize running a local application
+> or treating a checked-in report as current Azure test evidence. See
+> [Azure-only execution](azure-only-execution.md) for the pending migration gates.
+
 > **ILLUSTRATIVE - synthetic data.** This page describes how GovernedGraph is evaluated. It deliberately contains no
 > measurements: results depend on your models, region, prompts and domain pack, so each deployment records its own. Never
 > present a result from one deployment as a property of the framework.

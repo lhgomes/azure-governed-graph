@@ -1,5 +1,10 @@
 # Architecture
 
+> **Azure-only implementation notice:** The current runtime is Azure Public-only. Any
+> references below to local mode, file-backed demo services or offline entry points
+> describe historical prototypes and are not supported execution instructions. The
+> current deployment and validation contract is [Azure-only execution](azure-only-execution.md).
+
 This page describes the reference architecture on Azure, using the bundled pension sample as the worked domain.
 The domain-neutral model is in [framework concepts](framework.md).
 
