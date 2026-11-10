@@ -43,9 +43,11 @@ def _cases(root: Path) -> list[dict]:
 
 
 def probe_evaluations(signer, issuer: str, orchestrator_url: str, client, *, token_issuer) -> dict:
-    if (os.getenv("AZURE_ENV_NAME") != "gg-dev"
+    if (os.getenv("GOVERNEDGRAPH_ENABLE_DEV_MEMBER_ISSUER") != "true"
             or not os.getenv("IDENTITY_ENDPOINT")
-            or not os.getenv("CONTAINER_APP_JOB_EXECUTION_NAME")):
+            or not os.getenv("CONTAINER_APP_JOB_EXECUTION_NAME")
+            or not os.getenv("DEV_ISSUER_CLIENT_ID")
+            or os.getenv("AZURE_CLIENT_ID") != os.getenv("DEV_ISSUER_CLIENT_ID")):
         raise PermissionError("evaluation requires the managed-identity gg-dev Container Apps job")
     endpoint = urlsplit(orchestrator_url)
     if (endpoint.scheme != "https" or endpoint.hostname is None

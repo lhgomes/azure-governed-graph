@@ -52,7 +52,9 @@ def fixtures(path: Path):
 
 def configure(monkeypatch, path: Path):
     for key, value in {
-        "AZURE_ENV_NAME": "gg-dev",
+        "GOVERNEDGRAPH_ENABLE_DEV_MEMBER_ISSUER": "true",
+        "AZURE_CLIENT_ID": "synthetic-issuer-identity",
+        "DEV_ISSUER_CLIENT_ID": "synthetic-issuer-identity",
         "IDENTITY_ENDPOINT": "http://synthetic-endpoint-not-used",
         "CONTAINER_APP_JOB_EXECUTION_NAME": "job-synthetic",
         "GOVERNEDGRAPH_EVAL_DATA_DIR": str(path),
