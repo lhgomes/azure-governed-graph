@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from scripts.azd_env import EnvError, load
-from scripts.create_agents import definition_sha256
+from scripts.create_agents import definition_sha256, project_client
+from scripts.delivery import DeliveryError
 
 if TYPE_CHECKING:
     from azure.ai.projects import AIProjectClient
@@ -71,8 +72,8 @@ def verify(project: AIProjectClient, record: dict, values: dict[str, str]) -> st
     encoded = validate_record(record, values)
     for name, approved in record["writers"].items():
         version = project.agents.get_version(name, approved["version"])
-        if str(version.version) != approved["version"]:
-            raise EnvError(f"{name}: Foundry returned another version")
+        if version.name != name or str(version.version) != approved["version"]:
+            raise EnvError(f"{name}: Foundry returned another version or agent")
         if definition_sha256(version.definition.as_dict()) != approved["definition_sha256"]:
             raise EnvError(f"{name}: the live immutable definition does not match the human approval")
     return encoded
@@ -99,16 +100,13 @@ def main(argv: list[str] | None = None) -> int:
         values = load(environment=args.environment)
         record = json.loads(Path(args.file).read_text(), object_pairs_hook=unique_fields)
         validate_record(record, values)
-        from azure.ai.projects import AIProjectClient
-        from azure.identity import DefaultAzureCredential
-
-        with DefaultAzureCredential() as credential:
-            with AIProjectClient(endpoint=values["AZURE_AI_PROJECT_ENDPOINT"], credential=credential) as project:
-                encoded = verify(project, record, values)
+        with project_client(values["AZURE_AI_PROJECT_ENDPOINT"],
+                            subscription=values.get("AZURE_SUBSCRIPTION_ID", "")) as project:
+            encoded = verify(project, record, values)
         if args.apply:
             subprocess.run(["azd", "env", "set", APPROVAL_ENV, encoded, "--environment", args.environment], check=True)
         print(json.dumps({"decision_ref": record["decision_ref"], "action": "stored" if args.apply else "verified; no changes"}))
-    except (EnvError, OSError, json.JSONDecodeError) as error:
+    except (EnvError, DeliveryError, OSError, json.JSONDecodeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     except subprocess.CalledProcessError as error:

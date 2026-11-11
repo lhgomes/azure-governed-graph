@@ -253,7 +253,7 @@ human-governed workflow, and no governance group is configured).
 If you opt out, the console shows the "Sign-in is off" banner, evidence is viewable by anyone who can reach the URL,
 and **protective actions are disabled** unless `GOVERNEDGRAPH_ADMIN_ALLOW_OPEN_ACTIONS=true`.
 
-Review the plan without changing anything: `PYTHONPATH=. python -m scripts.configure_admin_console` after exporting the azd
+Review the plan without changing anything: `PYTHONPATH=src:. python -m scripts.configure_admin_console` after exporting the azd
 environment (`set -a; eval "$(azd env get-values)"; set +a`). Sign-in asks for no consent and needs no admin approval,
 because the app exposes and pre-authorizes its own `Admin.Access` scope, as the voice presenter does.
 

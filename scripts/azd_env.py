@@ -43,7 +43,7 @@ TASKS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...], dict[str, str]]] =
            ("AZURE_RESOURCE_GROUP", "AZURE_ML_WORKSPACE", "AZURE_ML_REGISTRY_ID", "AZURE_ML_STORAGE_ID"),
            ("P2_CONTAINER_IMAGE",), {}),
     "agents": ("Foundry agent provisioning (scripts/create_agents.py)",
-               ("AZURE_AI_PROJECT_ENDPOINT", "AZURE_AI_MODEL_DEPLOYMENT"),
+               ("AZURE_SUBSCRIPTION_ID", "AZURE_AI_PROJECT_ENDPOINT", "AZURE_AI_MODEL_DEPLOYMENT"),
                ("AZURE_AI_AGENT_NAME", "AZURE_AI_AGENT_VERSION", "AZURE_AI_FAIRNESS_AGENT_NAME",
                 "AZURE_AI_FAIRNESS_AGENT_VERSION", "FAIRNESS_MANAGED_IDENTITY_CLIENT_ID"),
            {}),

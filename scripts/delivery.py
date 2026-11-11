@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +23,36 @@ AGENT_ROLES = {
     "answer-review": "AZURE_AI_REVIEW_AGENT_VERSION",
     "fairness": "AZURE_AI_FAIRNESS_AGENT_VERSION",
 }
+AGENT_NAMES = {
+    "counsellor": "gg-counsellor",
+    "voice-compact": "gg-counsellor-voice-compact",
+    "intent": "gg-intent-agent",
+    "understanding": "gg-understanding-agent",
+    "answer-review": "gg-answer-review-agent",
+    "fairness": "gg-fairness-explainability",
+}
+COMMAND_POLICY = {
+    ("az", "account", "show"): (120, 3),
+    ("az", "group", "list"): (120, 3),
+    ("az", "group", "exists"): (120, 3),
+    ("az", "deployment", "sub", "list"): (120, 3),
+    ("az", "acr", "repository", "list"): (120, 3),
+    ("az", "acr", "repository", "show-tags"): (120, 3),
+    ("az", "acr", "repository", "show"): (120, 3),
+    ("az", "containerapp", "list"): (120, 3),
+    ("az", "containerapp", "job", "list"): (120, 3),
+    ("az", "containerapp", "job", "execution", "list"): (120, 3),
+    ("az", "containerapp", "job", "execution", "show"): (120, 3),
+    ("az", "containerapp", "job", "logs", "show"): (120, 3),
+    ("az", "network", "private-endpoint-connection", "list"): (120, 3),
+    ("az", "acr", "build"): (3600, 1),
+    ("az", "deployment", "sub", "create"): (7200, 1),
+    ("az", "deployment", "group", "create"): (7200, 1),
+    ("az", "containerapp", "job", "start"): (120, 1),
+    ("az", "network", "private-endpoint-connection", "approve"): (120, 1),
+    ("azd", "env", "new"): (120, 1),
+    ("azd", "env", "set"): (120, 1),
+}
 
 
 class DeliveryError(RuntimeError):
@@ -32,17 +65,75 @@ class CommandError(DeliveryError):
         super().__init__(f"{args[0]} {args[1]} failed ({code}): {self.stderr[-600:]}")
 
 
+class CommandTimeout(DeliveryError):
+    def __init__(self, label: str, seconds: int):
+        super().__init__(f"{label} timed out after {seconds}s; no result was confirmed. "
+                         "Any submitted Azure operation may still be running; inspect its status before rerunning.")
+
+
 class Runner:
     def run(self, args, *, check=True, env=None) -> str:
-        result = subprocess.run(list(map(str, args)), cwd=ROOT, env=env, capture_output=True, text=True)
-        if check and result.returncode:
-            raise CommandError(args, result.returncode, result.stderr)
-        return result.stdout.strip()
+        args = list(map(str, args))
+        operation = next((command for command in COMMAND_POLICY if tuple(args[:len(command)]) == command),
+                         (Path(args[0]).name,))
+        label = " ".join(operation)
+        timeout, attempts = COMMAND_POLICY.get(operation, (120, 1))
+        for attempt in range(attempts):
+            print(f"Running {label} (attempt {attempt + 1}/{attempts}, timeout {timeout}s)...",
+                  file=sys.stderr, flush=True)
+            try:
+                result = self._execute(args, env=env, label=label, timeout=timeout)
+            except CommandTimeout:
+                if attempt == attempts - 1:
+                    raise
+                delay = 2 ** (attempt + 1)
+                print(f"{label} timed out; retrying read-only command in {delay}s...",
+                      file=sys.stderr, flush=True)
+                time.sleep(delay)
+                continue
+            if check and result.returncode:
+                raise CommandError(args, result.returncode, result.stderr)
+            print(f"Finished {label} (exit {result.returncode}).", file=sys.stderr, flush=True)
+            return result.stdout.strip()
+        raise AssertionError("unreachable command retry state")
+
+    @staticmethod
+    def _execute(args: list[str], *, env: dict[str, str] | None, label: str,
+                 timeout: int) -> subprocess.CompletedProcess[str]:
+        started = time.monotonic()
+        with subprocess.Popen(args, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, start_new_session=True) as process:
+            try:
+                while True:
+                    remaining = timeout - (time.monotonic() - started)
+                    if remaining <= 0:
+                        raise CommandTimeout(label, timeout)
+                    try:
+                        stdout, stderr = process.communicate(timeout=min(30, remaining))
+                        return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+                    except subprocess.TimeoutExpired:
+                        elapsed = time.monotonic() - started
+                        if elapsed >= timeout:
+                            raise CommandTimeout(label, timeout) from None
+                        print(f"Still waiting for {label} ({elapsed:.0f}s elapsed, limit {timeout}s)...",
+                              file=sys.stderr, flush=True)
+            except (CommandTimeout, KeyboardInterrupt):
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.communicate()
+                raise
 
 
 def save_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+
+def resource_group_name(seed: str) -> str:
+    suffix = hashlib.sha256(UUID(seed).bytes).hexdigest()[:12]
+    return f"rg-gg-dev-{suffix}"
 
 
 @dataclass(frozen=True)
@@ -98,6 +189,26 @@ class Inputs:
         raw = json.loads(path.read_text())
         if set(raw) - set(cls.__dataclass_fields__):
             raise DeliveryError("unknown delivery input")
+        if "resource_group" not in raw:
+            from scripts.azd_env import load
+
+            env_file = ROOT / ".azure" / "gg-dev" / ".env"
+            saved = load(env_file=str(env_file)) if env_file.is_file() else {}
+            if saved.get("AZURE_RESOURCE_GROUP"):
+                for key, field in (("AZURE_SUBSCRIPTION_ID", "subscription"),
+                                   ("GOVERNEDGRAPH_NAMING_SEED", "naming_seed")):
+                    if saved.get(key) != raw[field]:
+                        raise DeliveryError(f"saved azd environment {key} differs or is missing; "
+                                            "refusing to reuse its resource group")
+                raw["resource_group"] = saved["AZURE_RESOURCE_GROUP"]
+            else:
+                raw["resource_group"] = resource_group_name(raw["naming_seed"])
+        return cls.from_dict(raw)
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> Inputs:
+        if set(raw) - set(cls.__dataclass_fields__):
+            raise DeliveryError("unknown delivery input")
         value = cls(**raw)
         for field in ("subscription", "naming_seed", "operator_id"):
             UUID(getattr(value, field))
@@ -122,9 +233,12 @@ def provision(runner, inputs: Inputs, template: str, values: dict, *, group: boo
     save_json(path, parameters(values))
     scope = ["group", "create", "--resource-group", inputs.resource_group] if group else [
         "sub", "create", "--location", inputs.location]
+    name = "gg-" + Path(template).stem
+    if not group:
+        name += "-" + hashlib.sha256(inputs.resource_group.casefold().encode()).hexdigest()[:12]
     command = [
         "az", "deployment", *scope, "--subscription", inputs.subscription,
-        "--name", "gg-" + Path(template).stem, "--template-file", template,
+        "--name", name, "--template-file", template,
         "--parameters", "@" + str(path), "--only-show-errors", "-o", "json",
     ]
     for attempt in range(4):
@@ -151,25 +265,27 @@ def source_digest(paths: list[Path], metadata: dict) -> str:
     return digest.hexdigest()
 
 
-def build(runner, registry: str, target: str, dockerfile: str, paths: list[Path], args: dict) -> dict:
+def build(runner, registry: str, target: str, dockerfile: str, paths: list[Path], args: dict, *,
+          subscription: str) -> dict:
     source = source_digest(paths + [ROOT / dockerfile, ROOT / ".dockerignore"], {"target": target, "args": args})
     repository = "governedgraph/" + ("framework-" if Path(dockerfile).parent == Path(".") else "extension-") + target
     tag = repository + ":" + source
-    repositories = json.loads(runner.run(["az", "acr", "repository", "list", "-n", registry, "-o", "json"]))
+    scope = ["--subscription", subscription]
+    repositories = json.loads(runner.run(["az", "acr", "repository", "list", *scope, "-n", registry, "-o", "json"]))
     if not isinstance(repositories, list) or any(not isinstance(item, str) for item in repositories):
         raise DeliveryError("registry repository observation is malformed")
-    tags = json.loads(runner.run(["az", "acr", "repository", "show-tags", "-n", registry,
+    tags = json.loads(runner.run(["az", "acr", "repository", "show-tags", *scope, "-n", registry,
                                  "--repository", repository, "-o", "json"])) if repository in repositories else []
     if not isinstance(tags, list) or any(not isinstance(item, str) for item in tags):
         raise DeliveryError("registry tag observation is malformed")
     if source not in tags:
         print(f"Building {repository}...", flush=True)
-        runner.run(["az", "acr", "build", "-r", registry, "-f", dockerfile, "--target", target, "-t", tag,
+        runner.run(["az", "acr", "build", *scope, "-r", registry, "-f", dockerfile, "--target", target, "-t", tag,
                     *[part for key, value in args.items() for part in ("--build-arg", f"{key}={value}")],
                     "--build-arg", f"SOURCE_SHA={source}", "."])
     else:
         print(f"Reusing {repository}...", flush=True)
-    existing = runner.run(["az", "acr", "repository", "show", "-n", registry, "--image", tag,
+    existing = runner.run(["az", "acr", "repository", "show", *scope, "-n", registry, "--image", tag,
                            "--query", "digest", "-o", "tsv"])
     if not re.fullmatch(r"sha256:[a-f0-9]{64}", existing):
         raise DeliveryError(f"immutable {target} image digest missing")

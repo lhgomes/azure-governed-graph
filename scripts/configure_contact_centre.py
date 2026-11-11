@@ -10,11 +10,12 @@ from uuid import UUID, NAMESPACE_URL, uuid5
 
 
 def graph(method: str, path: str, body: dict | None = None) -> dict:
-    command = ["az", "rest", "--method", method, "--url", f"https://graph.microsoft.com/v1.0/{path}"]
-    if body is not None:
-        command += ["--body", json.dumps(body), "--headers", "Content-Type=application/json"]
-    result = subprocess.run(command, check=True, capture_output=True, text=True)
-    return json.loads(result.stdout) if result.stdout.strip() else {}
+    from governedgraph.strategy_service.provision_auth import GraphError, graph as request
+
+    try:
+        return request(method, path, body)
+    except GraphError as error:
+        raise subprocess.CalledProcessError(1, ["Microsoft Graph", method, path], stderr=str(error)) from None
 
 
 def configure(environment: str, runtime_principal: str, *, apply: bool = False, naming_seed: str = "") -> dict:

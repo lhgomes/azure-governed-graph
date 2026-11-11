@@ -73,6 +73,15 @@ def test_export_refuses_when_the_deployment_does_not_provide_a_required_value(tm
     assert captured.out == "" and "missing STRATEGY_ADMIN_URL" in captured.err
 
 
+def test_agent_export_requires_and_includes_the_selected_subscription(tmp_path, capsys):
+    assert azd_env.main(["export", "--task", "agents", "--env-file", env_file(tmp_path)]) == 0
+    assert f"export AZURE_SUBSCRIPTION_ID={VALUES['AZURE_SUBSCRIPTION_ID']}" in capsys.readouterr().out
+    values = {key: value for key, value in VALUES.items() if key != "AZURE_SUBSCRIPTION_ID"}
+    assert azd_env.main(["export", "--task", "agents", "--env-file", env_file(tmp_path, values)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and "missing AZURE_SUBSCRIPTION_ID" in captured.err
+
+
 def test_show_reports_ready_and_not_ready_tasks(tmp_path, capsys):
     values = {key: value for key, value in VALUES.items() if key != "VOICE_DEMO_CLIENT_ID"}
     assert azd_env.main(["show", "--env-file", env_file(tmp_path, values)]) == 1
