@@ -364,6 +364,32 @@ def test_plan_runs_nothing(private_delivery, monkeypatch, capsys, resource_group
     assert path.read_text() == content
 
 
+@pytest.mark.parametrize("voice_demo", [True, False])
+@pytest.mark.parametrize("trailing_slash", ["", "/"])
+def test_successful_delivery_prints_demo_and_admin_urls_after_the_json(
+        private_delivery, monkeypatch, capsys, voice_demo, trailing_slash):
+    path, raw = private_delivery
+    raw["voice_demo"] = voice_demo
+    path.write_text(json.dumps(raw))
+    origin = "https://apim-gg-synthetic.azure-api.net"
+    outputs = {"ADMIN_CONSOLE_URL": origin + "/admin/"}
+    if voice_demo:
+        outputs["VOICE_DEMO_ORIGIN"] = origin + trailing_slash
+    receipt = {"readiness": "passed", "evaluation": "not_run", "outputs": outputs}
+    monkeypatch.setattr(delivery.Composition, "load", lambda _: COMPOSITION)
+    monkeypatch.setattr(deploy, "select_target", lambda _runner, _path, _raw, inputs, **_: inputs)
+    monkeypatch.setattr(deploy, "deploy", lambda *_: receipt)
+    monkeypatch.setattr(delivery.Runner, "run", lambda *_args, **_kwargs: pytest.fail("must not call cloud"))
+
+    assert deploy.main(["--inputs", str(path), "--new"]) == 0
+    captured = capsys.readouterr()
+    lines = captured.out.splitlines()
+    assert json.loads(lines[0]) == receipt
+    expected_demo = origin + "/demo/" if voice_demo else "disabled"
+    assert lines[1:] == [f"Demo URL: {expected_demo}", f"Admin URL: {origin}/admin/"]
+    assert captured.err == ""
+
+
 def test_generated_resource_group_changes_only_with_the_naming_seed(private_delivery):
     path, raw = private_delivery
     path.write_text(json.dumps(raw))

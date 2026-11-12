@@ -28,6 +28,11 @@ build/reuse, without exposing private inputs. The evaluation command is separate
 judge usage; it never provisions, starts channel probes or issues member tokens.
 An output file must be new, preserving previous evidence.
 
+After successful readiness checks, the final JSON result is followed by
+`Demo URL: https://<gateway>/demo/` and `Admin URL: https://<gateway>/admin/`
+for convenient access. When `voice_demo` is false, the summary prints
+`Demo URL: disabled` instead.
+
 ### Choose an existing or new deployment
 
 Without target flags, an interactive terminal queries resource groups in the

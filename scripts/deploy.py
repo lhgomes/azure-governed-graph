@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.request import urlopen
 
 from scripts.delivery import AGENT_NAMES, AGENT_ROLES, ROOT, Composition, DeliveryError, Runner, build, provision, run_job, save_json
-from scripts.azd_env import EnvError
+from scripts.azd_env import EnvError, derived
 from scripts.deployment_target import new_target, read_inputs, same_scope, select_target
 
 ISSUER = "https://gg-dev.synthetic.invalid"
@@ -184,7 +184,11 @@ def main(argv=None) -> int:
         runner = Runner()
         inputs = select_target(runner, args.inputs, raw, inputs, reuse=args.reuse, create_new=args.new)
         receipt = deploy(runner, inputs, composition)
+        demo_url = derived(receipt["outputs"])["PRESENTER_URL"] if inputs.voice_demo else "disabled"
+        admin_url = receipt["outputs"]["ADMIN_CONSOLE_URL"]
         print(json.dumps({"readiness": receipt["readiness"], "evaluation": "not_run", "outputs": receipt["outputs"]}))
+        print(f"Demo URL: {demo_url}")
+        print(f"Admin URL: {admin_url}")
         return 0
     except KeyboardInterrupt:
         print("Delivery interrupted; local command stopped. Any submitted Azure operation may still be running; "
