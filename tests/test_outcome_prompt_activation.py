@@ -1,6 +1,4 @@
 """Closed synthetic outcome prompt validation; execute on Azure-hosted CI only."""
-from copy import deepcopy
-from dataclasses import dataclass
 import json
 from types import SimpleNamespace
 
