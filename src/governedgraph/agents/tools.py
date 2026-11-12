@@ -13,6 +13,7 @@ import uuid
 from time import perf_counter
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
+from typing import TYPE_CHECKING
 
 from governedgraph.common.contracts import (
     DecisionEvidence,
@@ -26,6 +27,9 @@ from governedgraph.observability import operation
 from governedgraph.guardrails.prompt_safety import ContentSafetyError
 from governedgraph.orchestrator.state_machine import Journey
 from governedgraph.strategy_service.catalogue import ESCALATION_STRATEGY
+
+if TYPE_CHECKING:
+    from governedgraph.agents.decision_agents import DecisionContext
 
 log = logging.getLogger("governedgraph.tools")
 
@@ -75,6 +79,7 @@ class CounsellorTools:
         self.trace = Trace()
         self.response_id = ""
         self.trace_parent = traceparent()
+        self.related_answer_context: DecisionContext | None = None
 
     # ---- tool: get_member_values (read-only, B1) ----
     def get_member_values(self) -> str:

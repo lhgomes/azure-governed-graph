@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import logging
 import traceback
 import os
@@ -26,12 +27,14 @@ from governedgraph.contact_centre.service import advisor_queue_html
 from governedgraph.explainability.store import AuditUnavailable
 from governedgraph.orchestrator.consumer import InboxRecord, JourneyConsumer
 from governedgraph.orchestrator.messaging import ServiceBusJourneyPublisher
-from governedgraph.orchestrator.service import DeliveryPending, MemberScopeViolation, OrchestratorService
+from governedgraph.orchestrator.service import (
+    DeliveryPending, InvalidAnswerReference, MemberScopeViolation, OrchestratorService, OutcomeConflict,
+)
 from governedgraph.orchestrator.store import (
     BlobJourneyStore, BlobRecordStore, JourneyBusy, validate_id,
 )
 from governedgraph.orchestrator.worker import ServiceBusJourneyWorker
-from governedgraph.common.contracts import ContractError
+from governedgraph.common.contracts import ContractError, OutcomeSubmission, ResponseReference
 from governedgraph.voice.hosted import VoiceScriptRequest, run_hosted
 from governedgraph.voice.voice_live_bridge import VoiceError
 from governedgraph.voice.presenter import router as presenter_router
@@ -92,9 +95,24 @@ class StartJourney(BaseModel):
     accessibility_mode: Literal["standard", "plain_language", "english", "slower_pace", "large_text"] = "standard"
 
 
+class OutcomeBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    response_id: str
+    choice: Literal["yes", "no", "skip"]
+
+
+class RelatedAnswerBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    journey_id: str
+    response_id: str
+
+
 class Turn(BaseModel):
     model_config = {"extra": "forbid"}
     utterance: str
+    outcome: OutcomeBody | None = None
+    related_answer: RelatedAnswerBody | None = None
+    playback_response_id: str | None = None
 
 
 def authenticate(authorization: str) -> tuple[str, MemberIdentity]:
@@ -122,6 +140,7 @@ def start(body: StartJourney, request: Request, authorization: str = Header(""))
 def turn(journey_id: str, body: Turn, request: Request, authorization: str = Header(""),
          traceparent_header: str = Header("", alias="traceparent"),
          idempotency_key: str = Header("", alias="Idempotency-Key")):
+    received_at = datetime.now(timezone.utc)
     token, identity = authenticate(authorization)
     try:
         validate_id(journey_id)
@@ -129,16 +148,48 @@ def turn(journey_id: str, body: Turn, request: Request, authorization: str = Hea
     except ValueError:
         raise HTTPException(400, "invalid journey or idempotency identifier") from None
     try:
+        if body.playback_response_id is not None:
+            if body.utterance or body.related_answer is not None or body.outcome is not None:
+                raise ContractError("playback confirmation cannot include a turn or feedback")
+            playback = ResponseReference(journey_id, body.playback_response_id)
+            submission = reference = None
+        elif body.outcome is not None:
+            if body.utterance or body.related_answer is not None:
+                raise ContractError("feedback cannot include an utterance or a related answer")
+            submission = OutcomeSubmission.from_dict(body.outcome.model_dump())
+            playback = None
+            reference = None
+        else:
+            submission = playback = None
+            reference = (ResponseReference.from_dict(body.related_answer.model_dump())
+                         if body.related_answer is not None else None)
+            if reference is not None and not body.utterance.strip():
+                raise ContractError("a related answer requires a question")
+    except (ContractError, TypeError):
+        raise HTTPException(400, "invalid closed outcome, playback or answer reference") from None
+    try:
         with operation(journey_id, "governedgraph.orchestrator.turn", agent_name="gg-orchestrator",
                        parent=traceparent_header, server=True):
+            if playback is not None:
+                return request.app.state.runtime.confirm_playback(journey_id, request_id, identity,
+                                                                  playback.response_id, received_at=received_at)
+            if submission is not None:
+                return request.app.state.runtime.record_outcome(journey_id, request_id, identity, submission,
+                                                                received_at=received_at)
             return request.app.state.runtime.turn(journey_id, request_id, identity, token,
                                               body.utterance, traceparent_header,
+                                              **({"related_answer": reference, "received_at": received_at}
+                                                 if reference is not None else {}),
                                               **({"voice_model": request.state.voice_candidate}
                                                  if hasattr(request.state, "voice_candidate") else {}))
     except KeyError:
         raise HTTPException(404, "unknown journey") from None
     except MemberScopeViolation:
         raise HTTPException(403, "member scoping violation") from None
+    except InvalidAnswerReference:
+        raise HTTPException(400, "answer reference is unavailable or invalid") from None
+    except OutcomeConflict:
+        raise HTTPException(409, "outcome or idempotency key already used") from None
     except JourneyBusy:
         raise HTTPException(409, "journey busy; retry with the same Idempotency-Key") from None
     except DeliveryPending:
@@ -156,7 +207,9 @@ def healthz():
     return {"ok": True}
 
 
-class BenchmarkTurn(Turn):
+class BenchmarkTurn(BaseModel):
+    model_config = {"extra": "forbid"}
+    utterance: str
     model: Literal["gpt-counsellor", "gpt-compact"]
     cold: bool = False
 
