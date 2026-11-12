@@ -36,19 +36,25 @@ Explainability Agent** audits cohorts and vetoes, the **Agentic Assurance Commit
 Event Processing and Adoption Guide agents are at design depth.
 
 ## How to work in this repo
-- Python 3.14. The **domain core is pure Python** (no Azure imports at module top level). Azure SDKs live in adapters
-  (`*Client`, `*Store`, `foundry_runtime.py`, `KeyVaultSigner`) selected by `settings.is_azure`. Keep local mode working offline.
+- Python 3.14. **Azure Public is the only supported application runtime and execution environment.**
+  Remove runtime mode switching and offline/file-based service implementations; fail closed when required Azure endpoints
+  or identities are absent. Keep pure domain logic and test doubles separate from deployed runtime code.
+  During this refactor, preserve B1-B10 behavior and existing Azure state contracts at every step.
 - Before using any Azure SDK or resource API, **check the current docs with the `microsoft-learn` MCP server** (`.vscode/mcp.json`)
   and pin the version you verified in `requirements-azure.txt`. SDK surfaces (Foundry Agent Service in particular) change often.
 - Identity: managed identity / `DefaultAzureCredential` only. No keys, connection strings or secrets in code, config or Bicep outputs.
-- Infra: Bicep in `infra/`, deployed with `azd`. Run `az bicep build --file infra/main.bicep` after every infra change.
-- Every behaviour change ships with a test. Run `pytest`, `python evals/run_evals.py` and `PYTHONPATH=src:examples python -m pension_wtp.demo.run_demo` before you finish.
+- Infra: Bicep in `infra/`, deployed with `azd`. Validate Bicep on an Azure-hosted runner after every infra change.
+- Every behaviour change ships with a test, but **execute all tests and evaluations in Azure**, never on a developer
+  machine or a generic GitHub-hosted runner. Azure-hosted CI runners may run isolated pure unit tests with mocks;
+  live integration and Foundry evaluations must use approved Azure test jobs and synthetic identities. Do not treat
+  a pending Azure test job as a pass.
 - All data is synthetic and must stay labelled `ILLUSTRATIVE - synthetic data`. Never add real member, organisation or personal data.
-- Record any design choice you make in the local decision log `docs/local/decision-log.md` (ID, decision, alternatives, boundary served). It is ignored by Git and must never be committed.
+- Record architectural decisions in reviewed pull-request descriptions (ID, decision, alternatives, boundary served).
+  Do not create hidden local-only acceptance or evidence requirements.
 
 ## Definition of done for any task
 1. Tests and evaluation hard gates pass (numeric fidelity 100%, zero option recommendations, demographic invariance).
-2. `docs/local/boundaries-traceability.md` (local only, git-ignored) still true; update it if you add an enforcement point.
+2. The committed B1-B10 traceability in code, tests and `docs/architecture.md` remains accurate; update it for changed enforcement points.
 3. No new runtime field can carry a demographic attribute; no new path from conversations to behaviour.
 
 ## Standing decisions (apply without asking; record each use as an IMP entry)

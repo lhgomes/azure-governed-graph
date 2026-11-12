@@ -1,20 +1,17 @@
 """Governed retrieval over APPROVED, versioned content only (B3 step 5).
 
-Local: keyword scoring over data/content/approved_content.jsonl.
-Azure: Azure AI Search with filter status eq 'approved' (see search/ingest.py).
-Retired versions are never returned in either mode.
+Azure AI Search with filter status eq 'approved' (see search/ingest.py).
+Retired versions are never returned.
 """
 from __future__ import annotations
 
 import logging
-import re
 from functools import lru_cache
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
 from governedgraph.common import domain
-from governedgraph.common.config import DATA_DIR, settings
+from governedgraph.common.config import settings
 from governedgraph.common.contracts import ACCESSIBILITY_MODES, RESPONSE_LANGUAGES
-from governedgraph.search.corpus import load_corpus
 
 log = logging.getLogger("governedgraph.search")
 
@@ -33,29 +30,6 @@ class ContentHit:
     title: str
     body: str
     language: str
-
-
-def _tokens(s: str) -> set[str]:
-    return {t for t in re.findall(r"[a-zA-Z]{3,}", s.lower())}
-
-
-class LocalContentSearch:
-    def __init__(self):
-        rows = [asdict(d) for d in load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text())]
-        self.docs = [r for r in rows if r["status"] == "approved"]
-
-    def search(self, query: str, journey_state: str, language: str = "en", top: int = 3) -> list[ContentHit]:
-        q = _tokens(query)
-        scored = []
-        for d in self.docs:
-            if d["language"] != language:
-                continue
-            if "*" not in d["journey_states"] and journey_state not in d["journey_states"]:
-                continue
-            score = len(q & _tokens(d["title"] + " " + d["body"]))
-            scored.append((score, d))
-        scored.sort(key=lambda x: (-x[0], x[1]["id"]))
-        return [ContentHit(d["id"], d["content_id"], d["version"], d["title"], d["body"], d["language"]) for s, d in scored[:top] if s > 0]
 
 
 class AzureContentSearch:
@@ -106,4 +80,6 @@ def _new_search_client(endpoint: str, index: str):
 
 
 def default_search():
-    return AzureContentSearch() if settings.is_azure and settings.search_endpoint else LocalContentSearch()
+    if not settings.search_endpoint:
+        raise ValueError("AZURE_SEARCH_ENDPOINT is required in Azure mode")
+    return AzureContentSearch()

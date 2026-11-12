@@ -8,20 +8,23 @@ import sys
 from pathlib import Path
 from urllib.request import urlopen
 
-from scripts.delivery import AGENT_ROLES, ROOT, Composition, DeliveryError, Inputs, Runner, build, provision, run_job, save_json
-from scripts.azd_env import EnvError
+from scripts.delivery import AGENT_NAMES, AGENT_ROLES, ROOT, Composition, DeliveryError, Runner, build, provision, run_job, save_json
+from scripts.azd_env import EnvError, derived
+from scripts.deployment_target import new_target, read_inputs, same_scope, select_target
 
 ISSUER = "https://gg-dev.synthetic.invalid"
 SEQUENCE = ("foundation", "immutable images", "bounded bootstrap", "complete workloads", "readiness")
 
 
-def image_artifacts(runner, foundation: dict, composition) -> dict:
+def image_artifacts(runner, foundation: dict, composition, *, subscription: str) -> dict:
     registry = foundation["compute"]["registryName"]
     ml_registry = foundation["learning"]["mlRegistryId"].rsplit("/", 1)[1]
     core = [ROOT / "src", ROOT / "requirements.txt"]
     framework = {
-        "runtime": build(runner, registry, "runtime", "Dockerfile", core + [ROOT / "requirements-azure.txt"], {}),
-        "p2": build(runner, ml_registry, "p2", "Dockerfile.p2", core + [ROOT / "requirements-p2.txt"], {}),
+        "runtime": build(runner, registry, "runtime", "Dockerfile", core + [ROOT / "requirements-azure.txt"], {},
+                         subscription=subscription),
+        "p2": build(runner, ml_registry, "p2", "Dockerfile.p2", core + [ROOT / "requirements-p2.txt"], {},
+                    subscription=subscription),
     }
     args = {"FRAMEWORK_RUNTIME": framework["runtime"]["image"]}
     p2_args = {"FRAMEWORK_P2": framework["p2"]["image"]}
@@ -32,14 +35,16 @@ def image_artifacts(runner, foundation: dict, composition) -> dict:
         "framework-runtime": framework["runtime"], "framework-p2": framework["p2"],
         "runtime": build(runner, registry, "runtime", composition.dockerfile,
                          domain + [data / "synthetic/members.json", data.parent / "member_values_api",
-                                   data / "personas/personas.json", data.parent / "demo/build_simulations.py"], args),
-        "p2": build(runner, ml_registry, "p2", composition.p2_dockerfile, domain, p2_args),
+                                   data / "personas/personas.json", data.parent / "demo/build_simulations.py"], args,
+                         subscription=subscription),
+        "p2": build(runner, ml_registry, "p2", composition.p2_dockerfile, domain, p2_args,
+                    subscription=subscription),
         "fixtures": build(runner, ml_registry, "fixtures", composition.p2_dockerfile, domain + [
             data / "synthetic/outcome_aggregates_illustrative.csv", data / "synthetic/uplift_window_illustrative.json",
-            data / "fairness/cohort_aggregates_illustrative.csv"], p2_args),
+            data / "fairness/cohort_aggregates_illustrative.csv"], p2_args, subscription=subscription),
         "probe": build(runner, registry, "probe", composition.dockerfile, domain + [
             data / "synthetic/members.json", data.parent / "member_values_api", data / "personas/personas.json",
-            data.parent / "demo/build_simulations.py"], args),
+            data.parent / "demo/build_simulations.py",             data.parent / "evaluation/datasets"], args, subscription=subscription),
     }
     return images
 
@@ -52,20 +57,16 @@ def environment(runner, inputs, composition) -> None:
     else:
         from scripts.azd_env import load
 
-        old = load(environment=inputs.environment)
-        for key, expected in (("AZURE_SUBSCRIPTION_ID", inputs.subscription),
-                              ("AZURE_RESOURCE_GROUP", inputs.resource_group),
-                              ("GOVERNEDGRAPH_NAMING_SEED", inputs.naming_seed)):
-            if old.get(key) and old[key] != expected:
-                raise DeliveryError("azd environment scope differs; archive the old deployment before using this composition")
+        env_file = directory / ".env"
+        if not env_file.is_file() or not same_scope(load(env_file=str(env_file)), inputs):
+            raise DeliveryError("saved azd environment scope differs; select the deployment target again "
+                                "with --reuse RESOURCE_GROUP or --new")
     values = {
         "AZURE_ENV_NAME": inputs.environment, "AZURE_SUBSCRIPTION_ID": inputs.subscription,
         "AZURE_LOCATION": inputs.location, "AZURE_SEARCH_LOCATION": inputs.search_location,
         "AZURE_RESOURCE_GROUP": inputs.resource_group, "GOVERNEDGRAPH_NAMING_SEED": inputs.naming_seed,
         "AZURE_PRINCIPAL_ID": inputs.operator_id, "GOVERNEDGRAPH_ON_CALL_EMAIL": inputs.on_call_email,
         "GOVERNEDGRAPH_SAMPLE": composition.name, "GOVERNEDGRAPH_DATA_DIR": str(composition.data_directory),
-        "GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER": composition.domain_environment["GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER"],
-        "GOVERNEDGRAPH_TEXT_DEMO_MODULE": composition.domain_environment["GOVERNEDGRAPH_TEXT_DEMO_MODULE"],
     }
     for key, value in values.items():
         runner.run(["azd", "env", "set", key, value, "--environment", inputs.environment])
@@ -78,7 +79,7 @@ def deploy(runner, inputs, composition) -> dict:
     from scripts.bootstrap import agents, approve_search_link, release_approval, entra, initial_priors, member_public_jwk, ml_containers
     from scripts.create_agents import provision as agent_plan
 
-    plans = {role: agent_plan(None, apply=False, role=role) for role in AGENT_ROLES}
+    plans = {role: agent_plan(None, apply=False, role=role, agent_name=AGENT_NAMES[role]) for role in AGENT_ROLES}
     release_approval(composition, plans)
     base = {"environmentName": inputs.environment, "location": inputs.location,
             "searchLocation": inputs.search_location, "resourceGroupName": inputs.resource_group,
@@ -88,11 +89,11 @@ def deploy(runner, inputs, composition) -> dict:
     print("Deploying foundation...", flush=True)
     foundation = provision(runner, inputs, "infra/main.bicep", base)["foundation"]
     print("Preparing immutable images...", flush=True)
-    images = image_artifacts(runner, foundation, composition)
+    images = image_artifacts(runner, foundation, composition, subscription=inputs.subscription)
     print("Running bounded bootstrap...", flush=True)
     os.environ["AZURE_AI_PROJECT_ENDPOINT"] = foundation["ai"]["projectEndpoint"]
     registrations = entra(inputs, foundation)
-    pins, approval = agents(composition, foundation["ai"]["projectEndpoint"])
+    pins, approval = agents(composition, foundation["ai"]["projectEndpoint"], subscription=inputs.subscription)
     approve_search_link(runner, inputs, foundation)
     jobs = provision(runner, inputs, "infra/bootstrap.bicep", {
         "resourceGroupName": inputs.resource_group, "location": inputs.location, "foundation": foundation,
@@ -169,16 +170,30 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inputs", required=True, type=Path, help="explicit private delivery inputs JSON")
     parser.add_argument("--plan", action="store_true", help="local contract/sequence only; no cloud commands")
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument("--reuse", metavar="RESOURCE_GROUP", help="reuse a discovered GovernedGraph gg-dev deployment")
+    target.add_argument("--new", action="store_true", help="generate and save a fresh seed and deployment target")
     args = parser.parse_args(argv)
     try:
-        inputs = Inputs.load(args.inputs)
+        raw = read_inputs(args.inputs)
+        inputs = new_target(raw)
         composition = Composition.load(ROOT / inputs.composition)
         if args.plan:
             print(json.dumps({"environment": inputs.environment, "composition": composition.name, "sequence": SEQUENCE}))
             return 0
-        receipt = deploy(Runner(), inputs, composition)
+        runner = Runner()
+        inputs = select_target(runner, args.inputs, raw, inputs, reuse=args.reuse, create_new=args.new)
+        receipt = deploy(runner, inputs, composition)
+        demo_url = derived(receipt["outputs"])["PRESENTER_URL"] if inputs.voice_demo else "disabled"
+        admin_url = receipt["outputs"]["ADMIN_CONSOLE_URL"]
         print(json.dumps({"readiness": receipt["readiness"], "evaluation": "not_run", "outputs": receipt["outputs"]}))
+        print(f"Demo URL: {demo_url}")
+        print(f"Admin URL: {admin_url}")
         return 0
+    except KeyboardInterrupt:
+        print("Delivery interrupted; local command stopped. Any submitted Azure operation may still be running; "
+              "inspect its status before rerunning.", file=sys.stderr)
+        return 130
     except (DeliveryError, EnvError, OSError, ValueError, TypeError, KeyError) as error:
         print(f"Delivery failed: {error}", file=sys.stderr)
         return 1

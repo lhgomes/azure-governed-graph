@@ -214,13 +214,15 @@ def test_b7_azure_never_falls_back_to_raw_persona_profiles(tmp_path, monkeypatch
 def test_sample_build_hash_tracks_persona_and_projection_sources(monkeypatch, data_directory):
     builds = []
 
-    def build(runner, registry, target, dockerfile, paths, args):
+    def build(runner, registry, target, dockerfile, paths, args, *, subscription):
+        assert subscription == "selected-subscription"
         builds.append((target, dockerfile, paths))
         return {"image": registry + "/" + target}
 
     monkeypatch.setattr(deploy, "build", build)
     deploy.image_artifacts(None, {"compute": {"registryName": "runtime"},
-                                 "learning": {"mlRegistryId": "/ml"}}, COMPOSITION)
+                                 "learning": {"mlRegistryId": "/ml"}}, COMPOSITION,
+                           subscription="selected-subscription")
     checked_targets = set()
     for target, dockerfile, paths in builds:
         if dockerfile == COMPOSITION.dockerfile and target in ("runtime", "probe"):

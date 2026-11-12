@@ -9,6 +9,7 @@ import time
 from dataclasses import asdict, replace
 from types import ModuleType, SimpleNamespace
 from pathlib import Path
+from urllib.parse import quote
 
 import jwt
 import pytest
@@ -518,19 +519,133 @@ def test_b7_outcomes_reject_any_extra_column(tmp_path):
         load_outcome_aggregates(path)
 
 
+@pytest.mark.parametrize("subscription", ["", "selected-subscription"])
+def test_graph_transport_keeps_selected_tenant_token_out_of_command_arguments(monkeypatch, subscription, capsys):
+    from io import BytesIO
+    from governedgraph.strategy_service import provision_auth
+
+    monkeypatch.setenv("AZURE_SUBSCRIPTION_ID", subscription)
+    calls = []
+
+    def cli(*args):
+        calls.append(args)
+        assert args == ("account", "get-access-token",
+                        *(("--subscription", subscription) if subscription else ()), "--resource-type", "ms-graph")
+        return {"accessToken": "synthetic-graph-token"}
+
+    def send(request, *, timeout):
+        assert request.full_url == "https://graph.microsoft.com/v1.0/applications"
+        assert request.method == "POST" and timeout == 60
+        assert request.get_header("Authorization") == "Bearer synthetic-graph-token"
+        assert json.loads(request.data) == {"displayName": "synthetic"}
+        return BytesIO(b'{"id":"application"}')
+
+    monkeypatch.setattr(provision_auth, "az", cli)
+    monkeypatch.setattr(provision_auth, "urlopen", send)
+    assert provision_auth.graph("POST", "applications", {"displayName": "synthetic"}) == {"id": "application"}
+    assert len(calls) == 1
+    assert "synthetic-graph-token" not in repr(calls)
+    assert "synthetic-graph-token" not in repr(capsys.readouterr())
+
+
+def test_graph_transport_encodes_raw_filter_spaces_without_double_encoding_and_accepts_empty_responses(monkeypatch):
+    from io import BytesIO
+    from governedgraph.strategy_service import provision_auth
+
+    monkeypatch.setattr(provision_auth, "az", lambda *args: {"accessToken": "synthetic-graph-token"})
+
+    def send(request, *, timeout):
+        assert request.full_url == (
+            "https://graph.microsoft.com/v1.0/groups?$filter=displayName%20eq%20'synthetic%20group'"
+        )
+        return BytesIO(b"")
+
+    monkeypatch.setattr(provision_auth, "urlopen", send)
+    assert provision_auth.graph("GET", "groups?$filter=displayName eq 'synthetic%20group'") == {}
+
+
+def test_graph_transport_preserves_http_error_without_exposing_credentials(monkeypatch):
+    from io import BytesIO
+    from urllib.error import HTTPError
+    from governedgraph.strategy_service import provision_auth
+
+    monkeypatch.setattr(provision_auth, "az", lambda *args: {"accessToken": "synthetic-graph-token"})
+
+    def send(request, *, timeout):
+        raise HTTPError(request.full_url, 400, "Bad Request", {},
+                        BytesIO(b'{"error":{"code":"Request_BadRequest","message":"Not a valid reference update."}}'))
+
+    monkeypatch.setattr(provision_auth, "urlopen", send)
+    with pytest.raises(RuntimeError, match="Request_BadRequest") as error:
+        provision_auth.graph("POST", "servicePrincipals/service/appRoleAssignedTo", {})
+    assert "synthetic-graph-token" not in str(error.value)
+
+
+def test_all_bootstrap_registration_helpers_share_the_scoped_graph_transport(monkeypatch):
+    from governedgraph.strategy_service import provision_auth
+    from scripts import configure_contact_centre
+
+    calls = []
+    monkeypatch.setattr(provision_auth, "graph", lambda *args: calls.append(args) or {"id": "principal"})
+    assert configure_contact_centre.graph("GET", "servicePrincipals/principal") == {"id": "principal"}
+    assert calls == [("GET", "servicePrincipals/principal", None)]
+
+
+def test_shared_graph_transport_preserves_existing_group_membership_idempotency(monkeypatch):
+    from governedgraph.strategy_service import provision_auth
+    from scripts import configure_admin_console, configure_contact_centre
+
+    def duplicate(method, path, body=None):
+        raise provision_auth.GraphError(method, path, 400, "One or more added object references already exist.")
+
+    monkeypatch.setattr(provision_auth, "graph", duplicate)
+    assert configure_admin_console.ensure_member(configure_contact_centre.graph, "group", "member") is None
+
+
+def test_shared_graph_transport_preserves_unexpected_failures(monkeypatch):
+    import subprocess
+    from governedgraph.strategy_service import provision_auth
+    from scripts import configure_admin_console, configure_contact_centre
+
+    def forbidden(method, path, body=None):
+        raise provision_auth.GraphError(method, path, 403, "Authorization_RequestDenied")
+
+    monkeypatch.setattr(provision_auth, "graph", forbidden)
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        configure_admin_console.ensure_member(configure_contact_centre.graph, "group", "member")
+    assert error.value.returncode == 1
+    assert "(403)" in error.value.stderr and "Authorization_RequestDenied" in error.value.stderr
+
+
+def test_strategy_bootstrap_checks_identity_references_before_directory_mutations(monkeypatch):
+    from governedgraph.strategy_service import provision_auth
+
+    calls = []
+
+    def graph(method, path, body=None):
+        calls.append((method, path))
+        return {"value": []} if path.startswith("applications?") else {"id": "different-principal"}
+
+    monkeypatch.setattr(provision_auth, "graph", graph)
+    principals = [f"00000000-0000-0000-0000-{i:012d}" for i in range(1, 4)]
+    with pytest.raises(RuntimeError, match="identity did not resolve"):
+        provision_auth.configure("gg-dev", *principals, apply=True)
+    assert all(method == "GET" for method, _ in calls)
+
+
 def test_b8_entra_role_plan_is_read_only_and_has_no_service_identity_role(monkeypatch):
     from governedgraph.strategy_service import provision_auth
 
     calls = []
 
-    def cli(*args):
+    def graph(*args):
         calls.append(args)
-        return []
+        return {"value": []}
 
-    monkeypatch.setattr(provision_auth, "az", cli)
+    monkeypatch.setattr(provision_auth, "graph", graph)
     p2, fairness, runtime = [f"00000000-0000-0000-0000-{i:012d}" for i in range(1, 4)]
     assert provision_auth.configure("test", p2, fairness, runtime) is None
-    assert calls == [("ad", "app", "list", "--display-name", "gg-strategy-test")]
+    assert calls == [("GET", "applications?$filter=" + quote("displayName eq 'gg-strategy-test'"))]
     assignments = provision_auth.role_assignments(p2, fairness, runtime)
     assert len(assignments) == 5
     assert (runtime, provision_auth.ROLES["Strategy.Freeze"]) in assignments
@@ -541,11 +656,11 @@ def test_fresh_strategy_registration_is_seed_scoped_and_does_not_read_legacy_reg
     from governedgraph.strategy_service import provision_auth
 
     calls = []
-    monkeypatch.setattr(provision_auth, "az", lambda *args: calls.append(args) or [])
+    monkeypatch.setattr(provision_auth, "graph", lambda *args: calls.append(args) or {"value": []})
     principals = [f"00000000-0000-0000-0000-{i:012d}" for i in range(1, 4)]
     seed = "a" * 32
     assert provision_auth.configure("gg-dev", *principals, naming_seed=seed) is None
-    assert calls == [("ad", "app", "list", "--display-name", f"gg-strategy-gg-dev-{seed}")]
+    assert calls == [("GET", "applications?$filter=" + quote(f"displayName eq 'gg-strategy-gg-dev-{seed}'"))]
 
 
 @pytest.fixture
@@ -564,15 +679,16 @@ def recovery_registration(monkeypatch):
     grants.append({"principalId": operator, "appRoleId": "00000000-0000-0000-0000-000000000000", "principalType": "User"})
     mutations = []
 
-    def cli(*args):
-        if args[:3] == ("ad", "app", "list"):
-            return [copy.deepcopy(app)]
-        if args[:3] == ("ad", "sp", "list"):
-            return [{"id": "service"}]
-        pytest.fail("unexpected CLI operation")
-
     def graph(method, path, body=None):
         if method == "GET":
+            if path.startswith("applications?"):
+                return {"value": [copy.deepcopy(app)]}
+            if path.startswith("servicePrincipals?"):
+                return {"value": [{"id": "service"}]}
+            if path.endswith("?$select=id"):
+                principal = path.split("/")[1].split("?")[0]
+                assert principal in principals
+                return {"id": principal}
             assert path == "servicePrincipals/service/appRoleAssignedTo"
             return {"value": copy.deepcopy(grants)}
         mutations.append((method, path, copy.deepcopy(body)))
@@ -580,7 +696,6 @@ def recovery_registration(monkeypatch):
             app.update(copy.deepcopy(body))
         return {}
 
-    monkeypatch.setattr(provision_auth, "az", cli)
     monkeypatch.setattr(provision_auth, "graph", graph)
     return provision_auth, principals, api, app, grants, mutations
 

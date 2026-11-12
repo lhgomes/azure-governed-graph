@@ -138,10 +138,9 @@ class QueuedExplainabilityStore:
 
     def append(self, record: ExplainabilityRecord) -> None:
         queue_errors: tuple[type[Exception], ...] = (OSError, RuntimeError)
-        if settings.is_azure:
-            from azure.core.exceptions import AzureError
+        from azure.core.exceptions import AzureError
 
-            queue_errors += (AzureError,)
+        queue_errors += (AzureError,)
         try:
             self.primary.append(record)
             self.last_status = "committed"
@@ -177,23 +176,20 @@ def enqueue_in_transaction(transaction, record, audit: ExplainabilityRecord) -> 
 
 
 def default_store(journey=None, enqueue=None):
-    if settings.is_azure:
-        if not settings.explainability_account_url:
-            raise ValueError("Azure explainability storage is required")
-        primary = BlobExplainabilityStore(settings.explainability_account_url, settings.explainability_container)
-        if enqueue is None and journey is not None:
-            from governedgraph.orchestrator.store import BlobJourneyStore, JourneyRecord
+    if not settings.explainability_account_url:
+        raise ValueError("Azure explainability storage is required")
+    primary = BlobExplainabilityStore(settings.explainability_account_url, settings.explainability_container)
+    if enqueue is None and journey is not None:
+        from governedgraph.orchestrator.store import BlobJourneyStore, JourneyRecord
 
-            if not settings.journey_storage_url:
-                raise ValueError("independent durable audit outbox is required")
-            queue = BlobJourneyStore(settings.journey_storage_url)
+        if not settings.journey_storage_url:
+            raise ValueError("independent durable audit outbox is required")
+        queue = BlobJourneyStore(settings.journey_storage_url)
 
-            def enqueue(audit):
-                with queue.transaction(journey.journey_id) as transaction:
-                    record = transaction.record or JourneyRecord(journey)
-                    enqueue_in_transaction(transaction, record, audit)
-    else:
-        primary = LocalExplainabilityStore()
+        def enqueue(audit):
+            with queue.transaction(journey.journey_id) as transaction:
+                record = transaction.record or JourneyRecord(journey)
+                enqueue_in_transaction(transaction, record, audit)
     return QueuedExplainabilityStore(primary, enqueue) if enqueue is not None else primary
 
 

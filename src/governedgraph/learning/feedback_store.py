@@ -144,5 +144,5 @@ def publish_feedback(journey_store, audit_store, output: FileFeedbackStore | Blo
         return snapshot.manifest
 
 
-def default_feedback_store() -> FileFeedbackStore | BlobFeedbackStore:
-    return BlobFeedbackStore() if settings.is_azure else FileFeedbackStore(settings.run_dir / "learning-aggregates")
+def default_feedback_store() -> BlobFeedbackStore:
+    return BlobFeedbackStore()

@@ -1,5 +1,11 @@
 # Demo and operations runbook (pension sample)
 
+> **Azure-only execution:** The offline rehearsal, local-file reset and desktop
+> presenter instructions retained in older sections below are historical and no
+> longer supported. Use the Azure-hosted browser presenter, dev-issuer channel/voice
+> proofs, scheduled P2 jobs and deployed administration console. Do not use the
+> removed `pension_wtp.demo.run_demo` or `scripts/reset_demo.sh` entry points.
+
 > **ILLUSTRATIVE - synthetic data.** Procedures for the bundled sample. Nothing here names a specific deployment: every
 > URL, name and ID comes from **your** deployed environment (see [Get your deployment details](#get-your-deployment-details)).
 > Acceptance results, timings and evidence from earlier releases are not recorded here; record yours in your own log.

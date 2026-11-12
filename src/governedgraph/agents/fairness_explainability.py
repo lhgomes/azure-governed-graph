@@ -23,7 +23,6 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from governedgraph.common.config import DATA_DIR, settings
 from governedgraph.common.contracts import SuspensionEvent, utcnow
 from governedgraph.common.io import load_csv
 
@@ -63,9 +62,9 @@ class AuditReport:
 
 
 def run_cohort_audit(thresholds: dict, cohort_path: Path | None = None) -> AuditReport:
-    if settings.is_azure and cohort_path is None:
-        raise ValueError("Azure cohort audit requires the Fairness identity's isolated cohort-zone input")
-    rows = load_csv(cohort_path or DATA_DIR / "fairness" / "cohort_aggregates_illustrative.csv")
+    if cohort_path is None:
+        raise ValueError("fairness audit requires the isolated cohort-zone input")
+    rows = load_csv(cohort_path)
     min_cell = thresholds["min_cell_size"]
     max_gap = thresholds["max_cohort_gap_pts"]
     dims = set(thresholds["audit_dimensions"])
@@ -109,7 +108,9 @@ class FairnessExplainabilityAgent:
 
     def __init__(self, strategy_service, governance_dir: Path | None = None):
         self.strategy_service = strategy_service
-        self.governance_dir = governance_dir or settings.run_dir / "governance"
+        if governance_dir is None:
+            raise ValueError("fairness case evidence requires an explicit isolated staging directory")
+        self.governance_dir = governance_dir
 
     def apply_veto_gate(self, report: AuditReport) -> list[SuspensionEvent]:
         events = []

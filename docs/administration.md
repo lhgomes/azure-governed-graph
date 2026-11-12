@@ -1,52 +1,26 @@
-# Administration console
+# Administration console — Azure Public
 
-The administration workspace shows strategies, rankings, vetoes, suspensions, governance cases and
-decisions, learning evidence and response-linked journeys, and performs audited protective actions.
-It runs in two modes that share one interface:
+The administration workspace shows strategies, rankings, vetoes, suspensions, governance
+cases and assurance decisions, learning evidence, response-linked journeys and audited
+protective actions. It runs exclusively as an internal Azure Container App through APIM
+at `/admin/`, reads deployed Blob and Strategy stores and uses the role-protected
+Strategy API. It cannot reinstate, publish or widen a strategy.
 
-- **Local demo**: reads local synthetic files, loopback only. Start here.
-- **Azure**: an internal Container App behind the APIM gateway at `/admin/`. It reads the deployed
-  stores and acts only through the role-protected Strategy API. See [Deploy to Azure](#deploy-to-azure).
+See [Deploying](deploying.md) for the Azure entry point, registered Entra roles,
+and the scoped operator/reader identities. There is no loopback, anonymous or file-backed
+administration mode. Missing Entra group configuration disables the console.
 
-It is separate from the member-facing channels and the learning pipeline.
-
-## Run locally
-
-Use the existing Python environment and core requirements. No Node build or additional runtime
-dependency is needed.
-
-```bash
-# Optional: generate synthetic journey, fairness and assurance evidence first.
-PYTHONPATH=src:examples python -m pension_wtp.demo.run_demo
-
-GOVERNEDGRAPH_ADMIN_ENABLED=true GOVERNEDGRAPH_ADMIN_DEMO=true PYTHONPATH=src:examples \
-  uvicorn governedgraph.admin.api:app --host 127.0.0.1 --port 8090 --no-proxy-headers
-```
-
-Open `http://127.0.0.1:8090`. The console uses `GOVERNEDGRAPH_RUN_DIR` (default `.run`) and the
-configured domain pack. Point it at a separate run directory for an isolated demonstration.
-`GOVERNEDGRAPH_ADMIN_DEMO=true` reads the sample demo's `demo/strategy`, `demo/explainability`
-and `demo/learning-aggregates`, alongside root-level governance cases/packs. Omit the demo flag
-to inspect the ordinary local runtime's `strategy_service`, `explainability` and `learning-aggregates`.
-The configuration view names the selected profile; records from different profiles are not merged.
-Changing local state does **not** change Azure state. A running local Strategy Service must use the
-same directory and refresh its store to observe changes; restart a previously started local service
-that does not refresh its store.
-
-The workspace provides these pages. The menu uses everyday words; the second column gives the technical
-name used elsewhere in these documents.
-
-| Page in the menu | Technical name | Actual source |
-|---|---|---|
-| Explanation styles | Approved strategies | Configured versioned catalogue, including eligibility and template references |
-| Style order | Rankings | Selected profile's verified current snapshot, retained last good snapshot and static expert priors |
-| Paused styles | Vetoes and suspensions | Global Strategy Service suspension overlay, audit/case/threshold references |
-| Fairness reviews | Governance cases | Local `governance/cases.jsonl`, projected without demographic or cohort identities |
-| Review outcomes | Assurance decisions | Local `governance/evidence_packs.jsonl`, verdicts and notification status |
-| Learning data | Learning evidence | Selected profile's `learning-aggregates/current.json` and its digest-verified immutable CSV |
-| Member journeys | Journeys and evidence | Selected profile's local append-only explainability records, grouped by journey and response |
-| Action history | Admin activity | Console-only write-ahead `admin/actions.jsonl`, not a complete service audit history |
-| Rules & settings | Configuration | Effective local versions, bounds, control arm share and explicit authority limits |
+| Page | Governed Azure source |
+|---|---|
+| Explanation styles | Approved versioned catalogue and eligibility |
+| Style order | Signed Strategy snapshot, retained last-good snapshot and static priors |
+| Paused styles | Global suspensions, vetoes and threshold references |
+| Fairness reviews | Segregated fairness audit case references only, no demographic labels |
+| Review outcomes | Immutable Tier 1 and control/uplift evidence blobs |
+| Learning data | Digest-verified aggregate snapshots |
+| Member journeys | Immutable reference-only explainability records |
+| Action history | Append-only Azure administrative action journal |
+| Rules & settings | Approved versions, control-arm share and governance bounds |
 
 ### Built-in help for new users
 
@@ -91,9 +65,7 @@ live decisions rather than claiming that every aggregate interaction was observe
 Actions require a reason and explicit confirmation. The page submits the revision it displayed;
 a changed state returns HTTP 409 and requires refresh/review. The journal is flushed before mutation
 and records completion or failure separately. A completion-write failure is an **uncertain outcome**,
-not success: refresh and investigate the action ID before retrying. The local state adapter does not
-provide multi-process compare-and-swap; run one administration process and do not run concurrent local
-P2/Strategy Service writers while applying controls.
+not success: refresh and investigate the action ID before retrying. Azure Blob state uses conditional writes; the UI handles conflicting revisions as HTTP 409.
 
 ## Existing synthetic conversations from Foundry traces
 
@@ -281,7 +253,7 @@ human-governed workflow, and no governance group is configured).
 If you opt out, the console shows the "Sign-in is off" banner, evidence is viewable by anyone who can reach the URL,
 and **protective actions are disabled** unless `GOVERNEDGRAPH_ADMIN_ALLOW_OPEN_ACTIONS=true`.
 
-Review the plan without changing anything: `PYTHONPATH=. python -m scripts.configure_admin_console` after exporting the azd
+Review the plan without changing anything: `PYTHONPATH=src:. python -m scripts.configure_admin_console` after exporting the azd
 environment (`set -a; eval "$(azd env get-values)"; set +a`). Sign-in asks for no consent and needs no admin approval,
 because the app exposes and pre-authorizes its own `Admin.Access` scope, as the voice presenter does.
 

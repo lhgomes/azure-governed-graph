@@ -1,10 +1,8 @@
-# Core + local mode (the domain core itself is pure Python)
+# Shared application contracts and orchestration; no test or Azure ML tooling.
 fastapi>=0.115
 uvicorn[standard]>=0.30
 pydantic>=2.8
 httpx>=0.27
 PyJWT[crypto]==2.15.1
-pandas>=2.2
-pytest>=8.0
 # Executable member/learning workflows; verified Foundry SDK adapter retained (IMP-43).
 agent-framework-core==1.23.0

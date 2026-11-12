@@ -9,8 +9,8 @@ Steps per cycle:
   5. classify the decision tier (Tier 0 auto-publish / Tier 1 Agentic Assurance Committee)
   6. sign and publish; the control arm keeps the static expert ranking
 
-In Azure this module runs as an Azure ML pipeline step (see infra + prompt 08);
-the logic is identical locally so it is unit-testable.
+This module runs in the governed Azure ML pipeline; supplied aggregate paths
+must point to inputs materialized from the isolated learning zone.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from governedgraph.common.config import DATA_DIR, settings
+from governedgraph.common.config import DATA_DIR
 from governedgraph.common.contracts import RequestKey, _strict
 from governedgraph.common.io import load_csv, load_json
 from governedgraph.strategy_service.catalogue import Catalogue
@@ -50,9 +50,9 @@ class StrategyEvidence:
 
 
 def load_outcome_aggregates(path: Path | None = None) -> dict[str, dict[str, StrategyEvidence]]:
-    if settings.is_azure and path is None:
-        raise ValueError("Azure P2 must read governed learning-aggregates, not repository seed data")
-    rows = load_csv(path or DATA_DIR / "synthetic" / "outcome_aggregates_illustrative.csv")
+    if path is None:
+        raise ValueError("P2 must read explicitly supplied governed learning-aggregates")
+    rows = load_csv(path)
     catalogue = Catalogue.load()
     out: dict[str, dict[str, StrategyEvidence]] = defaultdict(dict)
     for r in rows:

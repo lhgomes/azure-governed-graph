@@ -13,26 +13,117 @@ Use Python 3.14, Azure CLI, Azure Developer CLI, Bicep and the existing verified
 ```bash
 .venv/bin/python -m scripts.deploy --inputs .azure/private-delivery.json --plan
 .venv/bin/python -m scripts.deploy --inputs .azure/private-delivery.json
+# Non-interactive automation: choose one target explicitly.
+.venv/bin/python -m scripts.deploy --inputs .azure/private-delivery.json --reuse rg-gg-dev-existing
+.venv/bin/python -m scripts.deploy --inputs .azure/private-delivery.json --new
 .venv/bin/python -m scripts.run_foundry_evals --environment gg-dev \
   --output .run/foundry-evaluation-new.json
 ```
 
-`--plan` validates the local input/composition contract and prints the sequence;
-it makes no cloud calls. Obtain the required authorized Azure preview before
+`--plan` validates the local configuration/composition and prints the sequence;
+it makes no cloud calls, prompts or writes and does not verify/select an Azure
+target. Obtain the required authorized Azure preview before
 applying the delivery. Delivery prints each major operation and each image
 build/reuse, without exposing private inputs. The evaluation command is separate and incurs model and
 judge usage; it never provisions, starts channel probes or issues member tokens.
 An output file must be new, preserving previous evidence.
 
-The private delivery JSON contains exactly these fields. The identifiers below
+After successful readiness checks, the final JSON result is followed by
+`Demo URL: https://<gateway>/demo/` and `Admin URL: https://<gateway>/admin/`
+for convenient access. When `voice_demo` is false, the summary prints
+`Demo URL: disabled` instead.
+
+### Choose an existing or new deployment
+
+Without target flags, an interactive terminal queries resource groups in the
+configured subscription and offers existing GovernedGraph deployments or a new
+deployment. Enter accepts the previously selected group when it is still
+available; otherwise the default is a new deployment.
+
+Only groups tagged `workload=gg-journey-graph`, `azd-env-name=gg-dev` and
+`data=synthetic` in swedencentral are selectable. Service-managed child groups,
+including the Container Apps infrastructure group, are excluded. Existing
+deployments retain the exact original seed and group spelling from successful
+subscription deployment parameters. Failed redeployments cannot override that
+identity. Saved scope may resume a first, incomplete deployment only when the
+observed parameters agree exactly. Missing or conflicting identities fail closed.
+Never normalize an existing seed's UUID formatting or casing: Bicep hashes its
+literal text, so equivalent UUID spellings produce different Azure resource names.
+The script never substitutes a fresh seed for an existing deployment.
+
+Choosing new, or passing `--new`, generates a fresh UUID seed and a group named
+`rg-gg-dev-<suffix>`. The suffix is the first 12 hexadecimal characters of SHA-256
+over the UUID's 16 bytes. The script confirms that group does not already exist.
+Both target fields are atomically saved in the private inputs before delivery;
+the file is restricted to its owner. No seed or group needs to be supplied by hand.
+
+When switching targets, the previous local azd environment is moved intact to
+`.azure/archived/<unique-id>/gg-dev/`. Its Azure resources and data are untouched.
+Selecting an older target restores its scope into a fresh active environment;
+the archive remains available. Subscription deployment names include a stable
+group-derived suffix so new deployments do not overwrite another target's
+seed-bearing deployment record. This is target identity, not a per-step ledger.
+
+For automation, use `--reuse RESOURCE_GROUP` or `--new`; they are mutually
+exclusive and do not prompt. Non-interactive delivery without either flag fails
+before querying Azure. Discovery failures never become an empty-list fallback.
+
+### Command hangs and interruption
+
+Every ACR repository lookup, image build and digest read explicitly uses the
+selected delivery subscription, for both application and ML registries. The
+global Azure CLI default can belong to a different tenant; it must not select
+registry authentication or build scope. No `az account set` is required.
+
+Entra bootstrap also uses the selected subscription's tenant. Microsoft Graph
+requests use a token acquired with `az account get-access-token --subscription`
+and keep it in process memory, never command arguments or files. Merely adding
+`--subscription` to `az rest` does not reliably select a Graph tenant. All
+registration helpers share this transport; Strategy identities are resolved
+before any application or assignment changes. Standalone registration tools
+require `PYTHONPATH=src:.`; export `AZURE_SUBSCRIPTION_ID` to select their tenant.
+
+Foundry agent bootstrap, standalone agent provisioning and writer verification
+resolve that subscription's tenant explicitly and bind every
+`DefaultAzureCredential` token request to it, including refreshes. The environment
+variable alone does not scope SDK authentication. Existing operator Foundry
+permissions are reused; delivery never grants access to an unrelated CLI identity
+or changes the global account. Standalone agent provisioning requires
+`AZURE_SUBSCRIPTION_ID`; `scripts.azd_env export --task agents` includes it.
+
+Delivery also binds all six agent names explicitly to the workload contract,
+including `gg-counsellor` and `gg-fairness-explainability`. Legacy agent-name
+settings in the invoking shell cannot redirect deployment planning, version
+creation or fairness endpoint pinning. Standalone provisioning still honors its
+configured names. Writer approval checks both the exact agent name and immutable
+version; old differently named agents are retained, never renamed or deleted.
+
+CLI commands print their operation, attempt number and timeout to stderr, with
+a heartbeat every 30 seconds. Arguments, environment values and captured command
+output are not streamed, keeping private configuration and job logs out of progress
+messages. Parsed stdout remains available to the delivery driver.
+
+Each command attempt has a wall-clock limit: 120 seconds normally, 60 minutes
+for an ACR build and 120 minutes for an ARM deployment. Only explicitly listed
+read-only operations (account/group/deployment discovery, registry metadata, application/job status/logs and private-link
+listing) retry timeouts: at most three attempts, with 2/4-second backoff. Nonzero
+command exits are not retried by this policy. The existing bounded
+managed-identity image-pull propagation retry remains separate.
+
+A timeout or Ctrl+C kills and reaps the local command process group, not Azure
+operations already submitted. Writes, builds, job starts and unknown commands
+are never automatically retried after a timeout. Delivery fails explicitly;
+Ctrl+C exits with status 130 without a traceback. Inspect the original Azure
+deployment, ACR run or job execution before rerunning, because stopping the
+local CLI does not establish that the remote operation failed or stopped.
+
+The private delivery JSON accepts these fields. The identifiers below
 are illustrative placeholders, not an Azure deployment:
 
 ```json
 {
   "environment": "gg-dev",
   "subscription": "00000000-0000-0000-0000-000000000001",
-  "resource_group": "rg-gg-dev-your-unique-name",
-  "naming_seed": "00000000-0000-0000-0000-000000000002",
   "operator_id": "00000000-0000-0000-0000-000000000003",
   "on_call_email": "synthetic@example.invalid",
   "composition": "examples/pension_wtp/deployment.json",
@@ -42,11 +133,13 @@ are illustrative placeholders, not an Azure deployment:
 }
 ```
 
-Subscription, group, seed, operator, on-call destination and composition are
-required. Optional fields default to the approved environment/regions and an
+Subscription, operator, on-call destination and composition are required.
+`naming_seed` and `resource_group` are optional saved target fields, populated
+by deployment selection. Existing private files containing them remain supported.
+Other optional fields default to the approved environment/regions and an
 enabled presenter. Unknown fields are rejected. Store actual identifiers in
-private ignored configuration, never source control. Preserve the exact seed,
-group and subscription on redeploy; a conflicting azd environment is refused.
+private ignored configuration, never source control. Reusing an existing target
+preserves its seed, group and subscription; accidental scope changes are refused.
 `voice_demo: false` disables the presenter, synthetic capture and console trace
 lookup together. The console still uses its own reviewed sign-in.
 

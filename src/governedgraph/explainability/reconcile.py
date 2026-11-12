@@ -11,7 +11,7 @@ import os
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import JourneyEvent
 from governedgraph.explainability.store import default_store
-from governedgraph.orchestrator.store import BlobJourneyStore, FileJourneyStore, validate_id
+from governedgraph.orchestrator.store import BlobJourneyStore, validate_id
 
 log = logging.getLogger("governedgraph.explainability")
 LEGACY_CUTOVER_ENV = "GOVERNEDGRAPH_LEGACY_CUTOVER_UTC"
@@ -135,14 +135,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--journey-id", action="append")
     args = parser.parse_args()
-    failures: tuple[type[Exception], ...] = (OSError, RuntimeError, ValueError)
-    if settings.is_azure:
-        from azure.core.exceptions import AzureError
+    from azure.core.exceptions import AzureError
 
-        failures += (AzureError,)
+    failures: tuple[type[Exception], ...] = (OSError, RuntimeError, ValueError, AzureError)
     try:
-        journeys = (BlobJourneyStore(settings.journey_storage_url) if settings.is_azure
-                    else FileJourneyStore(settings.run_dir / "journeys"))
+        journeys = BlobJourneyStore(settings.journey_storage_url)
         report = run_reconciliation(journeys, default_store(), args.journey_id)
     except failures as error:
         log.error("explainability_reconciliation_failed", extra={"error_type": type(error).__name__})

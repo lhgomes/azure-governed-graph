@@ -295,7 +295,8 @@ def test_b8_fairness_provisioning_is_plan_only_by_default_and_reuses_exact_versi
     definition = SimpleNamespace(as_dict=lambda: {"kind": "prompt", "tools": "protective-only"})
     monkeypatch.setattr(runtime, "agent_definition", lambda: definition)
     pinned = []
-    monkeypatch.setattr(provisioner, "pin_fairness_endpoint", lambda project, version: pinned.append(version))
+    monkeypatch.setattr(provisioner, "pin_fairness_endpoint",
+                        lambda project, version, *, agent_name: pinned.append((agent_name, version)))
     errors = ModuleType("azure.core.exceptions")
     errors.ResourceNotFoundError = type("NotFound", (Exception,), {})
     monkeypatch.setitem(sys.modules, "azure.core.exceptions", errors)
@@ -314,11 +315,12 @@ def test_b8_fairness_provisioning_is_plan_only_by_default_and_reuses_exact_versi
     assert provisioner.provision(project, apply=True, role="fairness")["agent_version"] == "1"
     assert provisioner.provision(project, apply=True, role="fairness")["agent_version"] == "1"
     assert len(created) == 1
-    assert pinned == ["1", "1"]
+    assert pinned == [(runtime.settings.fairness_agent_name, "1")] * 2
 
 
 @pytest.mark.parametrize("acknowledged", [True, False])
-def test_b8_fairness_endpoint_is_pinned_not_automatically_latest(monkeypatch, acknowledged):
+@pytest.mark.parametrize("agent_name", [None, "gg-explicit-synthetic-fairness"])
+def test_b8_fairness_endpoint_is_pinned_not_automatically_latest(monkeypatch, acknowledged, agent_name):
     import importlib.util
     from governedgraph.common.config import REPO_ROOT
 
@@ -344,23 +346,29 @@ def test_b8_fairness_endpoint_is_pinned_not_automatically_latest(monkeypatch, ac
     module.AgentEndpointConfig = module.FixedRatioVersionSelectionRule = module.VersionSelector = Model
     monkeypatch.setitem(sys.modules, "azure.ai.projects.models", module)
     original = {"version_selection_rules": [{"agent_version": "@latest"}]}
-    updates = []
+    updates, reads = [], []
+    expected_name = runtime.settings.fairness_agent_name if agent_name is None else agent_name
 
     def update_details(**kwargs):
+        assert kwargs["agent_name"] == expected_name
         updates.append(kwargs)
         endpoint = kwargs["agent_endpoint"].as_dict()
         if not acknowledged:
             endpoint = {"version_selector": original}
         return SimpleNamespace(as_dict=lambda: {"agent_endpoint": endpoint})
 
+    def get(name):
+        reads.append(name)
+        return SimpleNamespace(as_dict=lambda: {"agent_endpoint": {"version_selector": original}})
     project = SimpleNamespace(agents=SimpleNamespace(
-        get=lambda _: SimpleNamespace(as_dict=lambda: {"agent_endpoint": {"version_selector": original}}),
+        get=get,
         update_details=update_details,
     ))
     if acknowledged:
-        provisioner.pin_fairness_endpoint(project, "1")
+        provisioner.pin_fairness_endpoint(project, "1", agent_name=agent_name)
     else:
         with pytest.raises(RuntimeError, match="acknowledge"):
-            provisioner.pin_fairness_endpoint(project, "1")
+            provisioner.pin_fairness_endpoint(project, "1", agent_name=agent_name)
+    assert reads == [expected_name]
     assert len(updates) == 1
     assert updates[0]["agent_endpoint"].as_dict()["version_selector"]["version_selection_rules"][0]["agent_version"] == "1"

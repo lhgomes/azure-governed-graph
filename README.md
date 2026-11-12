@@ -15,7 +15,7 @@ your deterministic systems **decide**, and a learning loop improves **how** thin
 
 1. **Facts never come from the model.** Official values come from your system of record. The model writes a placeholder such as
    `{{value:<id>}}`; the host fills in the real value and checks it.
-2. **Only approved strategies run, and learning only reorders them.** Offline learning ranks a catalogue of approved
+2. **Only approved strategies run, and learning only reorders them.** Azure-hosted learning ranks a catalogue of approved
    explanation styles within hard limits. It never writes content and never reads raw conversations.
 3. **Fairness can veto, and humans approve anything that widens.** A cohort audit can remove a strategy for every member.
    Protective actions (suspend, freeze, escalate) are autonomous; anything that widens what the system may say, use or decide
@@ -35,57 +35,40 @@ your deterministic systems **decide**, and a learning loop improves **how** thin
 |---|---|---|
 | **GovernedGraph** (the framework) | Journey state machine, guardrails, strategy service, learning, fairness, administration console and Azure adapters. Enforces the ten boundaries | [src/governedgraph](src/governedgraph) |
 | **Your domain** | A **domain pack** (strategies, templates, prompts, vocabulary, approved content, fairness thresholds) and a **values source** (read-only access to your system of record) | `examples/<your_package>` |
-| **The sample** | A complete worked domain (pension-transition guidance for a synthetic Dutch sector fund), bundled so the repository runs out of the box. Synthetic data only | [examples/pension_wtp](examples/pension_wtp) |
+| **The sample** | A complete Azure-deployable worked domain (pension-transition guidance for a synthetic Dutch sector fund). Synthetic data only | [examples/pension_wtp](examples/pension_wtp) |
 
 The framework never imports or defaults to a sample ([tested](tests/test_layering.py)).
-Domain inputs are explicit. The bundled sample's offline entry points configure
-their own data, values provider and demo; Azure uses its explicit composition.
+Domain inputs are explicit. The sample is selected through its deployment composition; it does not enable an offline application runtime.
 
 > **ILLUSTRATIVE - synthetic data.** All sample data is synthetic; no real organisation, member or personal data is used.
 > The sample gives guidance, not financial or legal advice.
 
-## Try it (offline, 5 minutes)
+## Deploy and verify in Azure Public
 
-Python 3.14. No Azure account needed.
+GovernedGraph executes on Azure Public only. The application requires provisioned Azure
+resources, managed identities, a selected domain composition, and approved agent versions.
+No local application, in-process service, offline voice or file-backed runtime is provided.
 
-```bash
-python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-export GOVERNEDGRAPH_MODE=local PYTHONPATH=src:examples
-pytest                                                  # boundary and integration tests
-python evals/run_evals.py                               # evaluation hard gates
-python -m pension_wtp.demo.run_demo                     # a scripted journey, end to end
-```
+1. Review the [Azure deployment guide](docs/deploying.md) and prepare private delivery inputs.
+2. Submit the explicit infrastructure and application deployment using the governed delivery workflow.
+3. Verify the deployed applications, identity isolation, Service Bus, Blob, Search, Foundry and admin console.
+4. Run synthetic channel probes and the B1-B10 regression suite **in Azure**. Deployment readiness
+   does not establish test or evaluation success.
 
-Then look at the evidence in the [administration console](docs/administration.md): strategies and rankings, vetoes,
-suspensions, governance decisions, learning evidence and journeys, with audited protective actions (freeze and suspend only).
+`python -m scripts.deploy --inputs .azure/private-delivery.json` is the deployment
+entry point when invoked in an approved Azure-hosted delivery environment. Use
+`--plan` for a non-mutating composition review. See the [Azure-only execution contract](docs/azure-only-execution.md)
+for the CI runner and test-evidence requirements.
 
 ## Use it for your own solution
 
 1. Copy `examples/pension_wtp` to `examples/my_domain` and rename the package.
-2. Configure `GOVERNEDGRAPH_DATA_DIR`, `GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER` and
-   `GOVERNEDGRAPH_TEXT_DEMO_MODULE` explicitly, or use your extension's offline entry point.
-   `GOVERNEDGRAPH_SAMPLE=my_domain` selects only the shared evaluation entry point.
-3. Replace the domain pack and the values source with yours.
-4. Run `python evals/run_evals.py` and `pytest`; the hard gates must pass.
+2. Set `GOVERNEDGRAPH_DATA_DIR` explicitly through your deployment composition.
+3. Replace the domain pack and the Azure-backed values API with yours.
+4. Validate the B1-B10 boundaries and pinned Foundry agents using Azure-hosted jobs.
 
-Nothing under `src/governedgraph` changes. See [adopting](docs/adopting.md) for the pack layout, what you change and never
-change, and the current limits.
-
-## Run it on Azure
-
-```bash
-python -m scripts.deploy --inputs .azure/private-delivery.json  # explicit foundation/bootstrap/workloads
-python -m scripts.run_foundry_evals --environment gg-dev       # separate paid hosted evaluation
-python -m scripts.teardown      # guided removal: resource group, quota release, Entra objects, local state
-```
-
-One run provisions the reference solution (`azd`, Bicep, managed identities, private backends) and the Entra sign-in for the
-console, then checks deployment readiness only. Delivery `--plan` requires the same inputs;
-teardown `--plan` inventories its scoped historical/current target. Neither changes cloud resources.
-See [deploying](docs/deploying.md).
-The synthetic contact centre and the member-token issuer are development stand-ins; production needs reviewed identity,
-administrator, contact-centre and content-governance adapters.
+The framework under `src/governedgraph` stays independent from any sample. See
+[adopting](docs/adopting.md) for domain packaging and implementation boundaries.
 
 ## The ten boundaries
 
@@ -109,7 +92,7 @@ Also: guidance, not advice (option-level questions escalate), and an AI disclosu
 
 ## What this is not
 
-A synthetic reference, **not a production service**. Passing local gates is not evidence of conversational quality, live
+A synthetic reference, **not a production service**. Passing Azure-hosted regression gates is not by itself evidence of conversational quality, live
 integration or production acceptance. See the [limits to state with any result](docs/framework.md#limits-to-state-with-any-result).
 
 ## Documentation map
@@ -122,7 +105,7 @@ integration or production acceptance. See the [limits to state with any result](
 
 | Go deeper | |
 |---|---|
-| [Architecture](docs/architecture.md) | Runtime and offline flows, persistence, security, production seams |
+| [Architecture](docs/architecture.md) | Azure P1/P2 flows, persistence, security and governance boundaries |
 | [Administration console](docs/administration.md) | Rankings, vetoes, suspensions, decisions, conversations; protective actions and access control |
 | [Deploying](docs/deploying.md) | Staged Azure deployment and teardown |
 | [Evaluation method](docs/evaluation.md) | Hard gates, model comparison and what a result can claim |
@@ -130,7 +113,7 @@ integration or production acceptance. See the [limits to state with any result](
 
 | The sample | |
 |---|---|
-| [Demo runbook](examples/pension_wtp/docs/demo-runbook.md) | Local rehearsal and authorized Azure demo setup |
+| [Demo runbook](examples/pension_wtp/docs/demo-runbook.md) | Authorized Azure synthetic presenter, channel probes and recovery |
 | [Member authentication](examples/pension_wtp/docs/api/member-authentication.md), [handover integration](examples/pension_wtp/docs/api/contact-centre.md) | Sample integration contracts |
 
 ## Licence

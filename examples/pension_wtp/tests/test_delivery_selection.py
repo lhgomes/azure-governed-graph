@@ -1,4 +1,4 @@
-"""Framework inputs are explicit; selecting the sample supplies its offline defaults."""
+"""Framework inputs are explicit; the sample never supplies local runtime defaults."""
 import json
 import os
 import subprocess
@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 PROBE = ("import json; from governedgraph.common import config as c; "
-         "print(json.dumps([str(c.DATA_DIR), c.LOCAL_VALUES_PROVIDER, c.TEXT_DEMO_MODULE]))")
+         "print(json.dumps([str(c.DATA_DIR), c.settings.is_azure]))")
 
 
 def defaults(*, sample=False, **env):
@@ -18,12 +18,9 @@ def defaults(*, sample=False, **env):
     return run.returncode, (json.loads(run.stdout) if run.returncode == 0 else run.stderr)
 
 
-def test_explicit_sample_entry_point_supplies_offline_defaults():
-    code, (data, provider, demo) = defaults(sample=True)
-    assert code == 0
-    assert data == str(ROOT / "examples" / "pension_wtp" / "data")
-    assert provider == "pension_wtp.member_values_api.data:get_member_values"
-    assert demo == "pension_wtp.demo.run_demo"
+def test_explicit_sample_does_not_supply_local_defaults():
+    code, error = defaults(sample=True)
+    assert code != 0 and "explicit GOVERNEDGRAPH_DATA_DIR" in error
 
 
 def test_framework_without_explicit_data_has_no_domain_default():
@@ -32,17 +29,16 @@ def test_framework_without_explicit_data_has_no_domain_default():
     assert "pension" not in (ROOT / "src/governedgraph/common/config.py").read_text()
 
 
-def test_individual_settings_still_override_the_selected_sample():
-    code, (data, provider, demo) = defaults(sample=True, GOVERNEDGRAPH_DATA_DIR="/elsewhere/pack",
-                                          GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER="vendor.values:get",
-                                          GOVERNEDGRAPH_TEXT_DEMO_MODULE="vendor.demo")
-    assert code == 0
-    assert (data, provider, demo) == ("/elsewhere/pack", "vendor.values:get", "vendor.demo")
+def test_azure_domain_inputs_are_explicit():
+    path = str(ROOT / "examples" / "pension_wtp" / "data")
+    code, result = defaults(sample=True, GOVERNEDGRAPH_DATA_DIR=path)
+    assert code == 0 and result == [path, True]
 
 
-def test_azure_extension_import_does_not_supply_missing_runtime_inputs():
-    code, error = defaults(sample=True, GOVERNEDGRAPH_MODE="azure")
-    assert code != 0 and "explicit GOVERNEDGRAPH_DATA_DIR" in error
+def test_extension_import_never_activates_local_mode():
+    path = str(ROOT / "examples" / "pension_wtp" / "data")
+    code, result = defaults(sample=True, GOVERNEDGRAPH_MODE="local", GOVERNEDGRAPH_DATA_DIR=path)
+    assert code == 0 and result == [path, True]
 
 
 def test_deploy_runner_default_definition_follows_the_setting():
@@ -80,7 +76,7 @@ def test_every_dockerfile_copy_resolves_to_a_real_file_for_the_bundled_sample():
 def test_dockerfile_defaults_the_sample_and_refuses_an_unsafe_name():
     source = (ROOT / "Dockerfile").read_text()
     assert "SAMPLE" not in source and "examples/" not in source and "pension" not in source
-    code, error = defaults(GOVERNEDGRAPH_MODE="azure")
+    code, error = defaults()
     assert code != 0 and "explicit GOVERNEDGRAPH_DATA_DIR" in error
 
 

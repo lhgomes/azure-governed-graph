@@ -1,17 +1,14 @@
-"""Read-only, demographic-free projections of existing local governance evidence."""
+"""Read-only, demographic-free projections of governed Azure evidence."""
 from __future__ import annotations
 
 import hashlib
 import json
 from dataclasses import asdict, dataclass
-from pathlib import Path
 
 from governedgraph.common.config import DATA_DIR, settings
 from governedgraph.common.contracts import RequestKey
 from governedgraph.common.io import canonical_json, load_json
-from governedgraph.explainability.store import LocalExplainabilityStore
 from governedgraph.strategy_service.catalogue import Catalogue
-from governedgraph.strategy_service.service import StrategyService
 
 WATERMARK = "ILLUSTRATIVE - synthetic data"
 
@@ -20,29 +17,8 @@ def revision(state: dict) -> str:
     return hashlib.sha256(canonical_json(state)).hexdigest()
 
 
-def read_lines(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    with path.open(encoding="utf-8") as source:
-        rows = [json.loads(line) for line in source if line.strip()]
-    if any(not isinstance(row, dict) for row in rows):
-        raise ValueError("governance records must be objects")
-    return rows
-
-
 def pick(row: dict, fields: str) -> dict:
     return {key: row[key] for key in fields.split() if key in row}
-
-
-def governance_cases(run_dir: Path) -> list[dict]:
-    result = []
-    for row in read_lines(run_dir / "governance" / "cases.jsonl"):
-        finding = row["finding"]
-        result.append({
-            **pick(row, "case_id type tier audit_id created_at options_for_board"),
-            "finding": pick(finding, "request_key strategy_id strategy_version gap_pts breach"),
-        })
-    return result
 
 
 TIER1_FIELDS = ("snapshot_id tier approved verdicts humans_notified notification_status "
@@ -62,30 +38,12 @@ def uplift_decision(pack: dict) -> dict:
             "outcome": row.get("decision", "unknown"), **row}
 
 
-def decision_packs(run_dir: Path) -> list[dict]:
-    return [tier1_decision(row) for row in read_lines(run_dir / "governance" / "evidence_packs.jsonl")]
-
-
-def audit_records(run_dir: Path) -> list[dict]:
-    # This store contains references and closed decisions, never utterances or bound values.
-    return LocalExplainabilityStore(run_dir / "explainability" / "records.jsonl").read_all()
-
-
 def project_learning(manifest, evidence: dict) -> dict:
     if manifest is None:
         return {"manifest": None, "aggregates": []}
     return {"manifest": asdict(manifest),
             "aggregates": [{"request_key": key, **asdict(row)}
                            for key, strategies in evidence.items() for row in strategies.values()]}
-
-
-def learning_evidence(run_dir: Path) -> dict:
-    from governedgraph.learning.feedback_store import FileFeedbackStore
-    from governedgraph.learning.ranking_pipeline import load_outcome_aggregates
-
-    store = FileFeedbackStore(run_dir / "learning-aggregates")
-    manifest = store.current()
-    return project_learning(manifest, load_outcome_aggregates(store.outcome_path()) if manifest else {})
 
 
 @dataclass(frozen=True)
@@ -96,10 +54,6 @@ class Context:
     priors: dict
     thresholds: dict
     control_share: float
-
-    @classmethod
-    def from_service(cls, service: StrategyService) -> Context:
-        return cls(service.catalogue, service.priors, service.thresholds, service.control_share)
 
     @classmethod
     def load(cls) -> Context:
@@ -138,12 +92,3 @@ def build_overview(context: Context, state: dict, *, mode: str, cases: list[dict
                            "min_cell_size max_cohort_gap_pts exploration_rate"),
         "cases": cases, "decisions": decisions, "learning": learning, "actions": actions,
     }
-
-
-def overview(service: StrategyService, run_dir: Path, evidence_dir: Path | None = None) -> dict:
-    return build_overview(
-        Context.from_service(service), service.read_state(), mode="local",
-        cases=governance_cases(run_dir), decisions=decision_packs(run_dir),
-        learning=learning_evidence(evidence_dir or run_dir),
-        actions=read_lines(run_dir / "admin" / "actions.jsonl"),
-    )

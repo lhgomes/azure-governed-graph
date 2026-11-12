@@ -63,7 +63,7 @@ def test_export_emits_quoted_shell_assignments_and_derived_values_only_for_the_t
     assert "export PRESENTER_URL=https://apim-gg-synthetic.azure-api.net/demo/" in out
     assert not any("STRATEGY" in line for line in out)
     assert azd_env.main(["export", "--task", "reconcile", "--env-file", path]) == 0
-    assert "export GOVERNEDGRAPH_MODE=azure" in capsys.readouterr().out
+    assert "GOVERNEDGRAPH_MODE" not in capsys.readouterr().out
 
 
 def test_export_refuses_when_the_deployment_does_not_provide_a_required_value(tmp_path, capsys):
@@ -71,6 +71,15 @@ def test_export_refuses_when_the_deployment_does_not_provide_a_required_value(tm
     assert azd_env.main(["export", "--task", "recovery", "--env-file", env_file(tmp_path, values)]) == 1
     captured = capsys.readouterr()
     assert captured.out == "" and "missing STRATEGY_ADMIN_URL" in captured.err
+
+
+def test_agent_export_requires_and_includes_the_selected_subscription(tmp_path, capsys):
+    assert azd_env.main(["export", "--task", "agents", "--env-file", env_file(tmp_path)]) == 0
+    assert f"export AZURE_SUBSCRIPTION_ID={VALUES['AZURE_SUBSCRIPTION_ID']}" in capsys.readouterr().out
+    values = {key: value for key, value in VALUES.items() if key != "AZURE_SUBSCRIPTION_ID"}
+    assert azd_env.main(["export", "--task", "agents", "--env-file", env_file(tmp_path, values)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and "missing AZURE_SUBSCRIPTION_ID" in captured.err
 
 
 def test_show_reports_ready_and_not_ready_tasks(tmp_path, capsys):

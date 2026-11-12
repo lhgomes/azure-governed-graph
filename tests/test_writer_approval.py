@@ -1,7 +1,7 @@
 """ILLUSTRATIVE - synthetic data; human writer approval without Azure requests."""
 import json
-import sys
-from types import ModuleType, SimpleNamespace
+from contextlib import nullcontext
+from types import SimpleNamespace
 
 import pytest
 
@@ -34,7 +34,7 @@ class Project:
 
     def get_version(self, name, version):
         self.calls.append((name, version))
-        return SimpleNamespace(version=self.version, definition=SimpleNamespace(as_dict=lambda: self.definition))
+        return SimpleNamespace(name=name, version=self.version, definition=SimpleNamespace(as_dict=lambda: self.definition))
 
     def __enter__(self):
         return self
@@ -126,6 +126,15 @@ def test_b8_another_returned_version_is_rejected():
         approval.verify(Project("2", definition), record, values)
 
 
+def test_b8_another_returned_agent_is_rejected_even_with_matching_version_and_definition():
+    record, values, definition = fixture()
+    version = SimpleNamespace(name="legacy-synthetic-writer", version="1",
+                              definition=SimpleNamespace(as_dict=lambda: definition))
+    project = SimpleNamespace(agents=SimpleNamespace(get_version=lambda *_: version))
+    with pytest.raises(EnvError, match="another version or agent"):
+        approval.verify(project, record, values)
+
+
 def test_b8_failed_foundry_read_propagates_without_creating_or_approving_a_version():
     record, values, _ = fixture()
     def denied(*args):
@@ -137,17 +146,15 @@ def test_b8_failed_foundry_read_propagates_without_creating_or_approving_a_versi
 @pytest.mark.parametrize("apply", [False, True])
 def test_b8_operator_default_is_read_only_and_apply_only_stores_verified_record(tmp_path, monkeypatch, apply, capsys):
     record, values, definition = fixture()
+    values["AZURE_SUBSCRIPTION_ID"] = "selected-subscription"
     file = tmp_path / "synthetic-approval.json"
     file.write_text(json.dumps(record))
     project = Project("1", definition)
-    modules = {
-        "azure.ai.projects": {"AIProjectClient": lambda **kw: project},
-        "azure.identity": {"DefaultAzureCredential": lambda: project},
-    }
-    for name, attributes in modules.items():
-        module = ModuleType(name)
-        module.__dict__.update(attributes)
-        monkeypatch.setitem(sys.modules, name, module)
+    def scoped_client(endpoint, *, subscription):
+        assert endpoint == values["AZURE_AI_PROJECT_ENDPOINT"]
+        assert subscription == "selected-subscription"
+        return nullcontext(project)
+    monkeypatch.setattr(approval, "project_client", scoped_client)
     monkeypatch.setattr(approval, "load", lambda **kw: values)
     calls = []
     monkeypatch.setattr(approval.subprocess, "run", lambda command, **kw: calls.append((command, kw)))
@@ -174,6 +181,16 @@ def test_b8_duplicate_fields_and_malformed_files_never_write_approval(tmp_path, 
         file.write_text(text)
         assert approval.main(["--file", str(file), "--apply"]) == 2
         assert "error:" in capsys.readouterr().err
+
+
+def test_b8_missing_subscription_cannot_verify_or_store_writer_approval(tmp_path, monkeypatch, capsys):
+    record, values, _ = fixture()
+    file = tmp_path / "synthetic-approval.json"
+    file.write_text(json.dumps(record))
+    monkeypatch.setattr(approval, "load", lambda **_: values)
+    monkeypatch.setattr(approval.subprocess, "run", lambda *_, **kw: pytest.fail("must not write approval"))
+    assert approval.main(["--file", str(file), "--apply"]) == 2
+    assert "AZURE_SUBSCRIPTION_ID" in capsys.readouterr().err
 
 
 def test_b8_operator_cannot_write_another_environment(monkeypatch, capsys):

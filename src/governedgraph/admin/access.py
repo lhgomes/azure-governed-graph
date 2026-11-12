@@ -1,9 +1,9 @@
-"""Optional Entra ID group access control for the administration console.
+"""Mandatory Entra ID group access control for the Azure administration console.
 
 Two levels, each one environment variable holding an Entra group object ID:
   GOVERNEDGRAPH_ADMIN_READER_GROUP_ID    may view evidence
   GOVERNEDGRAPH_ADMIN_OPERATOR_GROUP_ID  may view evidence and apply protective actions
-Both blank: access control is off and the app says so. Any misconfiguration fails closed.
+Both blank: administration is unavailable. Any misconfiguration fails closed.
 """
 from __future__ import annotations
 
@@ -15,13 +15,11 @@ from uuid import UUID
 import jwt
 from fastapi import HTTPException
 
-from governedgraph.common.config import settings
 from governedgraph.strategy_service.auth import signing_keys
 
 log = logging.getLogger("governedgraph.admin")
 READER_VARIABLE = "GOVERNEDGRAPH_ADMIN_READER_GROUP_ID"
 OPERATOR_VARIABLE = "GOVERNEDGRAPH_ADMIN_OPERATOR_GROUP_ID"
-OPEN_ACTOR = "local-loopback-operator"
 SCOPE = "Admin.Access"
 
 
@@ -39,8 +37,8 @@ class AccessPolicy:
     operator_group: str = ""
     client_id: str = ""
     tenant_id: str = ""
-    # Open (group-less) consoles may act locally; on Azure they act only when explicitly allowed.
-    allow_open_actions: bool = True
+    # Kept for the admin API response contract; unauthenticated action access is never allowed.
+    allow_open_actions: bool = False
 
     @classmethod
     def from_env(cls) -> AccessPolicy:
@@ -48,7 +46,7 @@ class AccessPolicy:
             os.getenv(READER_VARIABLE, "").strip(), os.getenv(OPERATOR_VARIABLE, "").strip(),
             os.getenv("GOVERNEDGRAPH_ADMIN_CLIENT_ID", "").strip(),
             (os.getenv("GOVERNEDGRAPH_ADMIN_TENANT_ID") or os.getenv("STRATEGY_TENANT_ID", "")).strip(),
-            not settings.is_azure or os.getenv("GOVERNEDGRAPH_ADMIN_ALLOW_OPEN_ACTIONS", "").lower() == "true",
+            False,
         )
 
     @property
@@ -88,7 +86,7 @@ class AccessPolicy:
 
     def identify(self, authorization: str) -> Identity:
         if not self.enabled:
-            return Identity(OPEN_ACTOR, "Access control off", True, self.allow_open_actions)
+            raise HTTPException(503, "Administration requires configured Entra reader/operator groups.")
         if self.problem:
             raise HTTPException(503, self.problem)
         if not authorization.startswith("Bearer "):

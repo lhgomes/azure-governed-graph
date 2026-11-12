@@ -1,7 +1,7 @@
 """Operator console for governed strategy evidence and protective actions.
 
-Local demo: loopback-only over local files. Azure: hosted internally behind the APIM gateway, reading the
-deployed stores and acting only through the role-protected Strategy API.
+Hosted internally behind APIM, reading deployed Azure stores and acting only
+through the role-protected Strategy API.
 """
 from __future__ import annotations
 
@@ -21,12 +21,11 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from governedgraph.admin.access import AccessPolicy, Identity
 from governedgraph.admin.data import WATERMARK, revision
-from governedgraph.admin.sources import AdminSourceError, AzureSources, LocalSources
+from governedgraph.admin.sources import AdminSourceError, AzureSources
 from governedgraph.admin.traces import SyntheticTraceReader, TraceUnavailable, monitor_runner
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import ContractError, SuspensionEvent, _strict, utcnow
 from governedgraph.strategy_service.catalogue import ESCALATION_STRATEGY
-from governedgraph.strategy_service.service import StrategyService
 from governedgraph.strategy_service.state import StateUnavailable
 
 log = logging.getLogger("governedgraph.admin")
@@ -57,13 +56,9 @@ class ActionRequest:
         return result
 
 
-def create_app(service: StrategyService | None = None, run_dir: Path | None = None,
-               trace_reader: SyntheticTraceReader | None = None, access: AccessPolicy | None = None,
-               sources: LocalSources | AzureSources | None = None) -> FastAPI:
+def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessPolicy | None = None,
+               sources: AzureSources | None = None) -> FastAPI:
     application = FastAPI(title="GovernedGraph Administration", docs_url=None, redoc_url=None, openapi_url=None)
-    directory = run_dir or settings.run_dir
-    demo = os.getenv("GOVERNEDGRAPH_ADMIN_DEMO") == "true"
-    evidence_directory = directory / "demo" if demo else directory
     policy = access or AccessPolicy.from_env()
     public_origin = os.getenv("GOVERNEDGRAPH_ADMIN_PUBLIC_ORIGIN", "").strip().rstrip("/")
     base_path = os.getenv("GOVERNEDGRAPH_ADMIN_BASE_PATH", "/").strip() or "/"
@@ -71,30 +66,25 @@ def create_app(service: StrategyService | None = None, run_dir: Path | None = No
         raise ValueError("GOVERNEDGRAPH_ADMIN_BASE_PATH must start and end with '/'")
     session = secrets.token_urlsafe(32)
     lock = RLock()
-    # Explicit settings win. Otherwise a local run opted in with GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP=true reuses the
-    # values the deployment already wrote to the azd environment, so nothing needs to be copied by hand.
-    from_deployment = os.getenv("GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP", "").lower() == "true"
+    trace_lookup = os.getenv("GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP", "").lower() == "true"
     workspace = os.getenv("GOVERNEDGRAPH_ADMIN_TRACE_WORKSPACE") or (
-        os.getenv("LOG_ANALYTICS_WORKSPACE_ID", "") if from_deployment else "")
+        os.getenv("LOG_ANALYTICS_WORKSPACE_ID", "") if trace_lookup else "")
     project = os.getenv("GOVERNEDGRAPH_ADMIN_TRACE_PROJECT") or (
-        settings.project_resource_id if from_deployment else "")
-    trace_environment = os.getenv("GOVERNEDGRAPH_ADMIN_TRACE_ENVIRONMENT") or (
-        settings.environment_name if settings.is_azure or from_deployment else "")
+        settings.project_resource_id if trace_lookup else "")
+    trace_environment = os.getenv("GOVERNEDGRAPH_ADMIN_TRACE_ENVIRONMENT") or settings.environment_name
     reader = trace_reader or SyntheticTraceReader(
         workspace, project, trace_environment,
-        runner=monitor_runner(workspace) if settings.is_azure and workspace else None,
+        runner=monitor_runner(workspace) if workspace else None,
     )
 
     def enabled() -> None:
-        if os.getenv("GOVERNEDGRAPH_ADMIN_ENABLED") != "true" or (
-                settings.is_azure and not public_origin.startswith("https://")):
+        if os.getenv("GOVERNEDGRAPH_ADMIN_ENABLED") != "true" or not public_origin.startswith("https://"):
             raise HTTPException(404, "administration is disabled")
 
-    def backend() -> LocalSources | AzureSources:
+    def backend() -> AzureSources:
         nonlocal sources
         if sources is None:
-            sources = (AzureSources.from_settings() if settings.is_azure
-                       else LocalSources(directory, evidence_directory, demo, service))
+            sources = AzureSources.from_settings()
         return sources
 
     sign_in = " https://login.microsoftonline.com" if policy.mode == "enabled" else ""
@@ -102,17 +92,9 @@ def create_app(service: StrategyService | None = None, run_dir: Path | None = No
     @application.middleware("http")
     async def protect(request: Request, call_next):
         origin = request.headers.get("origin")
-        if settings.is_azure:
-            # The app is reachable only through the APIM gateway inside the virtual network.
-            if origin is not None and origin != public_origin:
-                return JSONResponse({"detail": "same-origin administration required"}, status_code=403)
-        else:
-            host = request.url.hostname
-            peer = request.client.host if request.client else ""
-            if host not in {"localhost", "127.0.0.1", "::1"} or peer not in {"127.0.0.1", "::1", "testclient"}:
-                return JSONResponse({"detail": "administration requires a loopback connection"}, status_code=403)
-            if origin is not None and origin != str(request.base_url).rstrip("/"):
-                return JSONResponse({"detail": "same-origin administration required"}, status_code=403)
+        # The app is reachable only through the APIM gateway inside the virtual network.
+        if origin is not None and origin != public_origin:
+            return JSONResponse({"detail": "same-origin administration required"}, status_code=403)
         response = await call_next(request)
         response.headers.update({
             "Cache-Control": "no-store", "Pragma": "no-cache", "Referrer-Policy": "no-referrer",

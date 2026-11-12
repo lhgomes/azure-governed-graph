@@ -1,5 +1,4 @@
-"""Runtime configuration. LOCAL mode runs fully offline on synthetic data;
-AZURE mode wires the same components to the provisioned Azure resources."""
+"""Azure Public runtime configuration for governed deployments."""
 from __future__ import annotations
 
 import os
@@ -10,15 +9,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 if not os.getenv("GOVERNEDGRAPH_DATA_DIR"):
     raise ValueError("Runtime requires explicit GOVERNEDGRAPH_DATA_DIR from the domain composition")
 DATA_DIR = Path(os.environ["GOVERNEDGRAPH_DATA_DIR"])
-# Dotted "module:callable" for the deterministic values source used in local mode.
-LOCAL_VALUES_PROVIDER = os.getenv("GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER", "")
-# Module run by the offline text fallback (`python -m <module>`).
-TEXT_DEMO_MODULE = os.getenv("GOVERNEDGRAPH_TEXT_DEMO_MODULE", "")
-
 
 @dataclass(frozen=True)
 class Settings:
-    mode: str = os.getenv("GOVERNEDGRAPH_MODE", "local")  # local | azure
     environment_name: str = os.getenv("AZURE_ENV_NAME", "")
     project_endpoint: str = os.getenv("AZURE_AI_PROJECT_ENDPOINT", "")
     project_resource_id: str = os.getenv("AZURE_AI_PROJECT_RESOURCE_ID", "")
@@ -70,13 +63,14 @@ class Settings:
     contact_centre_storage_url: str = os.getenv("CONTACT_CENTRE_STORAGE_URL", "")
     key_vault_url: str = os.getenv("AZURE_KEY_VAULT_URL", "")
     snapshot_signing_key_name: str = os.getenv("SNAPSHOT_SIGNING_KEY_NAME", "ranking-snapshot-signing")
-    local_signing_secret: str = os.getenv("GOVERNEDGRAPH_LOCAL_SIGNING_SECRET", "local-dev-only-not-a-secret")
     control_arm_share: float = float(os.getenv("GOVERNEDGRAPH_CONTROL_ARM_SHARE", "0.05"))  # ILLUSTRATIVE
     run_dir: Path = Path(os.getenv("GOVERNEDGRAPH_RUN_DIR", str(REPO_ROOT / ".run")))
 
+
     @property
     def is_azure(self) -> bool:
-        return self.mode == "azure"
+        """Azure Public is the only supported execution backend."""
+        return True
 
 
 settings = Settings()

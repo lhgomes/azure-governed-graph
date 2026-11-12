@@ -5,33 +5,74 @@ import argparse
 import hashlib
 import json
 import logging
+import os
+from collections.abc import Generator
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from governedgraph.agents.foundry_runtime import agent_definition
 from governedgraph.agents.counsellor import INSTRUCTIONS
 from governedgraph.common.config import settings
+from scripts.delivery import AGENT_NAMES, DeliveryError, Runner
+
+if TYPE_CHECKING:
+    from azure.ai.projects import AIProjectClient
+    from azure.core.credentials import AccessToken, TokenCredential
+
+
+class _TenantCredential:
+    def __init__(self, credential: TokenCredential, tenant_id: str):
+        self.credential = credential
+        self.tenant_id = tenant_id
+
+    def get_token(self, *scopes: str, **kwargs: Any) -> AccessToken:
+        if kwargs.get("tenant_id") not in (None, self.tenant_id):
+            raise DeliveryError("Foundry authentication cannot leave the selected deployment tenant")
+        kwargs["tenant_id"] = self.tenant_id
+        return self.credential.get_token(*scopes, **kwargs)
+
+
+@contextmanager
+def project_client(endpoint: str, *, subscription: str) -> Generator[AIProjectClient]:
+    from azure.ai.projects import AIProjectClient
+    from azure.identity import DefaultAzureCredential
+
+    if not subscription:
+        raise DeliveryError("Foundry authentication requires the selected AZURE_SUBSCRIPTION_ID")
+    tenant_id = Runner().run(["az", "account", "show", "--subscription", subscription,
+                              "--query", "tenantId", "-o", "tsv"])
+    try:
+        UUID(tenant_id)
+    except ValueError as error:
+        raise DeliveryError("selected subscription returned an invalid Foundry tenant") from error
+    with DefaultAzureCredential(process_timeout=120) as credential:
+        with AIProjectClient(endpoint=endpoint, credential=_TenantCredential(credential, tenant_id)) as project:
+            yield project
 
 
 def definition_sha256(definition: dict[str, object]) -> str:
     return hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()
 
 
-def pin_fairness_endpoint(project, version: str) -> None:
+def pin_fairness_endpoint(project, version: str, *, agent_name: str | None = None) -> None:
     from azure.ai.projects.models import AgentEndpointConfig
     from governedgraph.agents.fairness_runtime import endpoint_selector
 
     selector = endpoint_selector(version)
     expected = selector.as_dict()
-    current = project.agents.get(settings.fairness_agent_name).as_dict()
+    name = settings.fairness_agent_name if agent_name is None else agent_name
+    current = project.agents.get(name).as_dict()
     if current["agent_endpoint"]["version_selector"] == expected:
         return
     updated = project.agents.update_details(
-        agent_name=settings.fairness_agent_name, agent_endpoint=AgentEndpointConfig(version_selector=selector),
+        agent_name=name, agent_endpoint=AgentEndpointConfig(version_selector=selector),
     ).as_dict()
     if updated["agent_endpoint"]["version_selector"] != expected:
         raise RuntimeError("fairness endpoint did not acknowledge the approved immutable version")
 
 
-def provision(project, *, apply: bool, role: str = "counsellor") -> dict[str, str]:
+def provision(project, *, apply: bool, role: str = "counsellor", agent_name: str | None = None) -> dict[str, str]:
     model_deployment = settings.model_deployment if role == "counsellor" else settings.compact_deployment
     if role == "fairness":
         from governedgraph.agents.fairness_runtime import agent_definition as fairness_definition
@@ -43,7 +84,7 @@ def provision(project, *, apply: bool, role: str = "counsellor") -> dict[str, st
 
         definition = decision_definition(role)
         model_deployment = deployment_for(role)
-        name, decision = f"gg-{role}-agent", "IMP-57"
+        name, decision = AGENT_NAMES[role], "IMP-57"
     elif role == "evaluation":
         model_deployment = "gpt-modern"
         definition = agent_definition(INSTRUCTIONS, model=model_deployment, reasoning_effort="none")
@@ -52,10 +93,14 @@ def provision(project, *, apply: bool, role: str = "counsellor") -> dict[str, st
         compact = role == "voice-compact"
         definition = (agent_definition(INSTRUCTIONS, model=settings.compact_deployment) if compact
                       else agent_definition(INSTRUCTIONS))
-        name = "gg-counsellor-voice-compact" if compact else settings.agent_name
+        name = AGENT_NAMES[role] if compact else settings.agent_name
         decision = "IMP-57"
     else:
         raise ValueError("unknown governed agent role")
+    if agent_name is not None:
+        name = agent_name
+    if not name:
+        raise DeliveryError("agent provisioning requires an explicit nonempty agent name")
     digest = definition_sha256(definition.as_dict())
     result = {"agent_name": name,
               "model_deployment": model_deployment,
@@ -81,7 +126,7 @@ def provision(project, *, apply: bool, role: str = "counsellor") -> dict[str, st
         )
         action = "created; pin this version before deployment"
     if role == "fairness":
-        pin_fairness_endpoint(project, version.version)
+        pin_fairness_endpoint(project, version.version, agent_name=name)
         result["endpoint_version"] = version.version
     return {**result, "agent_version": version.version, "action": action}
 
@@ -94,10 +139,8 @@ def main() -> None:
                         default="counsellor")
     args = parser.parse_args()
     if args.apply:
-        from azure.ai.projects import AIProjectClient
-        from azure.identity import DefaultAzureCredential
-
-        with AIProjectClient(endpoint=settings.project_endpoint, credential=DefaultAzureCredential()) as project:
+        with project_client(settings.project_endpoint,
+                            subscription=os.environ.get("AZURE_SUBSCRIPTION_ID", "")) as project:
             result = provision(project, apply=True, role=args.role)
     else:
         result = provision(None, apply=False, role=args.role)

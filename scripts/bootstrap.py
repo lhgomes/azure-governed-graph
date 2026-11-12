@@ -7,7 +7,7 @@ import os
 import re
 import time
 
-from scripts.delivery import AGENT_ROLES, DeliveryError, provision, public_result, run_job
+from scripts.delivery import AGENT_NAMES, AGENT_ROLES, DeliveryError, provision, public_result, run_job
 
 
 def release_approval(composition, results: dict) -> dict:
@@ -15,10 +15,12 @@ def release_approval(composition, results: dict) -> dict:
     approval = json.loads(composition.release_approval.read_text(), object_pairs_hook=unique_fields)
     if set(approval) != {"tier", "approved", "decision_ref", "evidence_ref", "writers"}:
         raise DeliveryError("human release approval has an invalid shape")
-    writers = {"gg-counsellor": "counsellor", "gg-counsellor-voice-compact": "voice-compact"}
+    writers = {AGENT_NAMES[role]: role for role in ("counsellor", "voice-compact")}
     if set(approval["writers"]) != set(writers):
         raise DeliveryError("human release approval must cover both exact writer definitions")
     for name, role in writers.items():
+        if results[role].get("agent_name") != name:
+            raise DeliveryError("human release approval does not match the provisioned writer name")
         if approval["writers"][name] != {"definition_sha256": results[role]["definition_sha256"]}:
             raise DeliveryError("human release approval is stale; no generated writer is activated")
     if (approval["tier"] != "tier2" or approval["approved"] is not True
@@ -33,7 +35,7 @@ def release_approval(composition, results: dict) -> dict:
 def approved_writers(composition, results: dict, endpoint: str) -> dict:
     from scripts.writer_approval import validate_record
     approval = release_approval(composition, results)
-    writers = {"gg-counsellor": "counsellor", "gg-counsellor-voice-compact": "voice-compact"}
+    writers = {AGENT_NAMES[role]: role for role in ("counsellor", "voice-compact")}
     record = {**approval, "project_endpoint": endpoint,
               "writers": {name: {"version": results[role]["agent_version"],
                                 "definition_sha256": results[role]["definition_sha256"]} for name, role in writers.items()}}
@@ -42,14 +44,14 @@ def approved_writers(composition, results: dict, endpoint: str) -> dict:
     return record
 
 
-def agents(composition, endpoint: str) -> tuple[dict, dict]:
-    from azure.ai.projects import AIProjectClient
-    from azure.identity import DefaultAzureCredential
-    from scripts.create_agents import provision as create
+def agents(composition, endpoint: str, *, subscription: str) -> tuple[dict, dict]:
+    from scripts.create_agents import project_client, provision as create
     from scripts.writer_approval import verify
 
-    with DefaultAzureCredential() as credential, AIProjectClient(endpoint=endpoint, credential=credential) as project:
-        results = {role: create(project, apply=True, role=role) for role in AGENT_ROLES}
+    with project_client(endpoint, subscription=subscription) as project:
+        results = {role: create(project, apply=True, role=role, agent_name=AGENT_NAMES[role]) for role in AGENT_ROLES}
+        if any(result.get("agent_name") != AGENT_NAMES[role] for role, result in results.items()):
+            raise DeliveryError("Foundry returned a different deployment agent name")
         if any(not re.fullmatch(r"[1-9][0-9]*", result.get("agent_version", ""))
                or not re.fullmatch(r"[a-f0-9]{64}", result.get("definition_sha256", "")) for result in results.values()):
             raise DeliveryError("Foundry returned missing immutable numeric pins or definition digests")
@@ -60,6 +62,8 @@ def agents(composition, endpoint: str) -> tuple[dict, dict]:
 
 
 def entra(inputs, foundation: dict) -> dict:
+    if os.environ.get("AZURE_SUBSCRIPTION_ID") != inputs.subscription:
+        raise DeliveryError("Entra bootstrap requires the selected delivery subscription in AZURE_SUBSCRIPTION_ID")
     from governedgraph.strategy_service.provision_auth import configure as strategy
     from scripts.configure_admin_console import configure as admin
     from scripts.configure_contact_centre import configure as contact
@@ -133,7 +137,7 @@ def member_public_jwk(runner, inputs, job: str, execution: str) -> dict:
 
 def initial_priors(runner, inputs, composition, foundation: dict, images: dict) -> dict:
     security = foundation["security"]
-    env = {**composition.domain_environment, "GOVERNEDGRAPH_MODE": "azure",
+    env = {**composition.domain_environment,
            "AZURE_KEY_VAULT_URL": security["keyVaultUri"], "SNAPSHOT_SIGNING_KEY_NAME": security["signingKeyName"],
            "RANKING_STORAGE_URL": foundation["data"]["contentBlobEndpoint"]}
     results = {}

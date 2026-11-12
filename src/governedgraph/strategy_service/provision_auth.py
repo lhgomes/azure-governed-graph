@@ -5,6 +5,9 @@ import argparse
 import json
 import os
 import subprocess
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 from uuid import NAMESPACE_URL, UUID, uuid5
 from typing import Any
 
@@ -13,18 +16,43 @@ ROLES = {name: str(uuid5(NAMESPACE_URL, "governedgraph/strategy/" + name))
          for name in ("Strategy.Publish", "Strategy.Suspend", "Strategy.Freeze")}
 
 
+class GraphError(RuntimeError):
+    def __init__(self, method: str, path: str, status: int, detail: str):
+        self.status, self.detail = status, detail
+        super().__init__(f"Microsoft Graph {method} {path.split('?')[0]} failed ({status}): {detail}")
+
+
 def az(*args: str) -> Any:
-    result = subprocess.run(["az", *args, "-o", "json"], text=True, capture_output=True, check=False)
+    result = subprocess.run(["az", *args, "-o", "json"], text=True, capture_output=True, check=False, timeout=120)
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or "Azure CLI command failed")
     return json.loads(result.stdout) if result.stdout.strip() else None
 
 
-def graph(method: str, path: str, body: dict | None = None):
-    args = ["rest", "--method", method, "--url", "https://graph.microsoft.com/v1.0/" + path]
-    if body is not None:
-        args += ["--headers", "Content-Type=application/json", "--body", json.dumps(body)]
-    return az(*args)
+def graph(method: str, path: str, body: dict | None = None) -> dict:
+    subscription = os.environ.get("AZURE_SUBSCRIPTION_ID", "")
+    scope = ["--subscription", subscription] if subscription else []
+    try:
+        credential = az("account", "get-access-token", *scope, "--resource-type", "ms-graph")
+    except (RuntimeError, subprocess.TimeoutExpired) as error:
+        raise GraphError(method, path, 1, str(error)) from None
+    if not isinstance(credential, dict) or not isinstance(credential.get("accessToken"), str) or not credential["accessToken"]:
+        raise GraphError(method, path, 1, "Azure CLI returned no Microsoft Graph access token")
+    request = Request(
+        "https://graph.microsoft.com/v1.0/" + quote(path, safe="/?&=$,;:+@%'()"), method=method,
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={"Authorization": "Bearer " + credential["accessToken"],
+                 "Content-Type": "application/json", "Accept": "application/json"},
+    )
+    try:
+        with urlopen(request, timeout=60) as response:
+            content = response.read()
+    except HTTPError as error:
+        detail = error.read().decode(errors="replace")
+        raise GraphError(method, path, error.code, detail) from None
+    except URLError as error:
+        raise GraphError(method, path, 1, str(error.reason)) from None
+    return json.loads(content) if content else {}
 
 
 def role_assignments(pipeline: str, fairness: str, runtime: str, admin: str = "") -> set[tuple[str, str]]:
@@ -49,7 +77,10 @@ def configure(environment: str, pipeline: str, fairness: str, runtime: str, *, a
     expected = role_assignments(pipeline, fairness, runtime, admin)
     suffix = "-" + UUID(naming_seed).hex if naming_seed else ""
     name = "gg-strategy-" + environment + suffix
-    apps = az("ad", "app", "list", "--display-name", name)
+    apps = graph("GET", "applications?$filter=" + quote("displayName eq '" + name.replace("'", "''") + "'"))
+    if apps.get("@odata.nextLink"):
+        raise RuntimeError("unexpected registration pagination; operator review required")
+    apps = apps["value"]
     if len(apps) > 1:
         raise RuntimeError("multiple Strategy API registrations; select and reconcile explicitly")
     configuration = {
@@ -70,6 +101,10 @@ def configure(environment: str, pipeline: str, fairness: str, runtime: str, *, a
                       "human_reinstatement": "disabled", "apply": apply}))
     if not apply:
         return apps[0]["appId"] if apps else None
+    for principal in sorted({principal for principal, _ in expected}):
+        resolved = graph("GET", f"servicePrincipals/{principal}?$select=id")
+        if resolved.get("id", "").casefold() != principal.casefold():
+            raise RuntimeError("deployment identity did not resolve in the selected Microsoft Graph tenant")
     if apps:
         app = apps[0]
         existing = {r["id"] for r in app.get("appRoles", [])}
@@ -81,7 +116,10 @@ def configure(environment: str, pipeline: str, fairness: str, runtime: str, *, a
         app = graph("POST", "applications", configuration)
     app_id = app["appId"]
     graph("PATCH", f"applications/{app['id']}", {"identifierUris": ["api://" + app_id]})
-    principals = az("ad", "sp", "list", "--filter", f"appId eq '{app_id}'")
+    principals = graph("GET", "servicePrincipals?$filter=" + quote(f"appId eq '{app_id}'"))
+    if principals.get("@odata.nextLink"):
+        raise RuntimeError("unexpected service-principal pagination; operator review required")
+    principals = principals["value"]
     if len(principals) > 1:
         raise RuntimeError("multiple API service principals")
     resource = principals[0] if principals else graph("POST", "servicePrincipals", {"appId": app_id})

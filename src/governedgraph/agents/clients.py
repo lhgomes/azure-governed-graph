@@ -5,33 +5,12 @@ from __future__ import annotations
 import logging
 from urllib.parse import quote
 
-from governedgraph.common.config import LOCAL_VALUES_PROVIDER, settings
+from governedgraph.common.config import settings
 from governedgraph.common.contracts import MemberValue, MemberValues, RankedStrategy, StrategyResponse
 from governedgraph.common.member_auth import verify_member_token
 from governedgraph.common.tracing import traceparent
 
 log = logging.getLogger("governedgraph.member_values")
-
-
-class LocalValuesClient:
-    def get(self, member_ref: str, authenticated_member_ref: str, *, journey_id: str = "",
-            trace_parent: str = "") -> MemberValues:
-        from importlib import import_module
-
-        module_name, separator, attribute = LOCAL_VALUES_PROVIDER.partition(":")
-        if not module_name or not separator or not attribute:
-            raise ValueError("Local values require explicit GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER")
-        get_member_values = getattr(import_module(module_name), attribute)
-
-        try:
-            values = get_member_values(member_ref, authenticated_member_ref)
-        except PermissionError:
-            log.error("member_scope_violation", extra={"journey_id": journey_id,
-                                                       "traceparent": traceparent(trace_parent)})
-            raise
-        log.info("member_values_call", extra={"journey_id": journey_id,
-                                              "traceparent": traceparent(trace_parent), "status_code": 200})
-        return values
 
 
 class ApimValuesClient:
@@ -54,8 +33,7 @@ class ApimValuesClient:
 
         r = http_client().get(f"{settings.member_values_url.rstrip('/')}/members/{quote(member_ref, safe='')}/values",
                       headers={"Authorization": f"Bearer {self.member_token}",
-                               **(headers(journey_id, parent) if settings.is_azure else
-                                  {"X-Journey-ID": journey_id, "traceparent": parent})},
+                               **headers(journey_id, parent)},
                       timeout=15)
         log.info("member_values_call", extra={"journey_id": journey_id, "traceparent": parent,
                                               "status_code": r.status_code})
@@ -65,16 +43,6 @@ class ApimValuesClient:
             log.error("member_scope_violation", extra={"journey_id": journey_id})
             raise PermissionError("administrator returned another member's values")
         return MemberValues(d["member_ref"], [MemberValue(**v) for v in d["values"]])
-
-
-class LocalStrategyClient:
-    def __init__(self, service=None):
-        from governedgraph.strategy_service.service import StrategyService
-
-        self.service = service or StrategyService()
-
-    def get_ranked(self, request: dict) -> StrategyResponse:
-        return self.service.get_ranked(request)
 
 
 class HttpStrategyClient:
@@ -93,8 +61,12 @@ class HttpStrategyClient:
 
 
 def default_values_client(member_token: str = ""):
-    return ApimValuesClient(member_token) if settings.is_azure else LocalValuesClient()
+    if not settings.member_values_url:
+        raise ValueError("MEMBER_VALUES_API_URL is required in Azure mode")
+    return ApimValuesClient(member_token)
 
 
 def default_strategy_client(service=None):
-    return HttpStrategyClient() if settings.is_azure and settings.strategy_service_url else LocalStrategyClient(service)
+    if not settings.strategy_service_url:
+        raise ValueError("STRATEGY_SERVICE_URL is required in Azure mode")
+    return HttpStrategyClient()

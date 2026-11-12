@@ -1,8 +1,35 @@
 # Evaluation method
 
+> **Execution scope:** All evaluations and tests must be run in the authorized Azure
+> environment. Older sections referring to local adapters or offline replay document
+> historical evaluation artifacts; they do not authorize running a local application
+> or treating a checked-in report as current Azure test evidence. See
+> [Azure-only execution](azure-only-execution.md) for the pending migration gates.
+
 > **ILLUSTRATIVE - synthetic data.** This page describes how GovernedGraph is evaluated. It deliberately contains no
 > measurements: results depend on your models, region, prompts and domain pack, so each deployment records its own. Never
 > present a result from one deployment as a property of the framework.
+
+## Azure-hosted curated and adversarial journey proof
+
+The existing managed-identity **dev-issuer Container Apps job** can execute the
+curated/adversarial set against the actual deployed orchestrator without a local
+runtime. Build and deploy the sample `probe` image; then from the approved
+Azure-hosted delivery environment invoke:
+
+```bash
+python -m scripts.run_dev_proof evals --environment gg-dev \\
+  --image <immutable-probe-image-reference> --logs
+```
+
+The job mints short-lived synthetic member tokens in memory. The probe checks
+explanation-versus-escalation behavior, host numeric-fidelity and advice gates,
+immutable audit acknowledgements, strategy eligibility, actual Foundry composition,
+and demographic-invariance cases with matching experiment arms. It logs only
+closed verdicts, case IDs and journey IDs. **No run was executed as part of the
+Azure-only refactor; results remain pending.** These checks complement but do not
+replace paid LLM-as-judge calibration, B1-B10 regression suites or cross-model
+comparisons.
 
 ## Initial synthetic sample release
 

@@ -81,7 +81,6 @@ def require_recovery_operator(authorization: str = Header(default="")) -> str:
 
 def require_operator(action: str):
     def dependency(authorization: str = Header(default="")) -> None:
-        if settings.is_azure:
-            authorize(action, authorization)
+        authorize(action, authorization)
 
     return dependency

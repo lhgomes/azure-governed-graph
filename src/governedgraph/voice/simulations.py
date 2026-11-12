@@ -2,7 +2,7 @@
 from dataclasses import asdict, dataclass, field
 
 from governedgraph.common import domain
-from governedgraph.common.config import DATA_DIR, settings
+from governedgraph.common.config import DATA_DIR
 from governedgraph.common.contracts import ACCESSIBILITY_MODES, ContractError, _strict
 from governedgraph.common.io import load_json
 from governedgraph.orchestrator.store import validate_id
@@ -57,20 +57,8 @@ class Simulation:
 
 def load_simulations() -> list[Simulation]:
     path = DATA_DIR / "demo" / "simulations.json"
-    if path.exists() or settings.is_azure:
-        body = load_json(path)
-        rows = body["simulations"]
-    else:
-        body = load_json(DATA_DIR / "personas" / "personas.json")
-        rows = [{
-            "simulation_id": profile["persona_id"],
-            **{key: profile[key] for key in (
-                "display_name", "member_ref", "channel", "accessibility_mode", "opening",
-            )},
-            "teach_back_answer": profile.get("teach_back_answer", ""),
-            "follow_up_questions": profile.get("follow_up_questions", []),
-            "closing": profile.get("closing", ""),
-        } for profile in body["personas"]]
+    body = load_json(path)
+    rows = body["simulations"]
     if WATERMARK not in body.get("watermark", "") or not isinstance(rows, list) or not rows:
         raise ContractError("watermarked synthetic simulations required")
     simulations = [Simulation.from_dict(row) for row in rows]

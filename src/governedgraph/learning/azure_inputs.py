@@ -159,6 +159,4 @@ class BlobLearningInputs:
 
 
 if __name__ == "__main__":
-    if not settings.is_azure:
-        raise SystemExit("This command is only for the isolated Azure fairness identity")
     print("FAIRNESS_AUDIT_ID=" + BlobLearningInputs().run_fairness(StrategyAdminClient(protective_only=True)))

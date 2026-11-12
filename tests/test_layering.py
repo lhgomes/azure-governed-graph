@@ -29,5 +29,6 @@ def test_framework_core_never_imports_the_sample_domain():
 def test_sample_reaches_the_core_only_through_configuration():
     from governedgraph.common import config
 
-    assert config.LOCAL_VALUES_PROVIDER.split(":")[0].startswith(SAMPLE)
+    assert not hasattr(config, "LOCAL_VALUES_PROVIDER")
+    assert not hasattr(config, "TEXT_DEMO_MODULE")
     assert config.DATA_DIR.name == "data" and config.DATA_DIR.parent.name == SAMPLE

@@ -42,8 +42,6 @@ def monitor_export_options(signal: Literal["traces", "logs"]) -> dict[str, objec
 
 def configure_events() -> None:
     global _logs
-    if not settings.is_azure:
-        return
     with _lock:
         if _logs is not None:
             return
@@ -109,21 +107,17 @@ def headers(journey_id: str, parent: str = "") -> dict[str, str]:
     from governedgraph.agents.foundry_tracing import journey_trace_id
 
     candidate = traceparent(parent)
-    if settings.is_azure:
-        from opentelemetry import trace
+    from opentelemetry import trace
 
-        current = trace.get_current_span().get_span_context()
-        if current.is_valid and current.trace_id == journey_trace_id(journey_id):
-            candidate = f"00-{current.trace_id:032x}-{current.span_id:016x}-01"
+    current = trace.get_current_span().get_span_context()
+    if current.is_valid and current.trace_id == journey_trace_id(journey_id):
+        candidate = f"00-{current.trace_id:032x}-{current.span_id:016x}-01"
     return {"X-Journey-ID": journey_id,
             "traceparent": f"00-{journey_trace_id(journey_id):032x}-{candidate.split('-')[2]}-01"}
 
 
 @contextmanager
 def operation(journey_id: str, name: str, *, agent_name: str, parent: str = "", server: bool = False):
-    if not settings.is_azure:
-        yield None
-        return
     from governedgraph.agents.foundry_tracing import configure_tracing, journey_trace_id, _journey
     from opentelemetry import trace
     from opentelemetry.context import Context

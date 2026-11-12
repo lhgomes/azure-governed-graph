@@ -29,7 +29,7 @@ from governedgraph.common.io import load_json
 from governedgraph.strategy_service.catalogue import ESCALATION_STRATEGY, Catalogue
 from governedgraph.strategy_service.exploration import explore
 from governedgraph.strategy_service.snapshot import RankingSnapshot, SignatureUnavailable, Signer, default_signer, verify_snapshot
-from governedgraph.strategy_service.state import BlobStateStore, LocalStateStore, StateConflict, StateStore, StateUnavailable
+from governedgraph.strategy_service.state import BlobStateStore, StateConflict, StateStore, StateUnavailable
 
 log = logging.getLogger("governedgraph.strategy_service")
 
@@ -71,11 +71,8 @@ class StrategyService:
         self._lock = RLock()
         self._etag: str | None = None
         self._fresh = True
-        self.store = store or (
-            BlobStateStore(settings.ranking_storage_url) if settings.is_azure
-            else LocalStateStore(self.state_dir / "state.json")
-        )
-        self._refresh_on_read = store is not None or settings.is_azure
+        self.store = store or BlobStateStore(settings.ranking_storage_url)
+        self._refresh_on_read = True
         self._refresh()
 
     # ---------- snapshot lifecycle ----------
