@@ -67,7 +67,7 @@ def verified_candidates(state: PipelineState, inputs, service, thresholds: dict)
     service.refresh()
     if previous_rankings(service) != state.previous or current_id(service) != state.previous_snapshot_id:
         raise ValueError("ranking baseline changed during the pipeline; retry a fresh cycle")
-    candidates = compute_candidates(service.catalogue, state.previous, evidence, thresholds)
+    candidates = compute_candidates(service.catalogue, state.previous, evidence, thresholds, expert_priors=service.priors)
     expected = [asdict(candidate) for candidate in candidates]
     if sorted(expected, key=lambda row: row["request_key"]) != sorted(state.candidates, key=lambda row: row["request_key"]):
         raise ValueError("candidate is not the approved bounded reorder")
@@ -99,7 +99,7 @@ def run_stage(stage: str, state: PipelineState, inputs, service, signer) -> Pipe
         evidence = {key: {sid: StrategyEvidence.from_dict(ev) for sid, ev in rows.items()}
                     for key, rows in state.evidence.items()}
         state.candidates = [asdict(c) for c in compute_candidates(
-            service.catalogue, state.previous, evidence, thresholds,
+            service.catalogue, state.previous, evidence, thresholds, expert_priors=service.priors,
         )]
     elif stage == "audit":
         state.audit_id = inputs.run_fairness(service, expected_digest=state.outcome_digest)
