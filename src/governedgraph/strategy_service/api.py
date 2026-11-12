@@ -1,7 +1,4 @@
-"""HTTP surface of the Strategy Service (deployed to Azure Container Apps behind APIM).
-
-Run locally:  uvicorn governedgraph.strategy_service.api:app --port 8082
-"""
+"""HTTP surface of the Strategy Service (Azure Container Apps behind APIM)."""
 from __future__ import annotations
 
 import logging
@@ -71,14 +68,22 @@ def publish_snapshot(payload: dict):
     """Called only by the P2 pipeline identity (APIM policy + Entra role)."""
     try:
         expected = None
+        static = None
         if "snapshot" in payload:
-            if (set(payload) != {"snapshot", "expected_snapshot_id"}
+            required = {"snapshot", "expected_snapshot_id"}
+            if (set(payload) not in (required, required | {"static_snapshot"})
                     or not isinstance(payload["expected_snapshot_id"], str)
                     or not payload["expected_snapshot_id"]):
                 raise ValueError("invalid conditional publication contract")
             expected = payload["expected_snapshot_id"]
+            if "static_snapshot" in payload:
+                static = RankingSnapshot.from_dict(payload["static_snapshot"])
             payload = payload["snapshot"]
-        svc.load_snapshot(RankingSnapshot.from_dict(payload), expected_snapshot_id=expected)
+        snapshot = RankingSnapshot.from_dict(payload)
+        if static is None:
+            svc.load_snapshot(snapshot, expected_snapshot_id=expected)
+        else:
+            svc.load_snapshot(snapshot, expected_snapshot_id=expected, static_snapshot=static)
     except (SnapshotRejected, ContractError, ValueError, TypeError, KeyError) as e:
         raise HTTPException(status_code=422, detail=f"snapshot rejected: {e}")
     return {"loaded": payload["snapshot_id"]}

@@ -1,7 +1,7 @@
 """Reference-only journey snapshots and outbox, committed together."""
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import asdict, dataclass, field
 import fcntl
 import json
@@ -76,13 +76,17 @@ class JourneyRecord:
     processed_requests: list[str] = field(default_factory=list)
     escalation_sequence: int = 0
     pending_audits: list[ExplainabilityRecord] = field(default_factory=list)
+    outcome_requests: dict[str, str] = field(default_factory=dict)
+    playback_requests: dict[str, str] = field(default_factory=dict)
 
     def encode(self) -> str:
         return json.dumps({"journey": self.journey.to_dict(),
                            "pending": [asdict(item) for item in self.pending],
                            "processed_requests": self.processed_requests,
                            "escalation_sequence": self.escalation_sequence,
-                           "pending_audits": [asdict(item) for item in self.pending_audits]}, sort_keys=True)
+                           "pending_audits": [asdict(item) for item in self.pending_audits],
+                           "outcome_requests": self.outcome_requests,
+                           "playback_requests": self.playback_requests}, sort_keys=True)
 
     @classmethod
     def decode(cls, text: str) -> "JourneyRecord":
@@ -92,6 +96,16 @@ class JourneyRecord:
         result.pending_audits = [ExplainabilityRecord.from_dict(item) for item in result.pending_audits]
         for request_id in result.processed_requests:
             validate_id(request_id)
+        for requests in (result.outcome_requests, result.playback_requests):
+            if not isinstance(requests, dict):
+                raise ValueError("invalid closed request identities")
+            for request_id, digest in requests.items():
+                validate_id(request_id)
+                if request_id not in result.processed_requests or not isinstance(digest, str) or not re.fullmatch(
+                        r"[0-9a-f]{64}", digest):
+                    raise ValueError("invalid closed request identity")
+        if set(result.outcome_requests) & set(result.playback_requests):
+            raise ValueError("request identities cannot be shared across operations")
         return result
 
 
@@ -113,7 +127,7 @@ class Transaction(Generic[T]):
 
 
 class JourneyStore(Protocol):
-    def transaction(self, journey_id: str): ...
+    def transaction(self, journey_id: str) -> AbstractContextManager[Transaction[JourneyRecord]]: ...
     def ids(self) -> Iterator[str]: ...
 
 

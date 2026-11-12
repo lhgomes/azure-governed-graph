@@ -13,7 +13,8 @@ from governedgraph.learning.ranking_pipeline import (
     classify_tier, load_outcome_aggregates, load_thresholds,
 )
 from governedgraph.learning.uplift import evaluate_window
-from governedgraph.strategy_service.snapshot import RankingSnapshot, verify_snapshot
+from governedgraph.strategy_service.bootstrap import expert_snapshot
+from governedgraph.strategy_service.snapshot import RankingSnapshot, verify_expert_snapshot, verify_snapshot
 
 STAGES = ("aggregate", "rank", "audit", "veto", "sign", "tier", "publish", "uplift")
 
@@ -27,6 +28,7 @@ class PipelineState:
     candidates: list[dict] = field(default_factory=list)
     audit_id: str = ""
     snapshot: dict | None = None
+    static_snapshot: dict | None = None
     approved: bool = False
     completed_stage: str = ""
     uplift: dict | None = None
@@ -45,6 +47,8 @@ class PipelineState:
             CandidateRanking.from_dict(candidate)
         if state.snapshot is not None:
             RankingSnapshot.from_dict(state.snapshot)
+        if state.static_snapshot is not None:
+            RankingSnapshot.from_dict(state.static_snapshot)
         return state
 
 
@@ -67,7 +71,7 @@ def verified_candidates(state: PipelineState, inputs, service, thresholds: dict)
     service.refresh()
     if previous_rankings(service) != state.previous or current_id(service) != state.previous_snapshot_id:
         raise ValueError("ranking baseline changed during the pipeline; retry a fresh cycle")
-    candidates = compute_candidates(service.catalogue, state.previous, evidence, thresholds)
+    candidates = compute_candidates(service.catalogue, state.previous, evidence, thresholds, expert_priors=service.priors)
     expected = [asdict(candidate) for candidate in candidates]
     if sorted(expected, key=lambda row: row["request_key"]) != sorted(state.candidates, key=lambda row: row["request_key"]):
         raise ValueError("candidate is not the approved bounded reorder")
@@ -99,7 +103,7 @@ def run_stage(stage: str, state: PipelineState, inputs, service, signer) -> Pipe
         evidence = {key: {sid: StrategyEvidence.from_dict(ev) for sid, ev in rows.items()}
                     for key, rows in state.evidence.items()}
         state.candidates = [asdict(c) for c in compute_candidates(
-            service.catalogue, state.previous, evidence, thresholds,
+            service.catalogue, state.previous, evidence, thresholds, expert_priors=service.priors,
         )]
     elif stage == "audit":
         state.audit_id = inputs.run_fairness(service, expected_digest=state.outcome_digest)
@@ -107,16 +111,19 @@ def run_stage(stage: str, state: PipelineState, inputs, service, signer) -> Pipe
         candidates = verified_candidates(state, inputs, service, thresholds)
         if stage == "sign":
             state.snapshot = build_snapshot(service.catalogue, candidates, state.audit_id, thresholds, signer).to_dict()
+            state.static_snapshot = expert_snapshot(service.catalogue, service.priors, thresholds, signer).to_dict()
         elif stage in {"tier", "publish"}:
-            if state.snapshot is None:
-                raise ValueError("signed P2 snapshot is missing")
+            if state.snapshot is None or state.static_snapshot is None:
+                raise ValueError("signed P2 snapshot or static baseline is missing")
             snapshot = RankingSnapshot.from_dict(state.snapshot)
+            static = RankingSnapshot.from_dict(state.static_snapshot)
             expected_rankings = {c.request_key: [[sid, service.catalogue.get(sid).version] for sid in c.candidate]
                                  for c in candidates}
             if (snapshot.rankings != expected_rankings or snapshot.source_audit_id != state.audit_id
                     or snapshot.threshold_version != thresholds["threshold_version"]
                     or snapshot.tier != classify_tier(candidates, thresholds)
-                    or not verify_snapshot(snapshot, signer)):
+                    or not verify_snapshot(snapshot, signer)
+                    or not verify_expert_snapshot(static, service.catalogue, service.priors, thresholds, signer)):
                 raise ValueError("signed snapshot differs from the audited bounded candidate")
             if stage == "tier":
                 state.approved = snapshot.tier == "tier0"
@@ -131,7 +138,7 @@ def run_stage(stage: str, state: PipelineState, inputs, service, signer) -> Pipe
             else:
                 if not state.approved:
                     raise ValueError("snapshot lacks a successful tier verdict")
-                service.load_snapshot(snapshot, expected_snapshot_id=state.previous_snapshot_id)
+                service.load_snapshot(snapshot, expected_snapshot_id=state.previous_snapshot_id, static_snapshot=static)
     elif stage == "uplift":
         state.uplift = evaluate_window(inputs.uplift_input(), service)
         inputs.save_evidence("uplift", state.uplift["aggregate_digest"], state.uplift)

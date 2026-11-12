@@ -6,14 +6,16 @@ import asyncio
 import re
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Callable, Protocol
+from typing import Callable, Protocol, runtime_checkable
 from uuid import uuid4
 
 import httpx
 
 from governedgraph.agents.counsellor import DISCLOSURE, TEMPLATES
 from governedgraph.common import domain
-from governedgraph.common.contracts import ContractError, _strict
+from governedgraph.common.contracts import (
+    ContractError, OutcomeOffer, OutcomeSubmission, ResponseReference, _strict,
+)
 from governedgraph.observability import headers as journey_headers
 from governedgraph.orchestrator.store import validate_id
 
@@ -80,8 +82,26 @@ class VoiceReply:
     no_option_recommendation: bool = True
     workflow_steps: list[str] = field(default_factory=list)
     learning_feedback: dict | None = None
+    outcome_offer: dict | None = None
+    response_id: str | None = None
+    feedback_recorded: bool = False
 
     def __post_init__(self):
+        if self.response_id is not None:
+            if not isinstance(self.journey_id, str):
+                raise ContractError("answer reference requires its journey")
+            ResponseReference(self.journey_id, self.response_id)
+            if (self.audit_status not in ("committed", "queued") or self.escalated or self.duplicate
+                    or self.strategy_id is None):
+                raise ContractError("answer reference requires an audited delivered explanation")
+        if self.outcome_offer is not None:
+            offer = OutcomeOffer.from_dict(self.outcome_offer)
+            if (self.escalated or self.duplicate or self.feedback_recorded
+                    or self.audit_status not in ("committed", "queued")
+                    or not isinstance(self.text, str)
+                    or not self.text.endswith(offer.question)):
+                raise ContractError("outcome offer requires an audited explanation with approved wording")
+            object.__setattr__(self, "outcome_offer", asdict(offer))
         if self.learning_feedback is not None:
             from governedgraph.learning.feedback import FeedbackManifest
 
@@ -89,7 +109,7 @@ class VoiceReply:
                 manifest = FeedbackManifest.from_dict(self.learning_feedback)
             except (TypeError, ValueError) as error:
                 raise ContractError("invalid closed learning feedback metadata") from error
-            object.__setattr__(self, "learning_feedback", asdict(manifest))
+            object.__setattr__(self, "learning_feedback", manifest.to_dict())
         if (not isinstance(self.workflow_steps, list)
                 or any(step not in ("screen-input", "intent-agent", "understanding-agent",
                                     "explain-with-approved-tools", "clarify-question",
@@ -104,11 +124,15 @@ class VoiceReply:
                 or any(type(v) not in (int, float) or not math.isfinite(v) or v < 0 for v in self.stage_ms.values())
                 or type(self.model_rounds) is not int or self.model_rounds < 0):
             raise ContractError("invalid closed voice timing metadata")
-        if self.composition_source not in ("template", "foundry", "template_fallback"):
+        if self.composition_source not in ("template", "foundry", "template_fallback", "unanswered"):
             raise ContractError("invalid composition metadata")
+        if self.composition_source == "unanswered" and (
+                self.strategy_id is not None or self.outcome_offer is not None or self.response_id is not None):
+            raise ContractError("an unanswered turn cannot claim a strategy or offer answer feedback")
         if self.numeric_fidelity_passed is not True or self.no_option_recommendation is not True:
             raise ContractError("voice quality gates failed")
-        if type(self.duplicate) is not bool or type(self.escalated) is not bool:
+        if (type(self.duplicate) is not bool or type(self.escalated) is not bool
+                or type(self.feedback_recorded) is not bool):
             raise ContractError("invalid voice response flags")
         for name in ("strategy_id", "blocked_reason", "arm", "snapshot_id", "audit_status", "journey_id", "request_id"):
             value = getattr(self, name)
@@ -119,13 +143,34 @@ class VoiceReply:
             raise ContractError("voice strategy references must be string lists")
         if not isinstance(self.text, str) or not isinstance(self.state, str) or not self.state:
             raise ContractError("invalid orchestrator voice response")
-        if not self.duplicate and (not self.text.strip() or "{{" in self.text):
+        if self.feedback_recorded and (self.text or self.escalated or self.outcome_offer is not None
+                                       or self.response_id is not None):
+            raise ContractError("a feedback receipt is not a spoken answer")
+        if not self.duplicate and not self.feedback_recorded and (not self.text.strip() or "{{" in self.text):
             raise ContractError("voice requires final bound orchestrator text")
         if self.audit_status not in (None, "committed", "queued"):
             raise ContractError("an unaudited response must not be spoken")
 
     @classmethod
     def from_dict(cls, body: dict) -> VoiceReply:
+        if isinstance(body, dict) and body.get("feedback_recorded"):
+            raise ContractError("the orchestrator cannot return an internal feedback receipt as an answer")
+        return _strict(cls, body)
+
+
+@dataclass(frozen=True)
+class OutcomeReceipt:
+    journey_id: str
+    state: str
+    duplicate: bool
+
+    def __post_init__(self):
+        validate_id(self.journey_id)
+        if not isinstance(self.state, str) or not self.state or type(self.duplicate) is not bool:
+            raise ContractError("invalid outcome receipt")
+
+    @classmethod
+    def from_dict(cls, body: dict) -> OutcomeReceipt:
         return _strict(cls, body)
 
 
@@ -152,15 +197,46 @@ class OrchestratorChannel:
         result.raise_for_status()
         return JourneyStart.from_dict(result.json())
 
-    async def turn(self, journey_id: str, transcript: str, request_id: str) -> VoiceReply:
+    async def turn(self, journey_id: str, transcript: str, request_id: str, *,
+                   related_answer: ResponseReference | None = None) -> VoiceReply:
         validate_id(journey_id)
         validate_id(request_id)
         headers = {**self._headers(), "Idempotency-Key": request_id, **journey_headers(journey_id)}
-        result = await self.client.post(f"journeys/{journey_id}/turns",
-                                        headers=headers, json={"utterance": transcript})
+        body: dict[str, object] = {"utterance": transcript}
+        if related_answer is not None:
+            body["related_answer"] = asdict(related_answer)
+        result = await self.client.post(f"journeys/{journey_id}/turns", headers=headers, json=body)
         result.raise_for_status()
         return VoiceReply.from_dict(result.json())
 
+    async def record_outcome(self, journey_id: str, submission: OutcomeSubmission,
+                             request_id: str) -> OutcomeReceipt:
+        validate_id(journey_id)
+        validate_id(request_id)
+        headers = {**self._headers(), "Idempotency-Key": request_id, **journey_headers(journey_id)}
+        result = await self.client.post(
+            f"journeys/{journey_id}/turns", headers=headers,
+            json={"utterance": "", "outcome": asdict(submission)},
+        )
+        result.raise_for_status()
+        receipt = OutcomeReceipt.from_dict(result.json())
+        if receipt.journey_id != journey_id:
+            raise ContractError("outcome receipt journey mismatch")
+        return receipt
+
+    async def confirm_playback(self, journey_id: str, response_id: str, request_id: str) -> OutcomeReceipt:
+        ResponseReference(journey_id, response_id)
+        validate_id(request_id)
+        headers = {**self._headers(), "Idempotency-Key": request_id, **journey_headers(journey_id)}
+        result = await self.client.post(
+            f"journeys/{journey_id}/turns", headers=headers,
+            json={"utterance": "", "playback_response_id": response_id},
+        )
+        result.raise_for_status()
+        receipt = OutcomeReceipt.from_dict(result.json())
+        if receipt.journey_id != journey_id:
+            raise ContractError("playback receipt journey mismatch")
+        return receipt
 
 class Speech(Protocol):
     async def synthesize(self, text: str) -> bytes: ...
@@ -170,6 +246,11 @@ class Speech(Protocol):
 class AudioDevice(Protocol):
     async def play(self, pcm: bytes) -> None: ...
     async def capture(self) -> bytes: ...
+
+
+@runtime_checkable
+class OutcomeAwareAudioDevice(Protocol):
+    async def outcome_recorded(self, response_id: str, duplicate: bool) -> None: ...
 
 
 def validate_pcm(pcm: bytes) -> None:
@@ -197,6 +278,9 @@ class VoiceBridge:
         self.substantive_first_seconds: list[float] = []
         self.acknowledgement_seconds: list[float] = []
         self.input_modes: set[str] = set()
+        self.pending_outcome: OutcomeOffer | None = None
+        self.confirmed_responses: set[str] = set()
+        self.channel_kind = ""
 
     async def start(self, accessibility_mode: str = "standard", *, channel: str = "voice") -> None:
         if self.started or self.failed:
@@ -205,6 +289,7 @@ class VoiceBridge:
         try:
             started = await self.channel.start(accessibility_mode, channel=channel)
             self.journey_id = started.journey_id
+            self.channel_kind = channel
             if self.spoken_acknowledgement and getattr(self.speech, "checked_sentence_audio", False):
                 from governedgraph.guardrails.numeric_fidelity import check
                 from governedgraph.guardrails.advice_intent import response_steers_choice
@@ -301,15 +386,27 @@ class VoiceBridge:
         if not result.escalated:
             raise VoiceError("voice failure handover was not confirmed")
 
-    async def turn(self, pcm: bytes, *, request_id: str | None = None) -> VoiceReply:
-        return await self._turn(pcm=pcm, request_id=request_id)
+    async def submit_outcome(self, submission: OutcomeSubmission, request_id: str) -> OutcomeReceipt:
+        if (not self.disclosed or self.failed or self.pending_outcome is None
+                or submission.response_id != self.pending_outcome.response_id):
+            raise ContractError("outcome must refer to the current offered answer")
+        receipt = await self.channel.record_outcome(self.journey_id, submission, request_id)
+        self.pending_outcome = None
+        if isinstance(self.device, OutcomeAwareAudioDevice):
+            await self.device.outcome_recorded(submission.response_id, receipt.duplicate)
+        return receipt
 
-    async def turn_text(self, text: str, *, request_id: str | None = None) -> VoiceReply:
+    async def turn(self, pcm: bytes, *, request_id: str | None = None,
+                   related_answer: ResponseReference | None = None) -> VoiceReply:
+        return await self._turn(pcm=pcm, request_id=request_id, related_answer=related_answer)
+
+    async def turn_text(self, text: str, *, request_id: str | None = None,
+                        related_answer: ResponseReference | None = None) -> VoiceReply:
         """Narrate a text turn through the same authenticated, checked reply path."""
-        return await self._turn(text=text, request_id=request_id)
+        return await self._turn(text=text, request_id=request_id, related_answer=related_answer)
 
     async def _turn(self, *, pcm: bytes | None = None, text: str | None = None,
-                    request_id: str | None = None) -> VoiceReply:
+                    request_id: str | None = None, related_answer: ResponseReference | None = None) -> VoiceReply:
         if not self.disclosed or self.failed or self.inflight:
             raise VoiceError("spoken disclosure and a healthy audio session are required")
         self.inflight = True
@@ -331,18 +428,34 @@ class VoiceBridge:
                 validate_pcm(pcm)
             elif not isinstance(text, str) or not text.strip() or len(text) > 4000:
                 raise ContractError("bounded nonempty narrated text required")
-            if self.acknowledgement_audio is not None:
+            if self.acknowledgement_audio is not None and self.pending_outcome is None:
                 acknowledgement = asyncio.create_task(acknowledge())
             transcript = await self.speech.transcribe(pcm) if pcm is not None else text
             transcribed = time.monotonic()
             if not isinstance(transcript, str) or not transcript.strip():
                 raise AudioFailure("speech recognition did not produce a final transcript")
-            reply = await self.channel.turn(self.journey_id, transcript, turn_id)
+            if self.pending_outcome is not None:
+                spoken = transcript.strip().rstrip(".!?").strip().casefold()
+                choice = next((name for name in ("yes", "no", "skip")
+                               if spoken == getattr(self.pending_outcome, name).casefold()), None)
+                if choice is not None:
+                    submission = OutcomeSubmission(self.pending_outcome.response_id, choice)
+                    receipt = await self.submit_outcome(submission, turn_id)
+                    return VoiceReply(state=receipt.state, feedback_recorded=True)
+                self.pending_outcome = None
+                if self.acknowledgement_audio is not None:
+                    acknowledgement = asyncio.create_task(acknowledge())
+            reply = await self.channel.turn(
+                self.journey_id, transcript, turn_id,
+                **({"related_answer": related_answer} if related_answer is not None else {}),
+            )
             replied = time.monotonic()
             if reply.journey_id is not None and reply.journey_id != self.journey_id:
                 raise ContractError("voice response journey mismatch")
             if reply.duplicate:
                 raise VoiceError("turn was already committed; do not replay or invent its audio")
+            self.pending_outcome = (OutcomeOffer.from_dict(reply.outcome_offer)
+                                    if reply.outcome_offer is not None else None)
             if hasattr(self.device, "response_metadata"):
                 await self.device.response_metadata(reply)
             if getattr(self.speech, "checked_sentence_audio", False):
@@ -357,6 +470,11 @@ class VoiceBridge:
                 substantive_first = first_audio
                 synthesis_seconds = synthesized - replied
                 await self.device.play(audio)
+            response_id = reply.response_id or (self.pending_outcome.response_id if self.pending_outcome else None)
+            if (response_id is not None and response_id not in self.confirmed_responses and self.channel_kind == "voice"
+                    and getattr(self.device, "confirms_playback", False) is True):
+                await self.channel.confirm_playback(self.journey_id, response_id, f"playback-{response_id}")
+                self.confirmed_responses.add(response_id)
         except (AudioFailure, OSError, TimeoutError):
             await self.fail_audio()
             raise

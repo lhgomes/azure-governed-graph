@@ -33,6 +33,20 @@ After successful readiness checks, the final JSON result is followed by
 for convenient access. When `voice_demo` is false, the summary prints
 `Demo URL: disabled` instead.
 
+### Demo startup
+
+Chat and voice share the authenticated `/demo-stream` startup path. An HTTP
+101 upgrade or a healthy app does not prove that the first message was
+delivered. Startup must obtain a synthetic member bearer through the internal
+managed-identity issuer and create an authorized journey before delivering
+the AI disclosure. Chat then enables typing; voice requires acknowledgement
+of disclosure playback before enabling capture.
+
+The Azure-only runtime has no deployment-mode switch or
+`Settings.require_deployment` method. Hosted-entry regression tests exercise
+both modes through the real WebSocket handler, including issuer failures;
+mocking the entire session handler would miss a shared startup regression.
+
 ### Choose an existing or new deployment
 
 Without target flags, an interactive terminal queries resource groups in the

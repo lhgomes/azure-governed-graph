@@ -57,6 +57,10 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def event_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
 _VOCABULARY = domain.vocabulary()
 
 # Routes the framework itself owns: option-level questions escalate (B9), humans are always reachable, and the
@@ -87,6 +91,7 @@ REVIEW_ISSUES = frozenset({
 class ExplanationContext:
     concepts: list[str] = field(default_factory=list)
     teach_back_concepts: list[str] = field(default_factory=list)
+    question_focus: str | None = None
 
     def __post_init__(self):
         for items in (self.concepts, self.teach_back_concepts):
@@ -96,6 +101,11 @@ class ExplanationContext:
                 raise ContractError("invalid closed explanation concepts")
         if not set(self.teach_back_concepts) <= set(self.concepts):
             raise ContractError("teach-back cannot assess an untaught concept")
+        if (self.question_focus is not None
+                and (not isinstance(self.question_focus, str)
+                     or self.question_focus not in {reason for route, _, reason in INTENT_DECISIONS
+                                                    if route == "explanation"})):
+            raise ContractError("invalid closed explanation focus")
 
     @classmethod
     def from_dict(cls, payload: dict) -> "ExplanationContext":
@@ -277,8 +287,17 @@ class StrategyResponse:
     ranked: list[RankedStrategy]
     suspended: list[str]
     always_available: list[str]
-    source: str  # "snapshot" | "expert_priors_fallback"
+    source: str  # "snapshot" | "expert_priors" | "expert_priors_fallback"
     exploration: bool = False
+    static_fallback_authorized: bool = False
+
+    def __post_init__(self):
+        if type(self.static_fallback_authorized) is not bool:
+            raise ContractError("static fallback authorization must be a boolean")
+        if self.static_fallback_authorized and (
+            self.arm != "treatment" or self.source != "expert_priors_fallback" or self.signature_valid is not True
+        ):
+            raise ContractError("static fallback authorization requires a signed treatment fallback")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -351,14 +370,16 @@ class ExplainabilityRecord:
                 or "advice" in reviews[0].decision["issues"]
                 or reviews[0].agent_version != reviews[1].agent_version)):
             raise ContractError("unbounded answer-review evidence")
-        if self.decision_evidence and self.contract_version not in {"1.2", "1.3"}:
+        if self.decision_evidence and self.contract_version not in {"1.2", "1.3", "1.4"}:
             raise ContractError("decision evidence requires a supported explainability contract")
-        if reviews and self.contract_version != "1.3":
-            raise ContractError("answer review requires explainability contract 1.3")
+        if reviews and self.contract_version not in {"1.3", "1.4"}:
+            raise ContractError("answer review requires explainability contract 1.3 or later")
         if not isinstance(self.response_kind, str) or self.response_kind not in {
-            "legacy", "explanation", "disclosure", "acknowledgment", "escalation",
+            "legacy", "explanation", "general_information", "disclosure", "acknowledgment", "escalation",
         }:
             raise ContractError("invalid explainability response kind")
+        if self.response_kind == "general_information" and self.contract_version != "1.4":
+            raise ContractError("general information requires explainability contract 1.4")
         if not isinstance(self.response_id, str) or (
             self.response_id and not re.fullmatch(r"(?:[0-9a-f]{32}|[0-9a-f]{64})", self.response_id)
         ):
@@ -392,6 +413,67 @@ class EscalationRequest:
         return _strict(cls, d)
 
 
+def _opaque_response_id(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"(?:[0-9a-f]{32}|[0-9a-f]{64})", value) is not None
+
+
+@dataclass(frozen=True)
+class ResponseReference:
+    journey_id: str
+    response_id: str
+
+    def __post_init__(self):
+        if (not isinstance(self.journey_id, str)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}", self.journey_id)
+                or not _opaque_response_id(self.response_id)):
+            raise ContractError("invalid opaque answer reference")
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "ResponseReference":
+        return _strict(cls, payload)
+
+
+@dataclass(frozen=True)
+class OutcomeSubmission:
+    response_id: str
+    choice: str
+
+    def __post_init__(self):
+        if not _opaque_response_id(self.response_id) or self.choice not in ("yes", "no", "skip"):
+            raise ContractError("outcome requires an opaque answer reference and yes/no/skip")
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "OutcomeSubmission":
+        return _strict(cls, payload)
+
+
+@dataclass(frozen=True)
+class OutcomeOffer:
+    response_id: str
+    language: str
+    version: str
+    question: str
+    yes: str
+    no: str
+    skip: str
+
+    def __post_init__(self):
+        wording = (domain.vocabulary()["outcome_check"].get(self.language)
+                   if isinstance(self.language, str) else None)
+        texts = (self.question, self.yes, self.no, self.skip)
+        if (not _opaque_response_id(self.response_id) or wording is None
+                or not isinstance(self.version, str) or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", self.version)
+                or self.version != domain.vocabulary()["version"]
+                or any(not isinstance(text, str) or not text.strip() for text in texts)
+                or len({text.casefold() for text in (self.yes, self.no, self.skip)}) != 3
+                or {key: getattr(self, key) for key in ("question", "yes", "no", "skip")} != wording):
+            raise ContractError("outcome offer must use the approved domain wording")
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "OutcomeOffer":
+        return _strict(cls, payload)
+
+
 @dataclass(frozen=True)
 class JourneyEvent:
     journey_id: str
@@ -401,20 +483,50 @@ class JourneyEvent:
     strategy_id: str | None = None
     strategy_version: str | None = None
     outcome: str | None = None  # resolved | repeat_contact | escalation | complaint | comprehension_check
-    created_at: str = field(default_factory=utcnow)
+    created_at: str = field(default_factory=event_timestamp)
     event_id: str = field(default_factory=lambda: uuid4().hex)
     sequence: int = 0
     response_id: str | None = None
     response_withheld: bool = False
+    outcome_offered: bool = False
+    outcome_version: str | None = None
+    outcome_response_id: str | None = None
+    outcome_choice: str | None = None
+    playback_response_id: str | None = None
+    related_journey_id: str | None = None
+    related_response_id: str | None = None
 
     def __post_init__(self):
         if type(self.response_withheld) is not bool or (self.response_withheld and self.response_id is not None):
             raise ContractError("a withheld response cannot be marked delivered")
-        if self.response_id is not None and (
-            not isinstance(self.response_id, str)
-            or not re.fullmatch(r"(?:[0-9a-f]{32}|[0-9a-f]{64})", self.response_id)
-        ):
+        if self.response_id is not None and not _opaque_response_id(self.response_id):
             raise ContractError("event response_id must be an opaque host-generated identifier")
+        if (type(self.outcome_offered) is not bool
+                or (self.outcome_offered and (
+                    self.response_id is None or self.response_withheld
+                    or not isinstance(self.outcome_version, str)
+                    or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", self.outcome_version)))
+                or (not self.outcome_offered and self.outcome_version is not None)):
+            raise ContractError("an outcome offer requires a delivered response")
+        if self.outcome_response_id is not None or self.outcome_choice is not None:
+            if self.event != "outcome_reported":
+                raise ContractError("only an outcome event can report feedback")
+            if not isinstance(self.outcome_response_id, str) or not isinstance(self.outcome_choice, str):
+                raise ContractError("outcome event requires a response and choice")
+            OutcomeSubmission(self.outcome_response_id, self.outcome_choice)
+        elif self.event == "outcome_reported":
+            raise ContractError("outcome event requires a response and choice")
+        if ((self.event == "playback_confirmed") != (self.playback_response_id is not None)
+                or (self.playback_response_id is not None and not _opaque_response_id(self.playback_response_id))):
+            raise ContractError("playback confirmation requires an opaque response reference")
+        if self.related_journey_id is not None or self.related_response_id is not None:
+            if self.event not in ("contact_linked", "intent_in_scope"):
+                raise ContractError("only a contact can link a previous answer")
+            if not isinstance(self.related_journey_id, str) or not isinstance(self.related_response_id, str):
+                raise ContractError("linked contact requires an earlier answer")
+            ResponseReference(self.related_journey_id, self.related_response_id)
+        elif self.event == "contact_linked":
+            raise ContractError("linked contact requires an earlier answer")
 
     @classmethod
     def from_dict(cls, d: dict) -> "JourneyEvent":

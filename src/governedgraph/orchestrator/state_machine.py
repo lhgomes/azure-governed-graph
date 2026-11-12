@@ -12,8 +12,12 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, replace
 from enum import Enum
+from uuid import uuid4
 
-from governedgraph.common.contracts import ContractError, ExplanationContext, JourneyEvent, RequestKey, RESPONSE_LANGUAGES, _strict
+from governedgraph.common.contracts import (
+    ContractError, ExplanationContext, JourneyEvent, OutcomeSubmission, RequestKey,
+    ResponseReference, RESPONSE_LANGUAGES, _strict, event_timestamp,
+)
 
 
 class State(str, Enum):
@@ -39,6 +43,9 @@ class Event(str, Enum):
     ADVISOR_ACCEPTED = "advisor_accepted"
     OPEN_ITEMS_CLOSED = "open_items_closed"
     OUTPUT_DELIVERED = "output_delivered"
+    OUTCOME_REPORTED = "outcome_reported"
+    PLAYBACK_CONFIRMED = "playback_confirmed"
+    CONTACT_LINKED = "contact_linked"
 
 
 TRANSITIONS: dict[tuple[State, Event], State] = {
@@ -136,8 +143,7 @@ class Journey:
             journey_id=self.journey_id, from_state=prev.value, to_state=nxt.value, event=event.value,
             strategy_id=strategy[0] if strategy else None, strategy_version=strategy[1] if strategy else None,
             outcome=outcome,
-            sequence=len(self.events) + 1,
-            **({"event_id": event_id} if event_id else {}),
+            sequence=len(self.events) + 1, event_id=event_id or uuid4().hex,
         ))
         return nxt
 
@@ -146,7 +152,50 @@ class Journey:
             raise ValueError("delivered responses require an audit identifier")
         if len(self.events) == previous_count:
             self.fire(Event.OUTPUT_DELIVERED, event_id=response_id)
-        self.events[-1] = replace(self.events[-1], response_id=response_id)
+        self.events[-1] = replace(self.events[-1], response_id=response_id, created_at=event_timestamp())
 
     def withhold_response(self) -> None:
-        self.events[-1] = replace(self.events[-1], response_id=None, response_withheld=True)
+        self.events[-1] = replace(self.events[-1], response_id=None, response_withheld=True,
+                                  outcome_offered=False, outcome_version=None)
+
+    def offer_outcome(self, response_id: str, version: str) -> None:
+        matches = [index for index, event in enumerate(self.events)
+                   if event.response_id == response_id and not event.response_withheld]
+        if len(matches) != 1:
+            raise ContractError("outcome offer requires exactly one delivered answer")
+        index = matches[0]
+        self.events[index] = replace(self.events[index], outcome_offered=True, outcome_version=version)
+
+    def record_outcome(self, submission: OutcomeSubmission, event_id: str, *, received_at: str | None = None) -> None:
+        prev = self.state.value
+        if event_id in self._seen:
+            raise ContractError("outcome event ID already used")
+        self._seen.add(event_id)
+        self.events.append(JourneyEvent(
+            self.journey_id, prev, prev, Event.OUTCOME_REPORTED.value,
+            event_id=event_id, sequence=len(self.events) + 1, created_at=received_at or event_timestamp(),
+            outcome_response_id=submission.response_id, outcome_choice=submission.choice,
+        ))
+
+    def record_playback(self, response_id: str, event_id: str, *, received_at: str | None = None) -> None:
+        prev = self.state.value
+        if event_id in self._seen:
+            raise ContractError("playback event ID already used")
+        self._seen.add(event_id)
+        self.events.append(JourneyEvent(
+            self.journey_id, prev, prev, Event.PLAYBACK_CONFIRMED.value,
+            event_id=event_id, sequence=len(self.events) + 1, created_at=received_at or event_timestamp(),
+            playback_response_id=response_id,
+        ))
+
+    def record_linked_contact(self, reference: ResponseReference, event_id: str, *,
+                              received_at: str | None = None) -> None:
+        prev = self.state.value
+        if event_id in self._seen:
+            raise ContractError("contact event ID already used")
+        self._seen.add(event_id)
+        self.events.append(JourneyEvent(
+            self.journey_id, prev, prev, Event.CONTACT_LINKED.value,
+            event_id=event_id, sequence=len(self.events) + 1, created_at=received_at or event_timestamp(),
+            related_journey_id=reference.journey_id, related_response_id=reference.response_id,
+        ))

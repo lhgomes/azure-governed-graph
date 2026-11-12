@@ -642,7 +642,7 @@ class Teardown:
             if not self.prompter.interactive:
                 raise DeployError("not interactive: pass --yes to tear down unattended")
             typed = self.prompter.question(f"\nThis permanently deletes the resources above. Type the resource group name "
-                                           f"({self.target.resource_group}) to continue")
+                                           f"({self.target.resource_group}) to continue: ")
             if typed != self.target.resource_group:
                 self.say("Nothing was changed.")
                 return 0
@@ -664,6 +664,7 @@ class Teardown:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    assert __doc__ is not None
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--plan", action="store_true", help="show what would be removed and change nothing")
     p.add_argument("--yes", action="store_true", help="skip the typed confirmation")

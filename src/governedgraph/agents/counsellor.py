@@ -76,6 +76,16 @@ def dependency(domain, operation, *args):
 INSTRUCTIONS = domain_prompt("counsellor")
 
 
+def _task_template(tools, strategy) -> str:
+    intent = next((item.decision for item in reversed(tools.trace.decision_evidence)
+                   if item.role == "intent"), None)
+    if intent is not None and strategy.strategy_id != ESCALATION_STRATEGY:
+        goal = TEMPLATES.get("answer_goals", {}).get(intent["reason"])
+        if goal is not None:
+            return goal["text"][tools.journey.response_language]
+    return ""
+
+
 @dataclass
 class TurnResult:
     text: str
@@ -172,10 +182,12 @@ class Counsellor:
     def decide(self, role: str, utterance: str) -> IntentDecision | UnderstandingDecision:
         from governedgraph.agents.decision_agents import DecisionContext, run_decision
 
+        selected = self.tools.related_answer_context if role == "intent" else None
         context = DecisionContext(
-            self.journey.state.value, self.journey.intent,
-            self.catalogue.get(self._current_strategy).template_id if self._current_strategy else None,
-            self.journey.response_language, self.journey.last_explanation,
+            self.journey.state.value, selected.previous_intent if selected else self.journey.intent,
+            (selected.previous_template_id if selected else
+             self.catalogue.get(self._current_strategy).template_id if self._current_strategy else None),
+            self.journey.response_language, selected.last_explanation if selected else self.journey.last_explanation,
         )
         agent = self.decision_agents.get(role)
         operation = agent.run if agent is not None else lambda *args: run_decision(role, *args)
@@ -245,6 +257,7 @@ class Counsellor:
                               escalated=True, audit_status="unavailable")
         finally:
             self.tools.response_id = ""
+            self.tools.related_answer_context = None
 
     def _handle(self, utterance: str) -> TurnResult:
         from governedgraph.orchestrator.workflow import run_member_turn
@@ -295,7 +308,8 @@ class Counsellor:
         if not self._prefetched:
             with t.trace.measure("strategy_lookup"):
                 dependency("strategy_service", t.get_ranked_strategies)
-        if t.trace.ranked.source == "expert_priors_fallback":
+        if (t.trace.ranked is None or (t.trace.ranked.source == "expert_priors_fallback"
+                and not t.trace.ranked.static_fallback_authorized)):
             raise DependencyFailure("strategy snapshot unavailable")
         try:
             if not self._prefetched:
@@ -325,7 +339,7 @@ class Counsellor:
         with t.trace.measure("post_processing"):
             text, fid, reason = self._post_process(draft, strategy)
         if reason:
-            return self._escalate(reason, "safety")
+            return self._unanswered(reason)
 
         last_explanation = None
         if t.trace.composition_source == "foundry":
@@ -334,9 +348,13 @@ class Counsellor:
             with t.trace.measure("post_processing"):
                 text, fid, reason = self._post_process(draft, strategy)
             if reason:
-                return self._escalate(reason, "safety")
+                return self._unanswered(reason)
+            intent = next((item.decision for item in reversed(t.trace.decision_evidence)
+                           if item.role == "intent" and item.decision["route"] == "explanation"), None)
+            focus = intent["reason"] if intent else (
+                self.journey.last_explanation.question_focus if self.journey.last_explanation else None)
             last_explanation = (
-                ExplanationContext(review.concepts, review.teach_back_concepts)
+                ExplanationContext(review.concepts, review.teach_back_concepts, focus)
                 if review.verdict == "pass" and t.trace.composition_source == "foundry" else None
             )
 
@@ -344,7 +362,9 @@ class Counsellor:
         self.journey.strategies_tried.append(strategy.strategy_id)
         with t.trace.measure("audit_commit"):
             t.write_explainability_record(strategy.strategy_id, numeric_fidelity_passed=fid.passed)
-        ev = Event.RESPONSE_DELIVERED if strategy.teach_back else Event.NO_TEACH_BACK
+        # A task-specific fallback is not a reviewed teach-back.
+        fallback_goal = t.trace.composition_source == "template_fallback" and bool(_task_template(t, strategy))
+        ev = Event.RESPONSE_DELIVERED if strategy.teach_back and not fallback_goal else Event.NO_TEACH_BACK
         self.journey.fire(ev, strategy=(strategy.strategy_id, strategy.version))
         self.journey.last_explanation = last_explanation
         r = t.trace.ranked
@@ -381,12 +401,9 @@ class Counsellor:
 
     def _template_for(self, strategy) -> str:
         """Approved task-specific wording, otherwise a variant with available official values."""
-        intent = next((item.decision for item in reversed(self.tools.trace.decision_evidence)
-                       if item.role == "intent"), None)
-        if intent is not None and strategy.strategy_id != ESCALATION_STRATEGY:
-            goal = TEMPLATES.get("answer_goals", {}).get(intent["reason"])
-            if goal is not None:
-                return goal["text"][self.tools.journey.response_language]
+        task_template = _task_template(self.tools, strategy)
+        if task_template:
+            return task_template
         have = set(self.tools.trace.values.by_id()) if self.tools.trace.values else set()
         for variant in TEMPLATES["templates"][strategy.template_id].values():
             if set(referenced_value_ids(variant)) <= have:
@@ -409,7 +426,7 @@ class Counsellor:
             emit("numeric_fidelity_block", event_id=f"{self.tools.response_id}:numeric-block",
                  journey_id=self.journey.journey_id, agent_name=self.tools.agent_name)
 
-        template = self._template_for(strategy)
+        template = _task_template(self.tools, strategy)
         approved = self.tools.trace.content_texts
         if self.tools.trace.composition_source == "foundry":
             try:
@@ -456,6 +473,19 @@ class Counsellor:
                     log.warning("output_gate_template_fallback", extra={"journey_id": self.journey.journey_id})
                 return text, fid, None
         return "", numeric_fidelity.FidelityResult(False, [], ["<blocked>"]), "numeric-fidelity or steering gate failed"
+
+    def _unanswered(self, reason: str) -> TurnResult:
+        log.warning("answer_unavailable_without_relevant_fallback",
+                    extra={"journey_id": self.journey.journey_id, "failure_domain": reason})
+        offer = self._template_for(self.catalogue.get(ESCALATION_STRATEGY))
+        text = message("safety_declined") + offer
+        fidelity = numeric_fidelity.check(text, None, [])
+        if not offer or not fidelity.passed or response_steers_choice(text) or "{{" in text or "}}" in text:
+            return self._escalate("no safe answer or advisor offer available", "safety")
+        self.tools.trace.composition_source = "unanswered"
+        self.tools.write_explainability_record(ESCALATION_STRATEGY, response_kind="acknowledgment")
+        self.journey.last_explanation = None
+        return TurnResult(text, self.journey.state.value, fidelity=fidelity)
 
     def _escalate(self, summary: str, reason_code: str, already_requested: bool = False) -> TurnResult:
         if not already_requested:

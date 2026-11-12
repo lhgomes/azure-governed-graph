@@ -191,6 +191,8 @@ module compute 'modules/compute.bicep' = {
       AZURE_ENV_NAME: environmentName
       AZURE_VOICE_LIVE_ENDPOINT: ai.outputs.aiServicesEndpoint
       GOVERNEDGRAPH_ENABLE_VOICE_PROOF: environmentName == 'gg-dev' ? 'true' : 'false'
+      // Host-authored feedback wording. Synthetic dev only; production requires B8 approval.
+      GOVERNEDGRAPH_ENABLE_OUTCOME_CHECK: environmentName == 'gg-dev' ? 'true' : 'false'
       GOVERNEDGRAPH_DEPLOY_VOICE_DEMO: deployVoiceDemo && environmentName == 'gg-dev' ? 'true' : 'false'
       VOICE_DEMO_CLIENT_ID: voiceDemoClientId
       VOICE_DEMO_OPERATOR_ID: voiceDemoOperatorId

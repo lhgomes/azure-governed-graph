@@ -14,6 +14,7 @@ must point to inputs materialized from the isolated learning zone.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
@@ -24,6 +25,8 @@ from governedgraph.common.contracts import RequestKey, _strict
 from governedgraph.common.io import load_csv, load_json
 from governedgraph.strategy_service.catalogue import Catalogue
 from governedgraph.strategy_service.snapshot import RankingSnapshot, Signer, sign_snapshot
+
+log = logging.getLogger("governedgraph.learning")
 
 
 @dataclass(frozen=True)
@@ -134,18 +137,44 @@ def compute_candidates(
     previous_rankings: dict[str, list[str]],
     evidence: dict[str, dict[str, StrategyEvidence]],
     thresholds: dict,
+    *,
+    expert_priors: dict | None = None,
 ) -> list[CandidateRanking]:
+    """Bounded ranking using the immutable expert prior as the Bayesian baseline.
+
+    Without a mature, minimum-size sample, keep the preceding learned order.
+    Never infer an improvement from missing feedback.
+    """
+    priors = expert_priors if expert_priors is not None else load_json(DATA_DIR / "catalogue" / "expert_priors_v1.json")
+    if not isinstance(priors, dict):
+        raise TypeError("approved expert priors must be an object")
+    unsupported = set(evidence) - set(previous_rankings)
+    if unsupported:
+        log.warning("learning_unsupported_contexts", extra={"context_count": len(unsupported)})
     out = []
-    for key_id, prev in previous_rankings.items():
+    for key_id, previous in previous_rankings.items():
         key = RequestKey(*key_id.split("|"))
-        approved = {s.strategy_id for s in catalogue.rankable_for(key)}
-        prev = [s for s in prev if s in approved]  # reorder within approved catalogue ONLY
-        scores = score_strategies(
-            prev, evidence.get(key_id, {}), thresholds["min_sample_per_strategy"], thresholds["prior_pseudo_count"]
+        approved = {strategy.strategy_id for strategy in catalogue.rankable_for(key)}
+        prev = [sid for sid in previous if sid in approved]
+        prior_order = priors["rankings"].get(key_id, priors["default"])
+        if (len(set(prior_order)) != len(prior_order)
+                or not set(prev) <= set(prior_order)
+                or any(sid not in approved for sid in prev)):
+            raise ValueError(f"{key_id}: expert priors do not cover the approved previous ranking")
+        observed = evidence.get(key_id, {})
+        prior_scores = score_strategies(
+            prior_order, observed, thresholds["min_sample_per_strategy"], thresholds["prior_pseudo_count"],
         )
-        cand = bounded_reorder(prev, scores, thresholds["max_rank_shift_per_cycle"])
-        assert set(cand) == set(prev), "ranking may never add or remove strategies (B5)"
-        out.append(CandidateRanking(key_id, prev, cand, scores, max_shift(prev, cand)))
+        scores = {sid: prior_scores[sid] for sid in prev}
+        has_evidence = any(
+            sid in observed and observed[sid].interactions >= thresholds["min_sample_per_strategy"]
+            for sid in prev
+        )
+        candidate = (bounded_reorder(prev, scores, thresholds["max_rank_shift_per_cycle"])
+                     if has_evidence else list(prev))
+        if set(candidate) != set(prev):
+            raise ValueError("ranking may never add or remove strategies (B5)")
+        out.append(CandidateRanking(key_id, prev, candidate, scores, max_shift(prev, candidate)))
     return out
 
 

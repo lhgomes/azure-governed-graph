@@ -136,6 +136,30 @@ def verify_snapshot(snapshot: RankingSnapshot, signer: Signer) -> bool:
     return bool(snapshot.signature) and signer.verify(canonical_json(snapshot.payload()), snapshot.signature)
 
 
+def expert_rankings(catalogue, priors: dict) -> dict[str, list[list[str]]]:
+    return {
+        key: [[sid, catalogue.get(sid).version] for sid in order]
+        for key, order in priors["rankings"].items()
+    }
+
+
+def verify_expert_snapshot(snapshot: RankingSnapshot, catalogue, priors: dict, thresholds: dict,
+                           signer: Signer) -> bool:
+    if priors.get("watermark") != "ILLUSTRATIVE - synthetic data" or not priors.get("approved_ref"):
+        return False
+    expected = expert_rankings(catalogue, priors)
+    return (
+        snapshot.snapshot_id == "expert-priors-" + priors["priors_version"]
+        and snapshot.catalogue_version == catalogue.version
+        and snapshot.threshold_version == thresholds["threshold_version"]
+        and snapshot.source_audit_id == "expert-priors"
+        and snapshot.tier == "expert_priors"
+        and snapshot.rankings == expected
+        and all(catalogue.is_active(sid, version) for rows in expected.values() for sid, version in rows)
+        and verify_snapshot(snapshot, signer)
+    )
+
+
 def default_signer(*, signing: bool = False):
     from governedgraph.common.config import settings
 
