@@ -1,5 +1,8 @@
 """ILLUSTRATIVE - synthetic data. Presenter auth never substitutes for member step-up."""
 import asyncio
+from contextlib import asynccontextmanager
+import json
+import os
 import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -11,12 +14,14 @@ from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+import httpx
 import jwt
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import ContractError
+from governedgraph.agents.counsellor import DISCLOSURE
 from governedgraph.dev import member_issuer_api
 from governedgraph.voice import access, presenter
 from governedgraph.voice.voice_live_bridge import AudioFailure, PCM_RATE
@@ -175,6 +180,43 @@ def test_presenter_audio_requires_exact_ack_and_bounded_input():
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("missing_tag", ["script", "style"])
+def test_presenter_incomplete_template_fails_closed(presenter_auth, monkeypatch, tmp_path, caplog, missing_tag):
+    template = tmp_path / "catalogue" / "ui" / "presenter.html"
+    template.parent.mkdir(parents=True)
+    remaining_tag = "style" if missing_tag == "script" else "script"
+    template.write_text(f"<{remaining_tag}>synthetic</{remaining_tag}>")
+    monkeypatch.setattr(presenter, "DATA_DIR", tmp_path)
+    with pytest.raises(HTTPException) as error:
+        presenter.index()
+    assert error.value.status_code == 503
+    assert "voice_presenter_template_invalid" in caplog.text
+
+
+@pytest.mark.parametrize("member_ref", [None, "MBR-SYNTHETIC"])
+def test_member_bearer_preserves_default_and_explicit_member_requests(monkeypatch, member_ref):
+    monkeypatch.setenv("VOICE_DEMO_CLIENT_ID", "synthetic-client")
+    monkeypatch.setenv("VOICE_DEMO_ISSUER_URL", "https://synthetic-issuer.example")
+    credential = SimpleNamespace(get_token=AsyncMock(return_value=SimpleNamespace(token="synthetic-app-token")))
+
+    def handle(request):
+        assert request.url.path == "/issue"
+        assert request.headers["authorization"] == "Bearer synthetic-app-token"
+        if member_ref is None:
+            assert request.content == b""
+        else:
+            assert json.loads(request.content) == {"member_ref": member_ref}
+        return httpx.Response(200, json={"token": "synthetic-member-token"})
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            assert await presenter.member_bearer(
+                credential, client, member_ref=member_ref) == "synthetic-member-token"
+
+    asyncio.run(scenario())
+    credential.get_token.assert_awaited_once_with("api://synthetic-client/.default")
+
+
 def test_registration_flag_and_environment_prevent_directory_calls(monkeypatch):
     monkeypatch.setattr(configure_voice_demo, "graph", lambda *a: pytest.fail("unexpected directory mutation"))
     assert configure_voice_demo.configure("gg-dev", "", "", "", deploy=False)["enabled"] is False
@@ -258,3 +300,90 @@ def test_authenticated_presenter_socket_is_bound_to_assigned_operator(presenter_
                                       headers={"Origin": "https://demo.example"}) as socket:
             assert socket.receive_json() == {"kind": "test", "ok": True}
     assert len(seen) == 1
+
+
+@pytest.mark.parametrize("mode", ["chat", "presenter"])
+@pytest.mark.parametrize("issuer_status", [200, 503])
+def test_hosted_startup_delivers_disclosure_only_after_member_authorization(
+        presenter_auth, monkeypatch, mode, issuer_status):
+    from azure.identity import aio
+    from governedgraph.voice import warmup
+
+    calls = []
+    credential = SimpleNamespace(get_token=AsyncMock(return_value=SimpleNamespace(token="synthetic-app-token")))
+    speech = SimpleNamespace(synthesize=AsyncMock(return_value=b"\0\0"))
+    warmed = MagicMock()
+
+    @asynccontextmanager
+    async def identity(*, client_id):
+        assert client_id == "synthetic-bridge"
+        yield credential
+
+    @asynccontextmanager
+    async def open_speech(endpoint, voice, *, credential):
+        assert mode == "presenter"
+        assert endpoint == "https://synthetic-speech.example"
+        yield speech
+
+    def handle(request):
+        calls.append(request.url.path)
+        if request.url.path == "/issue":
+            assert request.headers["authorization"] == "Bearer synthetic-app-token"
+            return httpx.Response(issuer_status, json={"token": "synthetic-member-token"})
+        assert request.headers["authorization"] == "Bearer synthetic-member-token"
+        if request.url.path == "/journeys":
+            assert json.loads(request.content) == {
+                "channel": "chat" if mode == "chat" else "voice", "accessibility_mode": "standard",
+            }
+            return httpx.Response(200, json={
+                "journey_id": "J-synthetic-start", "text": DISCLOSURE, "state": "disclosed",
+            })
+        assert request.url.path.endswith("/explainability-report")
+        return httpx.Response(200, json={"records": [], "delivered_response_ids": []})
+
+    client_type = httpx.AsyncClient
+    monkeypatch.setattr(presenter.httpx, "AsyncClient",
+                        lambda **kwargs: client_type(transport=httpx.MockTransport(handle), **kwargs))
+    monkeypatch.setattr(aio, "ManagedIdentityCredential", identity)
+    monkeypatch.setattr(presenter, "open_speech", open_speech)
+    monkeypatch.setattr(warmup, "warm_runtime", warmed)
+    for key, value in {
+        "AZURE_CLIENT_ID": "synthetic-bridge",
+        "VOICE_DEMO_ISSUER_URL": "https://synthetic-issuer.example",
+        "GOVERNEDGRAPH_ORCHESTRATOR_URL": "https://synthetic-orchestrator.example",
+        "AZURE_VOICE_LIVE_ENDPOINT": "https://synthetic-speech.example",
+    }.items():
+        monkeypatch.setenv(key, value)
+    app = FastAPI()
+    app.include_router(presenter.router)
+    with TestClient(app, base_url="https://demo.example") as client:
+        response = client.post("/demo/authorize", headers={
+            "Authorization": "Bearer " + presenter_auth(), "Origin": "https://demo.example",
+        })
+        assert response.status_code == 200
+        with client.websocket_connect("wss://demo.example/demo-stream",
+                                      headers={"Origin": "https://demo.example"}) as socket:
+            socket.send_json({"mode": mode})
+            first = socket.receive_json()
+            if issuer_status != 200:
+                assert first["kind"] == "error"
+                assert first["error_type"] == "HTTPStatusError"
+            else:
+                assert first["text"] == DISCLOSURE
+                assert first["role"] == "counsellor"
+                if mode == "chat":
+                    assert first["kind"] == "caption"
+                    assert socket.receive_json()["kind"] == "chat_ready"
+                else:
+                    assert first["kind"] == "audio"
+                    assert socket.receive_bytes() == b"\0\0"
+                    socket.send_json({"kind": "played", "id": first["id"]})
+                    assert socket.receive_json()["kind"] == "capture"
+                socket.send_json({"kind": "end", "request_id": "end-startup-test"})
+                assert socket.receive_json()["kind"] == ("session_ended" if mode == "chat" else "complete")
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+    credential.get_token.assert_awaited_once_with(f"api://{os.environ['VOICE_DEMO_CLIENT_ID']}/.default")
+    assert calls[:2] == (["/issue", "/journeys"] if issuer_status == 200 else ["/issue"])
+    assert warmed.call_count == (1 if mode == "presenter" and issuer_status == 200 else 0)
+    assert speech.synthesize.await_count == warmed.call_count

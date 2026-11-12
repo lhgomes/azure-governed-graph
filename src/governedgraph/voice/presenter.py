@@ -10,7 +10,7 @@ import os
 import re
 import time
 import traceback
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
@@ -19,7 +19,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, WebSocket, WebSoc
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from governedgraph.common import domain
-from governedgraph.common.config import DATA_DIR, settings
+from governedgraph.common.config import DATA_DIR
 from governedgraph.common.contracts import ContractError, OutcomeSubmission, ResponseReference, _strict
 from governedgraph.voice.voice_demo import run_simulator
 from governedgraph.agents.persona_simulator import ScriptedPersona
@@ -175,9 +175,13 @@ def index():
     html = (DATA_DIR / "catalogue" / "ui" / "presenter.html").read_text().replace(
         "{{AI_DISCLOSURE}}", html_escape.escape(DISCLOSURE))
     import base64
-    hashes = {tag: base64.b64encode(hashlib.sha256(
-        re.search(f"<{tag}>(.*?)</{tag}>", html, re.S)[1].encode()).digest()).decode()
-              for tag in ("script", "style")}
+    hashes = {}
+    for tag in ("script", "style"):
+        match = re.search(f"<{tag}>(.*?)</{tag}>", html, re.S)
+        if match is None:
+            log.error("voice_presenter_template_invalid", extra={"missing_tag": tag})
+            raise HTTPException(503, "dev voice template unavailable")
+        hashes[tag] = base64.b64encode(hashlib.sha256(match[1].encode()).digest()).decode()
     policy = (f"default-src 'none'; script-src 'sha256-{hashes['script']}'; "
               f"style-src 'sha256-{hashes['style']}'; connect-src 'self' "
               f"https://login.microsoftonline.com {os.environ['VOICE_DEMO_ORIGIN'].replace('https:', 'wss:')}; "
@@ -364,7 +368,7 @@ async def member_bearer(credential, client: httpx.AsyncClient, *, member_ref: st
         raise VoiceError("internal issuer authorization unavailable") from error
     result = await client.post(os.environ["VOICE_DEMO_ISSUER_URL"].rstrip("/") + "/issue",
                                headers={"Authorization": "Bearer " + auth.token},
-                               **({"json": {"member_ref": member_ref}} if member_ref is not None else {}))
+                               json={"member_ref": member_ref} if member_ref is not None else None)
     result.raise_for_status()
     payload = result.json()
     if set(payload) != {"token"} or not isinstance(payload["token"], str) or not payload["token"]:
@@ -373,7 +377,6 @@ async def member_bearer(credential, client: httpx.AsyncClient, *, member_ref: st
 
 
 async def serve(socket: WebSocket, claims: dict):
-    settings.require_deployment("Hosted presenter")
     from azure.identity.aio import ManagedIdentityCredential
 
     async with asyncio.timeout(min(850, max(0, claims["exp"] - time.time()))):
