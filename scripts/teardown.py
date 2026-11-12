@@ -642,7 +642,7 @@ class Teardown:
             if not self.prompter.interactive:
                 raise DeployError("not interactive: pass --yes to tear down unattended")
             typed = self.prompter.question(f"\nThis permanently deletes the resources above. Type the resource group name "
-                                           f"({self.target.resource_group}) to continue")
+                                           f"({self.target.resource_group}) to continue: ")
             if typed != self.target.resource_group:
                 self.say("Nothing was changed.")
                 return 0
