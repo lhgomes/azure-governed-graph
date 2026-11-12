@@ -101,7 +101,32 @@ def vocabulary(data_dir: Path = DATA_DIR) -> dict:
             or any(not isinstance(v, list) or len(v) != 3 or not all(isinstance(x, str) and x for x in v)
                    for v in labels.values())):
         raise DomainPackError("domain vocabulary: step_labels need three labels for every response language")
+    version = raw.get("vocabulary_version")
+    if not isinstance(version, str) or re.fullmatch(r"[0-9]+(?:\\.[0-9]+)*", version) is None:
+        raise DomainPackError("domain vocabulary: invalid version")
+    outcome = raw.get("outcome_check")
+    if outcome is None:
+        # Legacy packs remain readable while the governed prompt feature is disabled.
+        outcome = {}
+    elif not isinstance(outcome, dict) or set(outcome) != languages:
+        raise DomainPackError("domain vocabulary: outcome_check must cover every language")
+    for language, wording in outcome.items():
+        if (not isinstance(wording, dict)
+                or set(wording) != {"question", "yes", "no", "skip"}
+                or any(not isinstance(value, str) or not value.strip()
+                       or any(character.isnumeric() for character in value)
+                       for value in wording.values())
+                or not wording["question"].endswith("?")
+                or len({wording[key].casefold() for key in ("yes", "no", "skip")}) != 3):
+            raise DomainPackError(f"domain vocabulary: invalid outcome_check wording for {language}")
+    outcome_approval = raw.get("outcome_check_approval_ref")
+    if outcome_approval is not None and (
+            not isinstance(outcome_approval, str) or not outcome_approval.strip()):
+        raise DomainPackError("domain vocabulary: invalid outcome_check approval reference")
     return {
+        "version": version,
+        "outcome_check": {lang: dict(wording) for lang, wording in outcome.items()},
+        "outcome_check_approval_ref": outcome_approval,
         "response_languages": languages,
         "default_language": default_language,
         "step_labels": {lang: tuple(v) for lang, v in labels.items()},
@@ -117,6 +142,11 @@ def vocabulary(data_dir: Path = DATA_DIR) -> dict:
         "messages": dict(messages),
         "demo": {**demo, "trace_members": frozenset(trace_members), "persona_voices": dict(voices)},
     }
+
+
+def has_numeric_characters(text: str) -> bool:
+    """Reject numerical characters in fixed outcome wording, including Unicode digits."""
+    return any(character.isnumeric() for character in text)
 
 
 def message(key: str) -> str:

@@ -20,13 +20,22 @@ follow-up links and attribution uncertainty must be assessed before treating
 observed rates as actionable. Do not infer actual hearing, comprehension, or
 resolution from a voice playback acknowledgment.
 
-The optional outcome question is **disabled by default**.
-`GOVERNEDGRAPH_ENABLE_OUTCOME_CHECK=true` must **not** be configured until
-the approved domain pack supplies the localized `outcome_check` vocabulary,
-the exact updated Foundry writer definitions are separately reviewed and
-approved under B8, and Azure-hosted acceptance has passed. The change
-does not update `release-approval.json`, invent approval records, or enable
-automated publication. The API/evidence contracts can be reviewed beforehand.
+The optional outcome question is **enabled in the synthetic Azure `gg-dev` deployment configuration**
+and disabled everywhere else. The orchestrator offers the host-authored closed `outcome_check`
+prompt only when both `AZURE_ENV_NAME=gg-dev` and
+`GOVERNEDGRAPH_ENABLE_OUTCOME_CHECK=true` are present.
+The domain vocabulary includes version `1.2` with exact English and Dutch wording;
+the runtime validates every localized choice and applies numeric-fidelity and steering
+checks before delivering the prompt. The writer prompts and immutable Foundry agent
+definitions are **not** changed; the question is appended only by the governed host.
+
+This is **not a production release authorization**. The existing `approval_ref` is a
+historical reference for the previously approved vocabulary; it does not approve
+the newly added wording. The new `outcome_check_approval_ref` remains `null`
+until a real B8 decision is independently recorded. Do not change the production
+environment gate, update `release-approval.json`, or mark this feature production
+ready before that review and successful Azure-hosted acceptance. The feature is
+configured in code only; no Azure deployment has been performed.
 
 ## Signed static rollback
 

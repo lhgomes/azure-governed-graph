@@ -1,5 +1,5 @@
 {
-  "vocabulary_version": "1.1",
+  "vocabulary_version": "1.2",
   "approval_ref": "IMP-102-user-approval-2026-11-04",
   "watermark": "ILLUSTRATIVE - synthetic data. Closed domain vocabulary; changing it is a Tier 2 material change (B8).",
   "response_languages": ["en", "nl"],
@@ -8,6 +8,21 @@
     "en": ["First", "Next", "Finally"],
     "nl": ["Eerst", "Vervolgens", "Tot slot"]
   },
+  "outcome_check": {
+    "en": {
+      "question": "Did this answer your question?",
+      "yes": "Yes",
+      "no": "No",
+      "skip": "Skip"
+    },
+    "nl": {
+      "question": "Heeft dit uw vraag beantwoord?",
+      "yes": "Ja",
+      "no": "Nee",
+      "skip": "Overslaan"
+    }
+  },
+  "outcome_check_approval_ref": null,
   "explanation_intents": [
     ["transition_impact_question", "official_transition_information"],
     ["transition_impact_question", "transition_overview"],

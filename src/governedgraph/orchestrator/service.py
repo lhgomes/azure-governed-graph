@@ -230,6 +230,10 @@ class OrchestratorService:
 
     def _offer_outcome(self, counsellor: Counsellor, result: TurnResult,
                        record: JourneyRecord) -> OutcomeOffer | None:
+        # Explicitly scoped to synthetic Azure gg-dev; other environments fail closed.
+        if (os.getenv("AZURE_ENV_NAME") != "gg-dev"
+                or os.getenv("GOVERNEDGRAPH_ENABLE_OUTCOME_CHECK") != "true"):
+            return None
         from governedgraph.guardrails.advice_intent import response_steers_choice
         from governedgraph.guardrails.numeric_fidelity import check
 
