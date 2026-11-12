@@ -43,12 +43,9 @@ Event Processing and Adoption Guide agents are at design depth.
 - Before using any Azure SDK or resource API, **check the current docs with the `microsoft-learn` MCP server** (`.vscode/mcp.json`)
   and pin the version you verified in `requirements-azure.txt`. SDK surfaces (Foundry Agent Service in particular) change often.
 - Identity: managed identity / `DefaultAzureCredential` only. No keys, connection strings or secrets in code, config or Bicep outputs.
-- Infra: Bicep in `infra/`, deployed with `azd`. Compile Bicep inside the isolated Azure Container Apps CI Job after every infra change; GitHub Actions only orchestrates Azure.
-- Every behaviour change ships with a test, but **execute all tests and evaluations in Azure**, never on a developer
-  machine or a generic GitHub-hosted runner. A GitHub-hosted runner is allowed only for OIDC and Azure CLI
-  control-plane dispatch; Azure Container Apps Jobs run pure tests using isolated CI-only identities.
-  Live integration and Foundry evaluations require independently protected Azure jobs and synthetic identities.
-  Do not treat a pending Azure execution or unrun test suite as a pass.
+- Infra: Bicep in `infra/`, deployed through the explicitly authorized Azure delivery process. Do not add CI prerequisites that require subscription IDs, deployment names, identities, registries or manually configured GitHub environment variables.
+- Preserve B1–B10 regression coverage in source where feasible, but **do not create a deployment-dependent automated GitHub test workflow**. Tests, Bicep verification and live evaluations require a separately authorized Azure environment when execution is requested. No generic GitHub-hosted or developer-machine runtime/test fallback. Never claim an unrun test or unevaluated deployment as a pass.
+- If a proposed automated test cannot run independently of deployment-specific configuration, do not add it as a mandatory repository check. Do not weaken runtime guardrails to make tests pass.
 - All data is synthetic and must stay labelled `ILLUSTRATIVE - synthetic data`. Never add real member, organisation or personal data.
 - Record architectural decisions in reviewed pull-request descriptions (ID, decision, alternatives, boundary served).
   Do not create hidden local-only acceptance or evidence requirements.
