@@ -9,17 +9,14 @@ from governedgraph.common.config import DATA_DIR, settings
 from governedgraph.common.io import load_json
 from governedgraph.strategy_service.catalogue import Catalogue
 from governedgraph.strategy_service.service import StrategyService
-from governedgraph.strategy_service.snapshot import RankingSnapshot, default_signer, sign_snapshot
+from governedgraph.strategy_service.snapshot import RankingSnapshot, default_signer, expert_rankings, sign_snapshot
 from governedgraph.strategy_service.state import BlobStateStore, StateConflict
 
 
 def expert_snapshot(catalogue, priors: dict, thresholds: dict, signer) -> RankingSnapshot:
     if priors.get("watermark") != "ILLUSTRATIVE - synthetic data" or not priors.get("approved_ref"):
         raise ValueError("human-approved illustrative expert priors required")
-    rankings = {
-        key: [[sid, catalogue.get(sid).version] for sid in order]
-        for key, order in priors["rankings"].items()
-    }
+    rankings = expert_rankings(catalogue, priors)
     return sign_snapshot(RankingSnapshot(
         snapshot_id="expert-priors-" + priors["priors_version"],
         catalogue_version=catalogue.version, threshold_version=thresholds["threshold_version"],
@@ -34,8 +31,10 @@ def initialize(store, snapshot: RankingSnapshot, signer) -> dict:
         service.read_state()  # Signature/schema failures cannot be mistaken for fresh state.
         return {"initialized": False, "snapshot_id": service._snapshot_id()}
     service._verify(snapshot)
+    service._verify_static(snapshot)
     state = service.read_state()
     state["current"] = snapshot.to_dict()
+    state["static"] = snapshot.to_dict()
     try:
         store.write(state, None)
     except StateConflict:

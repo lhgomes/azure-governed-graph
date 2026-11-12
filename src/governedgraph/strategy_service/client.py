@@ -48,10 +48,15 @@ class StrategyAdminClient:
         response = self.http.post(path, json=payload, headers={"Authorization": f"Bearer {token.token}"})
         response.raise_for_status()
 
-    def load_snapshot(self, snapshot: RankingSnapshot, *, expected_snapshot_id: str | None = None) -> None:
+    def load_snapshot(self, snapshot: RankingSnapshot, *, expected_snapshot_id: str | None = None,
+                      static_snapshot: RankingSnapshot | None = None) -> None:
         payload = snapshot.to_dict()
         if expected_snapshot_id is not None:
             payload = {"snapshot": payload, "expected_snapshot_id": expected_snapshot_id}
+        if static_snapshot is not None:
+            if expected_snapshot_id is None:
+                raise ValueError("static baseline publication requires a conditional snapshot")
+            payload["static_snapshot"] = static_snapshot.to_dict()
         self._post("snapshots", payload)
         self.refresh()
 

@@ -65,7 +65,9 @@ class BlobStateStore:
             stream = self.blob.download_blob()
             state = json.loads(stream.readall())
             state_loaded = True
-            for field in ("current", "last_good"):
+            for field in ("current", "last_good", "static"):
+                if field == "static" and field not in state:
+                    continue
                 reference = state[field]
                 if reference is not None:
                     if not isinstance(reference, str) or not reference.startswith(field + "/"):
@@ -76,10 +78,9 @@ class BlobStateStore:
                     state[field] = json.loads(raw)
             return state, stream.properties.etag
         except ResourceNotFoundError as error:
-            if error.error_code == "BlobNotFound" and not etag:
-                # Only the initial state blob may be absent, never a referenced snapshot.
-                if not state_loaded:
-                    return None, None
+            # Only the initial state blob may be absent, never a referenced snapshot.
+            if not state_loaded and getattr(error, "error_code", None) == "BlobNotFound" and not etag:
+                return None, None
             raise StateUnavailable("strategy state or referenced snapshot disappeared") from error
         except (AzureError, ValueError, KeyError, TypeError) as error:
             raise StateUnavailable("could not read strategy state") from error
@@ -90,7 +91,9 @@ class BlobStateStore:
 
         try:
             manifest = dict(state)
-            for field in ("current", "last_good"):
+            for field in ("current", "last_good", "static"):
+                if field == "static" and field not in state:
+                    continue
                 snapshot = state[field]
                 if snapshot is None:
                     continue
@@ -103,10 +106,12 @@ class BlobStateStore:
                     if blob.download_blob().readall() != raw:
                         raise StateUnavailable("immutable snapshot blob was modified")
                 manifest[field] = reference
-            options = {"overwrite": True, "etag": etag, "match_condition": MatchConditions.IfNotModified} if etag else {
-                "overwrite": False,
-            }
-            result = self.blob.upload_blob(canonical_json(manifest), **options)
+            raw = canonical_json(manifest)
+            if etag:
+                result = self.blob.upload_blob(raw, overwrite=True, etag=etag,
+                                               match_condition=MatchConditions.IfNotModified)
+            else:
+                result = self.blob.upload_blob(raw, overwrite=False)
             return result["etag"]
         except (ResourceModifiedError, ResourceExistsError) as error:
             raise StateConflict("strategy state changed concurrently") from error
