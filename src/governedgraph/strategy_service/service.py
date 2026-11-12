@@ -28,7 +28,9 @@ from governedgraph.common.contracts import (
 from governedgraph.common.io import load_json
 from governedgraph.strategy_service.catalogue import ESCALATION_STRATEGY, Catalogue
 from governedgraph.strategy_service.exploration import explore
-from governedgraph.strategy_service.snapshot import RankingSnapshot, SignatureUnavailable, Signer, default_signer, verify_snapshot
+from governedgraph.strategy_service.snapshot import (
+    RankingSnapshot, SignatureUnavailable, Signer, default_signer, verify_expert_snapshot, verify_snapshot,
+)
 from governedgraph.strategy_service.state import BlobStateStore, StateConflict, StateStore, StateUnavailable
 
 log = logging.getLogger("governedgraph.strategy_service")

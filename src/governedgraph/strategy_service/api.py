@@ -1,7 +1,4 @@
-"""HTTP surface of the Strategy Service (deployed to Azure Container Apps behind APIM).
-
-Run locally:  uvicorn governedgraph.strategy_service.api:app --port 8082
-"""
+"""HTTP surface of the Strategy Service (Azure Container Apps behind APIM)."""
 from __future__ import annotations
 
 import logging
