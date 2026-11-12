@@ -664,6 +664,7 @@ class Teardown:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    assert __doc__ is not None
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--plan", action="store_true", help="show what would be removed and change nothing")
     p.add_argument("--yes", action="store_true", help="skip the typed confirmation")
