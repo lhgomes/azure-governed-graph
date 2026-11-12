@@ -14,17 +14,17 @@ No developer workstation or generic GitHub-hosted runner is an approved applicat
 
 ## Verification contract
 
-1. Pure logic and governance-boundary unit tests run on a verified Azure-hosted CI runner. The runner must carry the `azure-public` label.
+1. Pure logic and governance-boundary unit tests run in the isolated Azure Container Apps CI Job. A GitHub-hosted runner only authenticates using protected OIDC, submits ACR remote builds and starts/observes the Azure job; it never executes test code.
 2. Application integration and synthetic channel probes run in the deployed Azure environment, using the existing scoped identity model.
 3. Curated/adversarial scenario probes run inside the Azure dev-issuer job. Paid Foundry model comparisons and judge calibration need their own Azure-hosted evaluation jobs and pinned agent versions.
 4. Bicep compilation runs on Azure-hosted infrastructure. Deployment remains an explicit separate action.
-5. Missing Azure runners, credentials, deployment inputs or test evidence are blockers; they are never treated as a successful test.
+5. Missing CI bootstrap resources, GitHub environment approval, OIDC credentials, job executions or test evidence are blockers; they are never treated as a successful test.
 
 ## Work items
 
 - [x] Replace the conflicting repository instruction that mandates offline runtime.
 - [x] Prevent Azure API clients and Search from silently falling back to local adapters when endpoints are missing.
-- [x] Move CI jobs to an explicitly Azure-hosted runner (runner provisioning/registration remains external).
+- [x] Replace unavailable Azure self-hosted GitHub runner requirements with CI-only Azure Container Apps Jobs, a dedicated registry and protected OIDC orchestration (one-time operator bootstrap remains external).
 - [x] Add a curated/adversarial synthetic evaluation probe that runs inside the existing Azure dev-issuer job and keeps tokens in memory.
 - [ ] Migrate the paired Foundry model-comparison and judge-calibration harness off its legacy in-process adapters.
 - [ ] Consolidate the duplicate learning-cycle execution paths behind the audited Azure pipeline.
@@ -35,4 +35,4 @@ No developer workstation or generic GitHub-hosted runner is an approved applicat
 - [ ] Complete the remaining evaluation entry-point migration and documentation cleanup.
 - [ ] Collect Azure-hosted test evidence and deployment readiness without automatically deploying.
 
-**Status:** implementation continuing without test execution at the user's request; Azure-hosted validation is pending. The presence of a checked item is not evidence of Azure test execution; no tests may be reported as passed until an Azure runner or job produces a result.
+**Status:** implementation continuing without test execution at the user's request. See [Azure CI bootstrap](azure-ci.md); this PR adds the job configuration but has not provisioned or executed it. The presence of a checked item is not evidence of Azure test execution; no tests may be reported as passed until Azure Container Apps returns a successful job execution.

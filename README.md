@@ -58,7 +58,9 @@ No local application, in-process service, offline voice or file-backed runtime i
 `python -m scripts.deploy --inputs .azure/private-delivery.json` is the deployment
 entry point when invoked in an approved Azure-hosted delivery environment. Use
 `--plan` for a non-mutating composition review. See the [Azure-only execution contract](docs/azure-only-execution.md)
-for the CI runner and test-evidence requirements.
+for the Azure-only test-evidence requirements. The new [CI setup guide](docs/azure-ci.md)
+explains the one-time protected GitHub environment and the isolated Azure Container Apps validation jobs.
+GitHub-hosted runners orchestrate Azure operations only; tests and Bicep execute in Azure.
 
 ## Use it for your own solution
 
