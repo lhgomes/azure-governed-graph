@@ -295,7 +295,8 @@ class Counsellor:
         if not self._prefetched:
             with t.trace.measure("strategy_lookup"):
                 dependency("strategy_service", t.get_ranked_strategies)
-        if t.trace.ranked.source == "expert_priors_fallback":
+        if (t.trace.ranked is None or (t.trace.ranked.source == "expert_priors_fallback"
+                and not t.trace.ranked.static_fallback_authorized)):
             raise DependencyFailure("strategy snapshot unavailable")
         try:
             if not self._prefetched:

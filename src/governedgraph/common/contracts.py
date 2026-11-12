@@ -277,8 +277,17 @@ class StrategyResponse:
     ranked: list[RankedStrategy]
     suspended: list[str]
     always_available: list[str]
-    source: str  # "snapshot" | "expert_priors_fallback"
+    source: str  # "snapshot" | "expert_priors" | "expert_priors_fallback"
     exploration: bool = False
+    static_fallback_authorized: bool = False
+
+    def __post_init__(self):
+        if type(self.static_fallback_authorized) is not bool:
+            raise ContractError("static fallback authorization must be a boolean")
+        if self.static_fallback_authorized and (
+            self.arm != "treatment" or self.source != "expert_priors_fallback" or self.signature_valid is not True
+        ):
+            raise ContractError("static fallback authorization requires a signed treatment fallback")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
