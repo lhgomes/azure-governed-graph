@@ -57,6 +57,10 @@ footer{font-size:13px;color:var(--quiet);border-top:1px solid var(--line);margin
 <section class="conversation" aria-labelledby="conversation-title"><h2 id="conversation-title">Conversation &amp; captions</h2>
 <p id="empty" class="empty">Your conversation will appear here. Guidance, not advice.</p>
 <ol id="conversation" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Conversation and live captions"></ol>
+<div id="outcome-controls" hidden role="group" aria-label="Optional feedback">
+<div class="controls"><button id="outcome-yes" disabled>Yes</button><button id="outcome-no" disabled>No</button><button id="outcome-skip" disabled>Skip</button></div>
+</div>
+<p id="related-status" class="privacy" hidden>Next question is linked to the selected answer. <button id="clear-related" class="text-button">Cancel link</button></p>
 <p id="conversation-error" role="alert" hidden></p>
 <form id="chat-form" hidden><label for="chat-text">Your message</label><textarea id="chat-text" maxlength="4000" disabled></textarea><button id="send" class="primary" disabled>Send message</button><p class="privacy">Uses the same authenticated journey and safety checks as voice. No microphone needed.</p></form>
 </section>
@@ -94,6 +98,7 @@ let outcome = "", playbackSource, recordingUrl, turnStartedAt = null, firstSampl
     substantiveSamples = [], acknowledgementSamples = [], firstPlayed = false, substantivePlayed = false;
 let nextPlaybackAt = 0;
 let sessionMode = null, waitingForInput = false, handoverPending = false, authenticated = false;
+let currentOffer = null, captionReference = null, selectedRelated = null, relatedButtons = [], replyCaption = null;
 let replyTimeout;
 const activeSources = new Set();
 const canvas = $("screen"), ctx = canvas.getContext("2d");
@@ -118,10 +123,41 @@ function activity(name){
   $("activity").textContent=({ready:"Ready when you are",listening:"I'm listening",thinking:"Checking your request",
     speaking:"Your explanation",typing:"Type at your own pace",complete:"Conversation complete",error:"Let's get you support"})[name];
 }
-function addCaption(role,text){
-  $("empty").hidden=true;const item=document.createElement("li"),label=document.createElement("strong");
-  item.className=role;label.textContent=role==="member"?"You":role==="persona"?simulationName+" (synthetic)":role==="system"?"Session":"Pension Counsellor (AI)";
-  item.append(label,document.createTextNode(text));$("conversation").append(item);item.scrollIntoView({block:"nearest"});
+function setFeedbackAvailability(){
+  for(const choice of ["yes","no","skip"])$("outcome-"+choice).disabled=!waitingForInput;
+  for(const button of relatedButtons)button.disabled=!waitingForInput;
+  $("clear-related").disabled=!waitingForInput;
+}
+function selectRelated(reference){
+  if(!waitingForInput||!socket||socket.readyState!==WebSocket.OPEN)return;
+  selectedRelated=reference;$("related-status").hidden=!reference;
+  if(sessionMode!=="chat")socket.send(JSON.stringify({kind:"related",request_id:crypto.randomUUID(),related_answer:reference}));
+}
+function addCaption(role,text,reference=null,existing=null){
+  $("empty").hidden=true;const item=existing||document.createElement("li");
+  if(!existing){
+    const label=document.createElement("strong");
+    item.className=role;label.textContent=role==="member"?"You":role==="persona"?simulationName+" (synthetic)":role==="system"?"Session":"Pension Counsellor (AI)";
+    item.append(label);
+  }
+  item.append(document.createTextNode(text));
+  if(reference){
+    const button=document.createElement("button");button.className="text-button related-answer";
+    button.textContent="Follow up on this answer";button.disabled=!waitingForInput;
+    button.onclick=()=>selectRelated(reference);relatedButtons.push(button);item.append(button);
+  }
+  if(!existing)$("conversation").append(item);
+  item.scrollIntoView({block:"nearest"});return item;
+}
+function showOutcome(message){
+  currentOffer=message.outcome_offer||null;
+  const responseId=message.response_id||(currentOffer&&currentOffer.response_id);
+  captionReference=responseId&&message.journey_id?{journey_id:message.journey_id,response_id:responseId}:null;
+  $("outcome-controls").hidden=!currentOffer;
+  if(currentOffer){
+    for(const choice of ["yes","no","skip"])$("outcome-"+choice).textContent=currentOffer[choice];
+  }
+  selectedRelated=null;$("related-status").hidden=true;setFeedbackAvailability();
 }
 function metadata(message){
   for(const [field,key] of Object.entries({state:"state",strategy:"strategy",snapshot:"snapshot_id",ranked:"ranked",suspended:"suspended",audit:"audit_status",arm:"arm"})){
@@ -229,6 +265,8 @@ async function connect(mode, handover=false){
   }
   if(mode!=="chat")await setupAudio();sessionMode=mode;waitingForInput=false;handoverPending=handover;
   $("chat-form").hidden=mode!=="chat";$("conversation").replaceChildren();$("empty").hidden=false;
+  currentOffer=null;captionReference=null;selectedRelated=null;relatedButtons=[];replyCaption=null;
+  $("outcome-controls").hidden=true;$("related-status").hidden=true;setFeedbackAvailability();
   clearReplyTimeout();$("conversation-error").hidden=true;$("conversation-error").textContent="";
   $("result").textContent="Journey in progress.";$("download").hidden=true;outcome="";
   metadata({state:"Starting"});
@@ -247,7 +285,8 @@ async function connect(mode, handover=false){
         if(message.kind==="audio"){pending=message;}
         else if(message.kind==="caption"){
           if(sessionMode==="chat"&&message.role==="counsellor")clearReplyTimeout();
-          addCaption(message.role,message.text);
+          addCaption(message.role,message.text,message.role==="counsellor"?captionReference:null);
+          if(message.role==="counsellor")captionReference=null;
         }
         else if(message.kind==="thinking"){activity("thinking");status("Checking your request through the governed journey.");}
         else if(message.kind==="chat_ready"){
@@ -255,6 +294,7 @@ async function connect(mode, handover=false){
           waitingForInput=true;activity("typing");status(message.duplicate?"Message already committed; not repeated.":"Your turn. Type your message.");
           $("chat-text").disabled=false;$("send").disabled=false;
           $("end-session").disabled=false;
+          setFeedbackAvailability();
           if(handoverPending)requestHandover();
         }
         else if(message.kind==="chat_complete"){
@@ -262,18 +302,25 @@ async function connect(mode, handover=false){
           const terminal=["escalation_requested","handed_over","closed"].includes(message.state);
           waitingForInput=!terminal;$("chat-text").disabled=terminal;$("send").disabled=terminal;
           $("end-session").disabled=terminal;
+          setFeedbackAvailability();
           activity(terminal?"complete":"typing");status(terminal?"Human handover requested through the fund's journey.":"Your turn. Ask a follow-up question.");
         }
         else if(message.kind==="capture"){
           waitingForInput=true;activity("ready");status("Your turn. Speak, then finish.");$("speak").disabled=false;
           $("end-session").disabled=false;
+          setFeedbackAvailability();
           if(handoverPending)requestHandover();
         }
         else if(message.kind==="session_ended"){
           clearReplyTimeout();waitingForInput=false;activity("complete");status("Conversation ended.");
           if(sessionMode==="simulator")addCaption("system","Conversation ended. Human support remains available.");
         }
-        else if(message.kind==="progress"){metadata(message);outcome="Strategy "+message.strategy+" | suspended: "+message.suspended.join(", ");}
+        else if(message.kind==="progress"){metadata(message);showOutcome(message);outcome="Strategy "+message.strategy+" | suspended: "+message.suspended.join(", ");}
+        else if(message.kind==="outcome_recorded"){
+          if(currentOffer&&currentOffer.response_id===message.response_id){currentOffer=null;$("outcome-controls").hidden=true;}
+          status(message.duplicate?"Feedback already recorded.":"Feedback recorded.");
+        }
+        else if(message.kind==="related_selected"){$("related-status").hidden=!message.selected;}
         else if(message.kind==="complete"){
           const p95=values=>values.length?[...values].sort((a,b)=>a-b)[Math.ceil(values.length*.95)-1]:null;
           const p50=values=>values.length?[...values].sort((a,b)=>a-b)[Math.ceil(values.length*.5)-1]:null;
@@ -312,7 +359,13 @@ async function connect(mode, handover=false){
         const dispatchAt=performance.now()+(startAt-audio.currentTime)*1000;
         setTimeout(()=>{if(activeSources.has(source)){
           speaker=message.role==="persona"?simulationName+" (simulated)":"Pension Counsellor (AI)";
-          caption=message.text;addCaption(message.role,message.text);activity("speaking");status("Playing "+speaker);}},Math.max(0,dispatchAt-performance.now()));
+          caption=message.text;
+          const reference=message.role==="counsellor"&&message.final_sentence!==false?captionReference:null;
+          const continuing=message.role==="counsellor"&&!message.acknowledgement;
+          const item=addCaption(message.role,message.text,reference,continuing?replyCaption:null);
+          replyCaption=continuing&&message.final_sentence===false?item:null;
+          if(reference)captionReference=null;
+          activity("speaking");status("Playing "+speaker);}},Math.max(0,dispatchAt-performance.now()));
         await new Promise(resolve=>{
           source.onended=()=>{activeSources.delete(source);source.disconnect();resolve();};source.start(startAt);
           if(message.role==="counsellor"&&turnStartedAt!==null){
@@ -340,7 +393,7 @@ async function connect(mode, handover=false){
     activeSources.clear();playbackSource=null;nextPlaybackAt=0;
     $("stop").disabled=!authenticated;$("speak").disabled=true;
     $("end-session").disabled=true;
-    waitingForInput=false;$("chat-text").disabled=true;$("send").disabled=true;
+    waitingForInput=false;$("chat-text").disabled=true;$("send").disabled=true;setFeedbackAvailability();
     $("simulation").disabled=!authenticated;$("simulate").disabled=!authenticated;$("present").disabled=!authenticated;$("chat").disabled=!authenticated;
   };
 }
@@ -365,12 +418,22 @@ function requestHandover(){
   }else status("Human support requested. Finishing the current checked response before handover.");
 }
 $("stop").onclick=requestHandover;
+$("clear-related").onclick=()=>selectRelated(null);
+for(const choice of ["yes","no","skip"])$("outcome-"+choice).onclick=()=>{
+  if(!waitingForInput||!currentOffer||!socket||socket.readyState!==WebSocket.OPEN)return;
+  socket.send(JSON.stringify({kind:"feedback",request_id:crypto.randomUUID(),
+    outcome:{response_id:currentOffer.response_id,choice}}));
+  waitingForInput=false;$("chat-text").disabled=true;$("send").disabled=true;$("speak").disabled=true;
+  setFeedbackAvailability();if(sessionMode==="chat")awaitChatReply();activity("thinking");status("Recording your feedback.");
+};
 $("chat-form").onsubmit=event=>{
   event.preventDefault();const text=$("chat-text").value;
   if(!waitingForInput||!text.trim()||text.length>4000||!socket||socket.readyState!==WebSocket.OPEN)return;
-  socket.send(JSON.stringify({kind:"chat",request_id:crypto.randomUUID(),text}));addCaption("member",text);
+  socket.send(JSON.stringify({kind:"chat",request_id:crypto.randomUUID(),text,
+    ...(selectedRelated?{related_answer:selectedRelated}:{})}));addCaption("member",text);
+  selectedRelated=null;$("related-status").hidden=true;$("outcome-controls").hidden=true;
   awaitChatReply();
-  $("chat-text").value="";$("chat-text").disabled=true;$("send").disabled=true;waitingForInput=false;activity("thinking");
+  $("chat-text").value="";$("chat-text").disabled=true;$("send").disabled=true;waitingForInput=false;setFeedbackAvailability();activity("thinking");
   status("Checking your request through the governed journey.");
 };
 $("speak").onclick=async()=>{
@@ -395,6 +458,7 @@ function stopCapture(send){
     const count=Math.min(24000*20,captured.reduce((total,part)=>total+part.length,0)),pcm=new Int16Array(count);let offset=0;
     for(const part of captured)for(const sample of part){if(offset<count)pcm[offset++]=Math.max(-32768,Math.min(32767,Math.round(sample*32767)));}
     turnStartedAt=performance.now();firstPlayed=false;substantivePlayed=false;waitingForInput=false;
+    setFeedbackAvailability();
     socket.send(pcm.buffer);activity("thinking");status("Checking your request through the governed journey.");
   }
   captured=[];
