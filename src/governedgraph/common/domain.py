@@ -102,7 +102,7 @@ def vocabulary(data_dir: Path = DATA_DIR) -> dict:
                    for v in labels.values())):
         raise DomainPackError("domain vocabulary: step_labels need three labels for every response language")
     version = raw.get("vocabulary_version")
-    if not isinstance(version, str) or re.fullmatch(r"[0-9]+(?:\\.[0-9]+)*", version) is None:
+    if not isinstance(version, str) or re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", version) is None:
         raise DomainPackError("domain vocabulary: invalid version")
     outcome = raw.get("outcome_check")
     if outcome is None:

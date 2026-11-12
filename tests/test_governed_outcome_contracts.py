@@ -22,7 +22,7 @@ def new_answer(channel="voice"):
 def test_response_outcomes_are_explicit_and_keyed_to_a_delivered_answer():
     journey, response_id = new_answer()
     assert not journey.events[-1].outcome_offered
-    journey.offer_outcome(response_id, "1.1")
+    journey.offer_outcome(response_id, "1.2")
     assert journey.events[-1].outcome_offered
     journey.record_playback(response_id, "playback-1")
     journey.record_outcome(OutcomeSubmission(response_id, "skip"), "outcome-1")
