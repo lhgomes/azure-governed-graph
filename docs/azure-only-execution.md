@@ -14,17 +14,17 @@ No developer workstation or generic GitHub-hosted runner is an approved applicat
 
 ## Verification contract
 
-1. Pure logic and governance-boundary unit tests run on a verified Azure-hosted CI runner. The runner must carry the `azure-public` label.
-2. Application integration and synthetic channel probes run in the deployed Azure environment, using the existing scoped identity model.
-3. Curated/adversarial scenario probes run inside the Azure dev-issuer job. Paid Foundry model comparisons and judge calibration need their own Azure-hosted evaluation jobs and pinned agent versions.
-4. Bicep compilation runs on Azure-hosted infrastructure. Deployment remains an explicit separate action.
-5. Missing Azure runners, credentials, deployment inputs or test evidence are blockers; they are never treated as a successful test.
+1. No required GitHub CI job depends on a deployed environment, Azure subscription, managed identity, container registry, or manually populated GitHub variables. The removed CI workflow was not a deployment-independent test.
+2. Retain pure B1–B10 unit/contract test source as regression coverage, but do not claim it has executed. The repository has no automatic test runner.
+3. Application integration, synthetic channel probes, and Foundry/voice acceptance can only run in an explicitly deployed Azure environment under its existing scoped identity model; they are not generic PR checks.
+4. Bicep compilation and infrastructure acceptance occur in the explicitly authorized Azure delivery process, not in a workflow that must infer deployment parameters.
+5. Missing test or evaluation evidence is not success; any acceptance/release decision must rely on separately captured, actual Azure results.
 
 ## Work items
 
 - [x] Replace the conflicting repository instruction that mandates offline runtime.
 - [x] Prevent Azure API clients and Search from silently falling back to local adapters when endpoints are missing.
-- [x] Move CI jobs to an explicitly Azure-hosted runner (runner provisioning/registration remains external).
+- [x] Remove deployment-coupled GitHub CI jobs and their unused Azure CI bootstrap; the repository requires no deployment parameters for source-control actions.
 - [x] Add a curated/adversarial synthetic evaluation probe that runs inside the existing Azure dev-issuer job and keeps tokens in memory.
 - [ ] Migrate the paired Foundry model-comparison and judge-calibration harness off its legacy in-process adapters.
 - [ ] Consolidate the duplicate learning-cycle execution paths behind the audited Azure pipeline.
@@ -35,4 +35,4 @@ No developer workstation or generic GitHub-hosted runner is an approved applicat
 - [ ] Complete the remaining evaluation entry-point migration and documentation cleanup.
 - [ ] Collect Azure-hosted test evidence and deployment readiness without automatically deploying.
 
-**Status:** implementation continuing without test execution at the user's request; Azure-hosted validation is pending. The presence of a checked item is not evidence of Azure test execution; no tests may be reported as passed until an Azure runner or job produces a result.
+**Status:** no automatic repository CI workflow is configured. Azure acceptance remains an explicit activity following deployment. Existing tests remain as source for possible Azure-based regression verification; they are not executed or counted as passing by GitHub Actions.

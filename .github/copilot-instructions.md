@@ -43,11 +43,9 @@ Event Processing and Adoption Guide agents are at design depth.
 - Before using any Azure SDK or resource API, **check the current docs with the `microsoft-learn` MCP server** (`.vscode/mcp.json`)
   and pin the version you verified in `requirements-azure.txt`. SDK surfaces (Foundry Agent Service in particular) change often.
 - Identity: managed identity / `DefaultAzureCredential` only. No keys, connection strings or secrets in code, config or Bicep outputs.
-- Infra: Bicep in `infra/`, deployed with `azd`. Validate Bicep on an Azure-hosted runner after every infra change.
-- Every behaviour change ships with a test, but **execute all tests and evaluations in Azure**, never on a developer
-  machine or a generic GitHub-hosted runner. Azure-hosted CI runners may run isolated pure unit tests with mocks;
-  live integration and Foundry evaluations must use approved Azure test jobs and synthetic identities. Do not treat
-  a pending Azure test job as a pass.
+- Infra: Bicep in `infra/`, deployed through the explicitly authorized Azure delivery process. Do not add CI prerequisites that require subscription IDs, deployment names, identities, registries or manually configured GitHub environment variables.
+- Preserve B1–B10 regression coverage in source where feasible, but **do not create a deployment-dependent automated GitHub test workflow**. Tests, Bicep verification and live evaluations require a separately authorized Azure environment when execution is requested. No generic GitHub-hosted or developer-machine runtime/test fallback. Never claim an unrun test or unevaluated deployment as a pass.
+- If a proposed automated test cannot run independently of deployment-specific configuration, do not add it as a mandatory repository check. Do not weaken runtime guardrails to make tests pass.
 - All data is synthetic and must stay labelled `ILLUSTRATIVE - synthetic data`. Never add real member, organisation or personal data.
 - Record architectural decisions in reviewed pull-request descriptions (ID, decision, alternatives, boundary served).
   Do not create hidden local-only acceptance or evidence requirements.
