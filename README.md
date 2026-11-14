@@ -111,7 +111,7 @@ integration or production acceptance. See the [limits to state with any result](
 |---|---|
 | [Architecture](docs/architecture.md) | Azure P1/P2 flows, persistence, security and governance boundaries |
 | [Administration console](docs/administration.md) | Rankings, vetoes, suspensions, decisions, conversations; protective actions and access control |
-| [Deploying](docs/deploying.md) | Staged Azure deployment and teardown |
+| [Deploying](docs/deploying.md) | Governed Azure delivery and teardown |
 | [Evaluation method](docs/evaluation.md) | Hard gates, model comparison and what a result can claim |
 | [Agent workflow diagram](docs/diagrams/agent-workflow.md) | The detailed agents-and-gates diagram, step-by-step explanation and editable Mermaid sources |
 

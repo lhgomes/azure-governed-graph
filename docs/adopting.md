@@ -8,24 +8,22 @@ explained) and a **values source** (where official figures and outcomes come fro
 
 1. **Copy the sample.** `cp -r examples/pension_wtp examples/my_domain`, then replace the package name `pension_wtp` with
    `my_domain` in its Python, domain JSON, overlay Dockerfile and Bicep composition.
-2. **Supply explicit inputs.** Set `GOVERNEDGRAPH_DATA_DIR` to your data directory,
-   `GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER=my_domain.member_values_api.data:get_member_values`
-   and `GOVERNEDGRAPH_TEXT_DEMO_MODULE=my_domain.demo.run_demo`. Your extension's
-   offline entry points may supply their own defaults; the framework supplies none.
-   `GOVERNEDGRAPH_SAMPLE=my_domain` selects the shared evaluation entry point only.
+2. **Supply explicit inputs.** Set `GOVERNEDGRAPH_DATA_DIR` through your Azure
+   deployment composition and configure the APIM-backed values endpoint.
+   The framework supplies no implicit sample or local-runtime fallback.
 3. **Replace the domain pack** in `examples/my_domain/data/` (section 1 below): strategies, templates, prompts, vocabulary,
    approved content, expert priors, fairness thresholds.
 4. **Replace the values source** in `examples/my_domain/member_values_api/data.py` (section 2): read-only, scoped to the
    authenticated member, returning display strings from your system of record.
-5. **Run the gates:** `python evals/run_evals.py` and `pytest`. Numeric fidelity 100%, zero option recommendations and
-   demographic invariance must all pass (section 4).
+5. **Prepare validation:** domain-owned evaluation cases must cover numeric fidelity
+   100%, zero option recommendations and demographic invariance (section 4).
 6. **Deploy** with `python -m scripts.deploy --inputs .azure/private-delivery.json`,
    selecting `examples/my_domain/deployment.json` in its `composition` field. The explicit extension owns its overlays and
    workload composition; check the
    [Azure image contract](#azure-image-contract) first.
 
-This path is exercised: a renamed copy of the sample, selected with `GOVERNEDGRAPH_SAMPLE`, runs the demo and passes the
-evaluation gates.
+Validate the renamed composition and its domain expectations in your authorized
+Azure environment; copying the sample does not certify adoption.
 
 | You change | You never change |
 |---|---|
@@ -58,12 +56,11 @@ of falling back to permissive defaults.
 The framework owns the routes that protect the boundaries: option-level questions escalate (B9), a human is always
 reachable, and the comprehension loop is host-controlled. A pack adds explanation intents; it cannot remove those routes.
 
-## 2. Deterministic values source (`GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER`)
+## 2. Deterministic values source
 
-Set `GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER` to `module:callable` implementing
-`get_member_values(member_ref, authenticated_member_ref) -> MemberValues`. It must be read-only, scope every call to the
-authenticated member and return display strings from the system of record. In Azure mode, values come through the
-API gateway facade (`MEMBER_VALUES_API_URL`); put your system of record behind it, as the sample's
+Values come through the API gateway facade (`MEMBER_VALUES_API_URL`). Your adapter
+must be read-only, scope every call to the authenticated member and return official
+display strings from the system of record. Put that source behind the facade, as the sample's
 [member-values API](../examples/pension_wtp/member_values_api) does for its synthetic data.
 
 ## 3. Domain text
@@ -74,18 +71,15 @@ gates. `tests/test_domain_pack.py` fails if sample-domain wording appears in `sr
 definitions are recreated from the pack, so a prompt change produces a new agent version for approval (Tier 2).
 Evaluation personas and datasets also belong to your pack.
 Sample-specific evaluation code and cases belong to the sample, not the framework's deployment script. The reference
-sample keeps local tests and evaluation cases under its own directory. Its
+sample keeps domain tests and evaluation cases under its own directory. Its
 `deployment.json` declares domain/approved composition inputs only, never test or proof policy. Framework B1-B10 tests
 stay in `tests/` and cannot be removed or weakened by a sample definition.
 
 ## 4. Verify
 
-```bash
-export PYTHONPATH=src:examples
-pytest
-python evals/run_evals.py
-```
-
+Run regression and evaluation only in a separately authorized Azure environment,
+using explicit domain inputs and the selected immutable release.
+See [evaluation](evaluation.md) for live probes and retained harness limitations.
 All hard gates must pass: numeric fidelity 100%, zero option recommendations, demographic invariance.
 `tests/test_layering.py` fails if framework code imports a sample or domain module.
 
@@ -95,7 +89,7 @@ The framework [Dockerfile](../Dockerfile) builds `runtime`, and [Dockerfile.p2](
 builds `p2`, without sample defaults or files. Your extension supplies matching
 runtime/P2 overlay Dockerfiles and a Bicep composition. Build arguments
 `FRAMEWORK_RUNTIME` and `FRAMEWORK_P2` are immutable base-image references, not sample selectors.
-The explicit extension environment supplies the data directory, values provider and demo module.
+The explicit extension composition supplies the data directory and hosted values application.
 Azure runtime refuses an absent data-directory input. The reference overlays contain:
 
 | Image | Files copied from `examples/<your_package>/` |

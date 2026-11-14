@@ -63,7 +63,6 @@ Dataset, API and export watermarks retain their full wording.
 
 Search filters the selected view; results are paginated. Select a linked strategy, context, case,
 decision or journey to inspect its evidence. Empty evidence is labelled absent, not approved or healthy.
-The style table replaces the former Overview, Style order, Paused styles and Learning data pages.
 Each style appears once. Status distinguishes active, partly paused, fully paused and the
 always-available human advisor. Details use three tabs: **Summary**, **Order by situation** and
 **Learning results**. Tabs support arrow keys, Home and End. Summary includes controls and pause evidence.
@@ -142,8 +141,8 @@ the original acceptance record is retained in details.
 The Strategy API verifies **both** the delegated owner's `Admin.Access` token and a separate application token
 from the pinned, journal-writing admin identity carrying its existing `Strategy.Suspend` role. An owner token
 alone, an operator token, an app-only token or the fairness identity cannot submit these owner decisions.
-The owner's token is forwarded only in memory and is never journalled. No OBO secret, new role or managed-identity
-grant is required. P2 retains exclusive signing and publication rights and can activate only an order matching
+The owner's token is forwarded only in memory and is never journalled. The proxy
+uses its own managed identity, not an OBO secret. P2 retains exclusive signing and publication rights and can activate only an order matching
 the recorded decision, catalogue versions and situation. The normal isolated audit and signing-isolation checks
 must succeed first. Revocation or freeze racing with signing returns a conflict rather than reactivating a decision.
 
@@ -162,85 +161,41 @@ only allowlisted synthetic members, with a synthetic watermark, journey ID and r
 This console does not enable capture, change retention or create a transcript archive.
 Uncaptured, redacted, expired or un-ingested turns cannot be reconstructed.
 
-For optional read-only lookup, the values come from the deployment. After `azd provision`, the azd
-environment holds the workspace GUID (`LOG_ANALYTICS_WORKSPACE_ID`), the Foundry project ID
-(`AZURE_AI_PROJECT_RESOURCE_ID`) and the environment name, so a local console only needs to opt in:
-
-```bash
-set -a; eval "$(azd env get-values --environment gg-dev)"; set +a
-export GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP=true
-```
-
-`GOVERNEDGRAPH_ADMIN_TRACE_WORKSPACE`, `_PROJECT` and `_ENVIRONMENT` still override these if you need to
-point at a different deployment. The deployed console needs no setup beyond `GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP=true`
-in the azd environment, because the infrastructure passes the same values to it.
-
-Restart the console after changing configuration. From a journey's details, select
-**Retrieve synthetic conversation captures**. Retrieval runs
-`az monitor log-analytics query` under the operator's **existing Azure CLI sign-in**;
-install the CLI's `log-analytics` extension separately if needed. No credentials enter the browser,
-and no identities, role assignments, capture flags or resources are created.
-The operator must already have authorized read access to that workspace. Lookup is opt-in and
-never executed at startup or during an ordinary page refresh.
-For a deployed journey that is not present in the local audit store, enter its existing journey ID
-under **Journeys & evidence** and select **Inspect captured journey**. This performs the same bounded
-synthetic-only lookup, without importing remote records or pretending the local and remote stores match.
+Optional lookup uses the deployment's workspace GUID, Foundry project ARM ID
+and environment name. `GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP=true` enables the deployed
+console's read-only query under its own managed identity and existing authorized
+workspace access. Enabling or widening that access requires a reviewed deployment.
+No credentials enter the browser. Lookup runs only on an explicit inspection
+request, not at startup or during an ordinary refresh.
 
 Queries use workspace `AppDependencies`, exact project, exact journey, exact capture span,
 synthetic flag and watermark, a seven-day window, a 30-second timeout and at most 100 displayed
 captures. A 101st row signals truncation. Messages are validated, credential-screened again, displayed
-as text (never HTML), and not written to local files or fed to learning. Capture status and response
+as text (never HTML), and not written to files or fed to learning. Capture status and response
 IDs are preserved. Missing configuration, denied access, timeouts and malformed data are explicit
 errors. An empty successful query means **no captures found**, not no conversation.
-This integration is contract-tested offline; live workspace retrieval requires deployment validation.
+Test source does not certify live workspace retrieval; validate the deployed integration.
 
 References: [Microsoft tracing guidance](https://learn.microsoft.com/azure/foundry-classic/how-to/develop/trace-agents-sdk#instrument-tracing-in-your-code),
 [Azure CLI log query](https://learn.microsoft.com/cli/azure/monitor/log-analytics?view=azure-cli-latest#az-monitor-log-analytics-query).
 
 ## Access control (Microsoft Entra groups)
 
-On Azure in `gg-dev` access control is set up by the deployment (see [Access control on Azure](#access-control-on-azure)).
-Locally it is **off by default**, which suits a demo. While it is off, the page shows a banner:
-anyone who can open the console can view all evidence and apply protective actions.
-
-To turn it on yourself, set one environment variable per access level to an Entra **group object ID**:
+Access control is required and set up by deployment
+(see [Access control on Azure](#access-control-on-azure)). Missing group configuration
+disables the console; there is no anonymous or local-loopback administration mode.
+Groups define the three access levels:
 
 | Variable | Level |
 |---|---|
 | `GOVERNEDGRAPH_ADMIN_READER_GROUP_ID` | View evidence |
 | `GOVERNEDGRAPH_ADMIN_OPERATOR_GROUP_ID` | View evidence and apply protective actions |
+| `GOVERNEDGRAPH_ADMIN_OWNER_GROUP_ID` | View evidence, apply protection and approve owner decisions |
 
-Leave both blank, or unset, to keep access control off. Setting either one turns it on.
-
-| Configuration | Who can view | Who can act |
-|---|---|---|
-| Neither set | Anyone who opens the console (banner shown) | Anyone who opens the console |
-| Both set | Reader or operator group members | Operator group members |
-| Reader only | Reader group members | Nobody (read-only console) |
-| Operator only | Any signed-in user of your tenant | Operator group members |
-
-Operators can always view, so they do not also need the reader group. A blank group never grants
-action rights, so a partly configured console cannot silently open up protective actions.
-
-Sign-in itself needs an Entra app registration, which the two group IDs cannot replace. Locally, set:
-
-```bash
-export GOVERNEDGRAPH_ADMIN_CLIENT_ID='<app-registration-client-id>'
-export GOVERNEDGRAPH_ADMIN_TENANT_ID='<tenant-id>'   # falls back to STRATEGY_TENANT_ID
-```
-
-Register it once (the Azure deployment does this for you):
-
-1. Add a **Single-page application** platform with redirect URI `http://localhost:8090/`
-   (Entra accepts plain `http` only for `localhost`; browse to `http://localhost:8090`, not `127.0.0.1`).
-2. Under **Expose an API**, set the application ID URI to `api://<client-id>`, add a delegated scope named
-   `Admin.Access`, and pre-authorize the app itself for it. Set the access token version to 2.
-   This is what makes sign-in consent-free: tenants that block user consent otherwise demand admin approval for the
-   standard `openid profile` permissions.
-3. Under **Token configuration**, add the **groups** claim for access tokens. Prefer
-   **Groups assigned to the application** and assign your reader and operator groups to it.
-   If a user belongs to too many groups to fit in the token, the console denies access and says why.
-4. No client secret, API permission or admin consent is needed.
+Operators and owners can view without separate reader membership. Blank groups
+never grant access. Sign-in also requires the configured Entra client and tenant,
+the exact deployed redirect URI, the self-preauthorized `Admin.Access` scope and
+group claims. No client secret is used.
 
 Behaviour:
 
@@ -249,24 +204,14 @@ Behaviour:
 - The server verifies every data and action request: RS256 signature, tenant issuer, this app as audience, expiry,
   the `Admin.Access` delegated scope, and group membership. ID tokens, app-only tokens and tokens for other scopes
   are rejected.
-- With access control on, the journal records the signed-in user as `entra:<object-id>`.
+- The journal records the signed-in user as `entra:<object-id>`.
 - Any misconfiguration (a group or client ID that is not a GUID, or a missing client or tenant ID)
   blocks the console with an explanation instead of falling back to open access.
 - The top bar shows who is signed in and whether the account is view-only.
 
-Access control restricts who may use the console, locally and on Azure.
-
-## Local protection
-
-- Disabled unless `GOVERNEDGRAPH_ADMIN_ENABLED=true`.
-- Locally it requires a loopback peer and hostname, same-origin requests, and a per-process session
-  capability. DNS-rebinding hosts and cross-origin requests are rejected. There is no CORS allowlist.
-- Responses and conversation views are `no-store`; CSP excludes external assets, framing and inline
-  scripts, and allows `login.microsoftonline.com` only when access control is on. The session
-  capability is kept in page memory. Only the temporary sign-in proof (PKCE verifier and state) uses
-  session storage, and it is removed when the sign-in completes.
-- With access control off locally, the actor is labelled `local-loopback-operator`, **not** a verified
-  human identity. Do not expose the local port through a proxy, tunnel or remote port share.
+Responses and conversation views are `no-store`; content security policy excludes
+external assets, framing and inline scripts. Only temporary PKCE proof uses session
+storage and is removed after sign-in. Tokens remain in page memory.
 
 ## Deploy to Azure
 
@@ -332,20 +277,18 @@ same way. Owner membership grants console read/protective-action access and is s
 Only owners receive the separate `can_own` authorization flag; operator membership alone does not grant it.
 An owner-only configuration admits owners, not arbitrary signed-in tenant users. Workload configuration also passes
 the owner group and admin audience to the Strategy Service for independent owner verification.
-This does not configure the separate legacy reinstatement group or freeze-recovery authorization, or grant the console
+This does not configure the separate reinstatement group or freeze-recovery authorization, or grant the console
 publication/signing rights. Owner decisions use the explicit dual-token workflow above.
-No new Azure resource roles, directory roles, keys or application permissions are added.
+Group membership does not grant Azure resource, directory, key or publication permissions.
 
 | Setting | Meaning | Default |
 |---|---|---|
-| `GOVERNEDGRAPH_ADMIN_ACCESS_CONTROL` | Set to `false` to skip the registration and leave the console open | `true` in gg-dev |
 | `GOVERNEDGRAPH_ADMIN_READER_GROUP_ID` / `…_OPERATOR_GROUP_ID` / `…_OWNER_GROUP_ID` | Supplied groups are used as given; their membership is never changed | created |
 | `GOVERNEDGRAPH_ADMIN_GROUP_CLAIM` | `SecurityGroup` if the tenant lacks Entra ID P1/P2 (group assignment is skipped; the console still checks membership on every request) | `ApplicationGroup` |
-| `GOVERNEDGRAPH_ADMIN_ALLOW_OPEN_ACTIONS` | Allow protective actions while access control is off | `false` |
 | `GOVERNEDGRAPH_ADMIN_MEMBER_ID` | Configured reader/operator enrollment for standalone registration; owner enrollment still resolves the signed-in deploying human | the deploying user |
 
-If you opt out, the console shows the "Sign-in is off" banner, evidence is viewable by anyone who can reach the URL,
-and **protective actions are disabled** unless `GOVERNEDGRAPH_ADMIN_ALLOW_OPEN_ACTIONS=true`.
+Open-console flags are not a supported execution mode. Required Entra authorization
+must not be disabled to troubleshoot a deployment.
 
 Review the plan without changing anything: `PYTHONPATH=src:. python -m scripts.configure_admin_console` after exporting the azd
 environment (`set -a; eval "$(azd env get-values)"; set +a`). Sign-in asks for no consent and needs no admin approval,
@@ -360,8 +303,9 @@ Conversation text in the console needs **two** switches, both off by default, an
 | `GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS=true` | The orchestrator records the text of **synthetic** `gg-dev` members' turns in Application Insights (credentials redacted, size capped, tagged synthetic; effective only with the presenter deployed). It is never a learning input. Only journeys that run **after** it is enabled are recorded. |
 | `GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP=true` | Gives the admin identity **Log Analytics Reader on the workspace** so the console can query those spans (`azure-monitor-query`, seven-day window, 100 turns, synthetic-only filters). That role reads the whole workspace, not only the traces. |
 
-Set both with `azd env set <NAME> true` and `azd provision`. The guided runner sets both for you (with the presenter,
-which capture needs). With only the lookup on, the console reports no captures
+Configure capture and lookup through the reviewed
+[delivery process](deploying.md); new workspace-wide access requires explicit approval.
+The reference presenter composition configures both together. With only lookup on, the console reports no captures
 because nothing was recorded. The journey details show "No captured turns found" with the likely reasons.
 Existing journeys that ran before capture was enabled cannot be recovered.
 
@@ -375,18 +319,13 @@ journey for a check with `python -m scripts.run_dev_proof channel` (the existing
 - The journal is write-once. A `requested` entry with no matching `applied` or `failed` entry needs
   investigation before the action is retried.
 - Scaling out needs a shared session capability first; keep one replica.
-- Azure behaviour is verified offline with in-memory stores and a mocked Strategy API. Verify the deployed
+- Test doubles are not live Azure evidence. Verify the deployed
   console after each deployment: open the URL, refresh, and confirm every view loads.
 
 ## Validation
 
-```bash
-pytest tests/test_admin_api.py tests/test_admin_access.py tests/test_admin_azure.py \
-  tests/test_admin_deployment.py tests/test_admin_data.py tests/test_admin_traces.py
-```
-
-Tests cover local authorization, optional group access control (real RS256 token validation with a
-generated key, every group configuration, rejected tokens, group overage and fail-closed
-misconfiguration), disabled Azure mode, closed action contracts, durable protections and journal
-failures, universal overlays, S6 availability, demographic-free projections, digest-checked feedback,
-journey linkage, and bounded synthetic trace response/error contracts.
+Run regression and live verification only in the authorized Azure environment.
+Coverage includes Entra token/group validation, closed action contracts, durable
+protection and journal failures, universal overlays, S6 availability, demographic-free
+projections, digest-checked feedback, journey linkage and bounded synthetic trace
+responses. Source coverage is not evidence that these checks have passed.

@@ -8,7 +8,7 @@ production approval or human recovery.
 ## Commands and explicit inputs
 
 Use Python 3.14, Azure CLI, Azure Developer CLI, Bicep and the existing verified
-`requirements-azure.txt` environment:
+`requirements-azure.txt` environment in an approved Azure-hosted delivery environment:
 
 ```bash
 .venv/bin/python -m scripts.deploy --inputs .azure/private-delivery.json --plan
@@ -42,10 +42,7 @@ managed-identity issuer and create an authorized journey before delivering
 the AI disclosure. Chat then enables typing; voice requires acknowledgement
 of disclosure playback before enabling capture.
 
-The Azure-only runtime has no deployment-mode switch or
-`Settings.require_deployment` method. Hosted-entry regression tests exercise
-both modes through the real WebSocket handler, including issuer failures;
-mocking the entire session handler would miss a shared startup regression.
+Issuer or journey-start failure must prevent successful session startup.
 
 The admin console reads the Strategy Service's required `current`, `last_good`,
 `frozen` and `suspensions` fields and its optional signed `static` baseline and
@@ -122,10 +119,10 @@ permissions are reused; delivery never grants access to an unrelated CLI identit
 or changes the global account. Standalone agent provisioning requires
 `AZURE_SUBSCRIPTION_ID`; `scripts.azd_env export --task agents` includes it.
 
-Delivery also binds all six agent names explicitly to the workload contract,
-including `gg-counsellor` and `gg-fairness-explainability`. Legacy agent-name
+Delivery binds all six agent names explicitly to the workload contract,
+including `gg-counsellor` and `gg-fairness-explainability`. Ambient agent-name
 settings in the invoking shell cannot redirect deployment planning, version
-creation or fairness endpoint pinning. Standalone provisioning still honors its
+creation or fairness endpoint pinning. standalone provisioning still honors its
 configured names. Writer approval checks both the exact agent name and immutable
 version; old differently named agents are retained, never renamed or deleted.
 
@@ -188,8 +185,7 @@ cannot declare tests, evaluation policy, learning proofs or operator recovery.
 2. **Immutable images.** `Dockerfile` and `Dockerfile.p2` build framework
    runtime and P2 respectively. The extension's matching Dockerfiles build
    `runtime`/`probe` and `p2`/`fixtures` from their own framework digest references.
-   Separate dependency families prevent ACR's classic builder from processing
-   unrelated private-registry stages or installing the other family's SDKs. Identical
+   Separate dependency families keep runtime and learning SDKs isolated. Identical
    extension runtime images serve all five applications. P2/fixtures use the
    ML registry; runtime/probe use the application registry. Each distinct target
    is built once, or its source-keyed immutable image is reused.
@@ -224,8 +220,8 @@ cannot declare tests, evaluation policy, learning proofs or operator recovery.
       same template and parameters. Other failures are not retried.
 5. **Readiness only.** Check running application provisioning, enabled native
    schedules and the console page; retain `.run/delivery.json` and print URLs/IDs.
-   No pytest, demo, paid evaluation, conversational proof or operator-run
-   nine-stage learning cycle occurs during delivery.
+   No regression suite, demo, paid evaluation, conversational proof or manual
+   learning-cycle acceptance occurs during delivery.
 
 ## Artifacts, isolation and redeployment
 
@@ -253,14 +249,11 @@ see how that reply was produced (what the guide did, the draft checks and the ou
 and never carrying conversation text (B4/B7). When a conversation ends, **How this conversation went** consolidates
 every reply into one list. When no
 safe, relevant answer exists the guide asks one follow-up question before offering an advisor; an
-advisor is always reachable (B9). Latency diagnostics
-and aggregate-provenance displays are omitted; delivery measurements and provenance
-contracts remain unchanged. Errors appear once in the conversation area; sanitized
+advisor is always reachable (B9). Errors appear once in the conversation area; sanitized
 failure type and location remain in the browser console. The final audit report retries
 only the explicit journey-busy response, with bounded waits; persistent contention and
-other failures still prevent successful completion. Canonical AI disclosure, a
-single small **Synthetic data** label, authentication
-authentication and all existing channel guardrails are unchanged.
+other failures still prevent successful completion. AI disclosure, the
+**Synthetic data** label, authentication and channel guardrails remain required.
 
 To inspect the presenter after redeployment, select the environment explicitly:
 
@@ -294,7 +287,7 @@ retains the authoritative approved feed. No recovery is attempted by delivery.
 
 Hosted evaluation validates exact deployed writer/semantic definitions, retains
 incremental case/remote evidence and enforces deterministic hard gates before
-claiming a pass: exit 0 passed, 1 failed, 2 unavailable. It uses local
+claiming a pass: exit 0 passed, 1 failed, 2 unavailable. The retained harness uses in-process
 deterministic adapters and fixed synthetic cases, **not** the real channel.
 See [evaluation](evaluation.md).
 
@@ -303,8 +296,8 @@ under the existing in-network dev-issuer job; select the receipt's `probe` image
 for voice. Tokens remain in probe memory and expire within fifteen minutes.
 Never issue member tokens or grant developer Key Vault access locally.
 
-Genuine operational APIs remain: `scripts.run_p2_container_jobs` for inspecting
-an exact legacy operator cycle, `scripts.configure_strategy_recovery` for
+Operational tools include `scripts.run_p2_container_jobs` for inspecting
+an exact operator cycle, `scripts.configure_strategy_recovery` for
 existing restricted operator access, and `scripts.lift_dev_freeze` for
 personally authorized audited recovery. Unknown status is never completion;
 failed watchdogs are not resumed/replaced, and reinstatement still requires
@@ -315,17 +308,15 @@ Explicit `--subscription`, `--resource-group`, `--seed` remain supported for
 historical deployments. `.run/deploy-state.json` is read only for historical
 scope/archive ownership; teardown imports no deployment classes. Child-first
 Search cleanup, managed-network deletion waits, protected tombstones and
-azd/history archival remain intact. No legacy fresh/resume or acceptance wrapper
-is retained.
+azd/history archival preserve deployment scope and evidence.
 
 ## Delivery test coverage
 
-Obsolete delivery state-machine, multi-provision, recovery-handoff and automatic
-acceptance mock contracts have been replaced, not retained through shims.
-Coverage is now explicit-input/closed-approval validation, immutable build reuse,
+Coverage includes explicit-input/closed-approval validation, immutable build reuse,
 foundation/bootstrap/workload composition, unknown-status failure, signature
 gates, byte-for-byte protective-state preservation and image isolation.
 Existing runtime B1-B10/GNA/disclosure and operator recovery tests remain
-controlling; infrastructure/image assertions follow the relocated enforcement
-points with equivalent or stronger checks. Pension composition/selection/case
+controlling. Pension composition/selection/case
 tests live under `examples/pension_wtp/tests`; framework tests live in `tests`.
+Run them only in the separately authorized Azure validation environment; this
+description is not an executed test result.

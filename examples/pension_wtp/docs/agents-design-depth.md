@@ -18,7 +18,7 @@ These three agents are specified at design depth only for the sample domain: con
 - Inputs/outputs: journey state and open items in; next-step guidance, links to fund tools, objection-process information and a handover package with a context summary out.
 - Contracts: the NextStep schema (a step ID from an approved list plus content version) and the EscalationRequest event.
 - May NEVER: sell; compare or explain multiple options in order to steer a choice; recommend an option; give personal advice. Any option-level or personal-advice question triggers a warm handover to a licensed human advisor.
-- Owner decision GNA: zero option-recommendation incidents is a hard evaluation gate.
+- Guidance-not-advice: zero option-recommendation incidents is a hard evaluation gate.
 - Least privilege: allowed to read journey state and approved next-step content and to create an escalation; denied member-value writes and option-comparison content.
 
 ## Event Processing Agent (L3)
@@ -30,9 +30,9 @@ These three agents are specified at design depth only for the sample domain: con
 - May NEVER: decide entitlements or eligibility (these stay in the administration system); follow instructions found inside documents; close a complex case (divorce, death) without human review.
 - Least privilege: allowed to submit validated life events, read submission status and create an exception case; denied entitlement decisions and member-value writes outside event submission.
 
-Cross-cutting rules for all three: every write through the gateway carries an idempotency key; documents are data, never instructions (indirect prompt injection); escalation is always available (B9). Stay at design depth: stubs behind the contracts, no LLM, no Azure identities, roles or resources. Recorded in IMP-34.
+Cross-cutting rules for all three: every write through the gateway carries an idempotency key; documents are data, never instructions (indirect prompt injection); escalation is always available (B9). Stay at design depth: stubs behind the contracts, no LLM, no Azure identities, roles or resources.
 
-## Implementation and contract exports (IMP-34 supplement)
+## Implementation and contract exports
 
 The sections above are the specification. Everything below describes the design-depth implementation.
 

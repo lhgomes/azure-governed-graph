@@ -11,8 +11,8 @@ facts while enforcing ten governance boundaries (B1–B10). The pension example 
 - Azure CLI, Azure Developer CLI and Bicep on the **approved Azure-hosted delivery environment**.
 - A domain composition such as `examples/pension_wtp/deployment.json` and private
   delivery inputs (see [deployment](deploying.md)).
-- An Azure-hosted CI runner labelled `azure-public` if automatic regression tests
-  are required. Until it exists, checks remain pending—not passed.
+- Separately authorized Azure-hosted validation jobs. The repository does not
+  require a deployment-dependent GitHub test workflow.
 
 ## Deploy the reference environment
 
@@ -63,7 +63,7 @@ governance. See [architecture](architecture.md) and [evaluation](evaluation.md).
 - Run pinned Foundry and synthetic channel evaluations in Azure and retain
   versioned evidence. A deployment-only green status is not evaluation success.
 
-Current branch status and outstanding validations are tracked in
+The execution and evidence contract is described in
 [Azure-only execution](azure-only-execution.md).
 
 ## Terminology

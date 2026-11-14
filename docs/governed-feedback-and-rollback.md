@@ -1,7 +1,7 @@
 # Governed response evidence and safe fallback
 
-This enhancement intentionally does **not** replace the Azure-only execution architecture or
-the P1/P2 isolation contract.
+Response evidence and signed rollback preserve the
+[Azure-only execution](azure-only-execution.md) and P1/P2 isolation contracts.
 
 ## Feedback evidence
 
@@ -20,22 +20,20 @@ follow-up links and attribution uncertainty must be assessed before treating
 observed rates as actionable. Do not infer actual hearing, comprehension, or
 resolution from a voice playback acknowledgment.
 
-The optional outcome question is **enabled in the synthetic Azure `gg-dev` deployment configuration**
-and disabled everywhere else. The orchestrator offers the host-authored closed `outcome_check`
+The optional outcome question is restricted to synthetic Azure `gg-dev`
+configuration and disabled everywhere else. The orchestrator offers the host-authored closed `outcome_check`
 prompt only when both `AZURE_ENV_NAME=gg-dev` and
 `GOVERNEDGRAPH_ENABLE_OUTCOME_CHECK=true` are present.
-The domain vocabulary includes version `1.2` with exact English and Dutch wording;
+The domain vocabulary supplies exact approved English and Dutch wording;
 the runtime validates every localized choice and applies numeric-fidelity and steering
 checks before delivering the prompt. The writer prompts and immutable Foundry agent
 definitions are **not** changed; the question is appended only by the governed host.
 
-This is **not a production release authorization**. The existing `approval_ref` is a
-historical reference for the previously approved vocabulary; it does not approve
-the newly added wording. The new `outcome_check_approval_ref` remains `null`
-until a real B8 decision is independently recorded. Do not change the production
-environment gate, update `release-approval.json`, or mark this feature production
-ready before that review and successful Azure-hosted acceptance. The feature is
-configured in code only; no Azure deployment has been performed.
+Production use requires an independently recorded B8 approval for the exact
+outcome wording and successful Azure-hosted validation. An unrelated vocabulary
+`approval_ref` is insufficient; absent `outcome_check_approval_ref` is not approval.
+Synthetic configuration does not authorize production rollout or establish that
+any deployment has occurred.
 
 ## Signed static rollback
 
@@ -46,14 +44,14 @@ An ordinary missing/invalid state or an unauthorized fallback remains
 unusable and should escalate through the existing B9 path. The control arm
 retains its original approved expert ranking behavior.
 
-The P2 signing stage now signs the exact expert baseline alongside the
+The P2 signing stage signs the exact expert baseline alongside the
 learned candidate and publishes both under the same conditional operation.
 Existing deployments with no stored `static` snapshot require a successful
 approved P2 cycle or explicit governed migration before signed rollback
 can serve treatment requests. Until then, fail closed rather than
 silently authorizing unsigned expert priors.
 
-## Required Azure validation before merge and rollout
+## Azure validation
 
 - On the approved Azure-hosted test runner: full `pytest` suite, Bicep
   compilation, schema and compatibility checks; no GitHub-hosted fallback.
@@ -67,4 +65,4 @@ silently authorizing unsigned expert priors.
 - Secure new domain-language and model-writer approval independently
   before enabling optional feedback prompts.
 
-No Azure validation or live deployment is claimed in this PR.
+This document describes required checks, not their execution or results.

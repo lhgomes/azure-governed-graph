@@ -61,8 +61,9 @@ Fairness & Explainability Agent. A domain adds its own agents on top; the pensio
 | P2 bounded learning | Identity-isolated scheduled Container Apps Jobs |
 | Administration console | Container App behind the gateway at `/admin/`; see [administration](administration.md) |
 
-Locally the same components run in one process on synthetic files with no Azure dependency. See [architecture](architecture.md)
-for the Azure design.
+Azure Public is the only supported execution environment. Pure domain logic and
+injected test doubles are separate from deployed adapters; they are not a local
+application runtime. See [architecture](architecture.md) for the Azure design.
 
 ## Limits to state with any result
 
@@ -73,5 +74,6 @@ for the Azure design.
 - The synthetic handover demonstrates the integration contract, not a real callback; the contact-centre and member-token issuer are
   development stand-ins for real adapters.
 - The console shows conversation text only for synthetic `gg-dev` members, from existing traces; raw conversations are never retained
-  or fed back into behaviour (B4). Its access control is a demo-grade optional group check, not a production administrator model.
+  or fed back into behaviour (B4). Entra group authorization is required; production
+  administrator access needs operator review.
 - The bundled sample is a synthetic reference, **not a production service**.

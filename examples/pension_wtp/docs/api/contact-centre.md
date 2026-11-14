@@ -2,7 +2,7 @@
 
 **ILLUSTRATIVE - synthetic data. No live callbacks.**
 Production uses Dynamics 365 Contact Center or the fund's existing platform
-behind `ContactCentreClient` / `ContactCentre` (IMP-15).
+behind `ContactCentreClient` / `ContactCentre`.
 
 ## Internal API
 
@@ -30,11 +30,10 @@ Through APIM: `GET /journey/journeys/<id>/advisor-queue`, with the **same channe
 member token on every request**. The orchestrator verifies the current token and
 checks durable journey ownership before calling the internal API. Cross-member
 requests are 403. `Accept: application/json` returns references/status;
-`Accept: text/html` returns the escaped, read-only advisor table. The local demo
-also writes `.run/advisor_queue.html` without requiring a token or live service.
+`Accept: text/html` returns the escaped, read-only advisor table.
 
-Do not issue tokens in runtime, write tokens to disk or use the legacy Azure
-demo's token-file branch. Existing live-channel proof restrictions remain.
+Do not issue tokens in runtime or write tokens to disk. Synthetic proof tokens
+remain in the isolated in-network issuer's process memory.
 
 ## Delivery, inboxes and recovery
 
@@ -50,7 +49,7 @@ demo's token-file branch. Existing live-channel proof restrictions remain.
 - Complete broker messages only after durable consumer commit; renew peek/session
   locks up to five minutes. Lock expiry causes redelivery, never a second effect.
 - **No automatic inbox/idempotency eviction:** the current TTL and manual DLQ
-  redrive are unbounded in practice. IMP-14 records this window. A future finite
+  redrive are unbounded in practice. A future finite
   replay/retention policy needs governance review before receipts can expire.
 
 Turn requests should include a stable `Idempotency-Key` (letters/digits/hyphen/
@@ -80,11 +79,12 @@ python scripts/configure_contact_centre.py --runtime-principal <runtime-object-i
 
 After preview approval only: add `--apply`, persist the returned nonsecret
 `CONTACT_CENTRE_CLIENT_ID` and `CONTACT_CENTRE_AUDIENCE` in azd, provision and
-deploy the reviewed four-service stack. The user-approved dev opt-in is
+deploy through the [delivery process](../../../../docs/deploying.md). The synthetic dev opt-in is
 `GOVERNEDGRAPH_SYNTHETIC_CONTACT_CENTRE=true`; outside dev select the production adapter.
 Do not deploy with placeholder/empty Entra configuration.
 
-After deployment: run an advice question, redeliver its same escalation and show
-exactly one advisor-queue row. Send one action-group test notification and ask
-the user to confirm receipt; record execution/test IDs and receipt in IMP-15.
-Those live checks are **pending**, not implied by offline tests or preview.
+After deployment, use an authorized synthetic-channel probe for an advice question,
+redeliver the same escalation and verify exactly one advisor-queue row. Send an
+action-group test notification and obtain the on-call recipient's confirmation.
+Retain scoped execution IDs and receipts in private operational evidence.
+Test source or a deployment preview does not prove these checks passed.

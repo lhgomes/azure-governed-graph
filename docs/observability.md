@@ -1,4 +1,4 @@
-# Governed observability and operational cost (IMP-37)
+# Governed observability and operational cost
 
 ILLUSTRATIVE - synthetic data. Telemetry is evidence, never a learning input.
 
@@ -16,13 +16,13 @@ model deployment, usage counts, outcome, duration and guardrail results.
 Native Foundry content capture and baggage propagation stay disabled. Exception
 payloads are not added to spans. Entra-authenticated Azure Monitor exporters
 use bounded connection/read timeouts and one-hour local retry buffering of
-sanitized envelopes (IMP-61). The buffer does not survive replica replacement;
+sanitized envelopes. The buffer does not survive replica replacement;
 successful flush alone is not proof of ingestion. Existing operational console logs remain.
 APIM captures **zero body bytes**, no Authorization header and no client IP.
 Suppressing both bodies is stronger than attempting to redact arbitrary
 personal text with a regex; there is no raw-prompt wiretap store.
 
-**Explicit synthetic-only exception (IMP-51):** in Azure mode, gg-dev must
+**Explicit synthetic-only exception:** the `gg-dev` configuration must
 enable both `GOVERNEDGRAPH_DEPLOY_VOICE_DEMO=true` and
 `GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS=true`. Only allowlisted synthetic members'
 host-owned user and checked-final messages may enter the dedicated conversation
@@ -31,7 +31,7 @@ Credential-like or oversized text is withheld. SDK drafts, system prompts,
 tool payloads and exception bodies remain excluded. This is operator inspection
 evidence, never a learning input or permission to capture real conversations.
 
-### Native Foundry trace visibility (IMP-41)
+### Native Foundry trace visibility
 
 The Azure Core OpenTelemetry bridge must be selected before the Foundry SDK is
 instrumented; installing the tracing plugin alone does not enable it. Native
@@ -39,13 +39,13 @@ instrumented; installing the tracing plugin alone does not enable it. Native
 export allowlist removes message/tool payloads, exception events and status
 descriptions, including native SDK error bodies; error status codes remain.
 
-IMP-42 adds mandatory project attribution at export. Set
+Project attribution is mandatory at export. Set
 `AZURE_AI_PROJECT_RESOURCE_ID` to the project's full ARM resource ID, not its
 endpoint, name or internal ID. Bicep supplies `project.id` to both runtime
-services and exports it for local Azure-mode configuration. The exporter
+services. The exporter
 overwrites both project-ID aliases from this trusted configuration, including
 on native spans without an SDK-supplied ID. Missing or invalid configuration
-fails explicitly; local/offline mode remains independent of Azure.
+fails explicitly; no local-runtime fallback is supported.
 
 The project connection uses `ProjectManagedIdentity`, never an API
 key. Application Insights local authentication stays disabled. Client export
@@ -98,8 +98,8 @@ record separately whether you rendered it there.
 `/foundry/openai/v1/responses` is an authenticated **Responses front door**.
 It allows the existing runtime identity only, forwards that caller's Entra
 token and validates the already-approved pinned counsellor, intent,
-understanding and answer-review agent versions. No direct compact-classifier
-exception remains (IMP-51). It does not acquire a new shared-account role. Member
+understanding and answer-review agent versions. There is no direct unpinned
+classifier exception. Member
 tokens never enter this route. Host-selected model/agent metadata is retained.
 
 The APIM token counter is bound to the host's journey header: **12,000 tokens
@@ -111,7 +111,7 @@ no figures are estimated and no gate is skipped. A daily-quota refusal is marked
 by the gateway (`X-GG-Limit: conversation-token-quota`) and escalates with
 reason `conversation_limit` and its own member wording, not as an outage.
 
-**Open compatibility decision:** current [Foundry gateway documentation](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway#supported-configurations)
+**Compatibility limitation:** [Foundry gateway documentation](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway#supported-configurations)
 explicitly excludes the Responses API from its BYOM model-gateway integration.
 The existing counsellor uses that API and a verified, pinned prompt agent.
 The front door is not an inference-level backend pool. It does **not** claim
@@ -119,9 +119,8 @@ deployment load-balancing/failover, silently substitute the compact model,
 rewrite agent references or replay a possibly accepted model request.
 Changing this route to another supported agent architecture requires an
 explicit decision while preserving version verification and all host gates.
-The user accepted prompt 13 with deployment failover deferred as a production
-item until Foundry supports it. Keep the pinned front door; on model failure,
-use existing permitted checked text or human handover.
+Until a compatible integration is independently approved and verified, retain
+the pinned front door; on model failure, use permitted checked text or human handover.
 
 ## Workbook and queries
 
@@ -130,7 +129,7 @@ The shared Azure Monitor workbook uses these exact queries:
 - [Journey SLOs](../infra/queries/journey-slos.kql): acknowledgement dispatch
   p95 <= 1,000 ms; first checked substantive dispatch p95 <= 6,000 ms, both
   inclusive and n >= 20 for certification. Complete audio and guarded processing
-  are diagnostics, not the superseded two-second audio target. Server dispatch
+  are diagnostics, not substantive-audio acceptance targets. Server dispatch
   is not an acoustic/browser playback measurement.
   The pre-existing `governedgraph.voice_turn.slo_met` processing flag is retained for
   compatibility, labelled as non-audio processing and never used by the workbook.
@@ -171,10 +170,10 @@ Do not present this as a bill or full-stack cost. Reconcile telemetry ingestion
 against durable journey history before using absence of a repeat for financial
 reporting; no audited completeness watermark is inferred from sampled traces.
 Full-stack allocation needs an existing authorized cost export/receipt source.
-The accepted open method (section 8.6) is Azure Cost Management filtered by
+A full-stack method is Azure Cost Management filtered by
 `azd-env-name=<your environment>`, divided by qualifying resolved queries for the same
-reporting scope/window, with tag coverage/allocation verified. The user will
-inspect the portal view; no additional cost permission is requested.
+reporting scope/window, with tag coverage/allocation verified. Use only existing
+authorized cost access.
 
 Until journeys have matured (fourteen days), both exact KQL queries return **zero mature observed resolutions**
 and both unit-cost fields return null, not an assumed zero or a fabricated number.
@@ -202,10 +201,12 @@ not part of the mature journey-cohort query; it remains another full-stack
 overhead exclusion. Probe stdout is status/IDs only; obtain timing evidence
 through existing authorized runtime diagnostics. Small smoke samples are not a
 replacement for a twenty-turn voice window, and the workbook correctly does not certify n < 20.
-Server-dispatch timings from a smoke are not acoustic or browser p95s, and a legacy processing-target FAIL is diagnostic, not a
-failure of the approved two-level target. The workbook also displays the labelled `synthetic-window` (FCR uplift, repeat
+Server-dispatch timings from a smoke are not acoustic or browser p95s. Processing
+diagnostics do not replace the two-level voice targets. The workbook also displays
+the labelled `synthetic-window` (FCR uplift, repeat
 reduction and a `continue` decision); that is aggregate fixture evidence, not a claim of a new successful publication or outcomes.
 
-**MODEL COST ONLY:** a resolved live smoke yields deduplicated Responses receipts, zero unknown usage and an observed
-USD cost per resolved query at verified list rates. A provisional resolution is not fourteen-day mature. Speech, infrastructure
-and unattributed warm-up overhead are excluded; the mature-cohort unit cost remains null until the cohort matures.
+**MODEL COST ONLY:** report cost only when deduplicated usage receipts are complete
+and verified list rates apply. Unknown usage is not zero. A provisional resolution
+is not fourteen-day mature. Speech, infrastructure and unattributed warm-up overhead
+are excluded; the mature-cohort unit cost remains null until the cohort matures.
