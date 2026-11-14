@@ -23,7 +23,7 @@ class RankingSnapshot:
     catalogue_version: str
     threshold_version: str
     source_audit_id: str
-    tier: str  # tier0 | tier1 | expert_priors
+    tier: str  # tier0 | tier1 | tier2_owner | expert_priors
     # request key id -> ordered list of [strategy_id, version]
     rankings: dict[str, list[list[str]]]
     created_at: str = field(default_factory=utcnow)

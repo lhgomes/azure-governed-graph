@@ -1,9 +1,10 @@
 """Mandatory Entra ID group access control for the Azure administration console.
 
-Two levels, each one environment variable holding an Entra group object ID:
+Each level uses a separate Entra group object ID:
   GOVERNEDGRAPH_ADMIN_READER_GROUP_ID    may view evidence
   GOVERNEDGRAPH_ADMIN_OPERATOR_GROUP_ID  may view evidence and apply protective actions
-Both blank: administration is unavailable. Any misconfiguration fails closed.
+  GOVERNEDGRAPH_ADMIN_OWNER_GROUP_ID     identifies human owners, including protective-action rights
+All blank: administration is unavailable. Any misconfiguration fails closed.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ from governedgraph.strategy_service.auth import signing_keys
 log = logging.getLogger("governedgraph.admin")
 READER_VARIABLE = "GOVERNEDGRAPH_ADMIN_READER_GROUP_ID"
 OPERATOR_VARIABLE = "GOVERNEDGRAPH_ADMIN_OPERATOR_GROUP_ID"
+OWNER_VARIABLE = "GOVERNEDGRAPH_ADMIN_OWNER_GROUP_ID"
 SCOPE = "Admin.Access"
 
 
@@ -29,6 +31,8 @@ class Identity:
     display: str
     can_read: bool
     can_act: bool
+    can_own: bool = False
+    expires_at: int = 0
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,7 @@ class AccessPolicy:
     tenant_id: str = ""
     # Kept for the admin API response contract; unauthenticated action access is never allowed.
     allow_open_actions: bool = False
+    owner_group: str = ""
 
     @classmethod
     def from_env(cls) -> AccessPolicy:
@@ -47,11 +52,12 @@ class AccessPolicy:
             os.getenv("GOVERNEDGRAPH_ADMIN_CLIENT_ID", "").strip(),
             (os.getenv("GOVERNEDGRAPH_ADMIN_TENANT_ID") or os.getenv("STRATEGY_TENANT_ID", "")).strip(),
             False,
+            os.getenv(OWNER_VARIABLE, "").strip(),
         )
 
     @property
     def enabled(self) -> bool:
-        return bool(self.reader_group or self.operator_group)
+        return bool(self.reader_group or self.operator_group or self.owner_group)
 
     @property
     def problem(self) -> str:
@@ -59,6 +65,7 @@ class AccessPolicy:
         if not self.enabled:
             return ""
         for name, value in (("reader group", self.reader_group), ("operator group", self.operator_group),
+                            ("owner group", self.owner_group),
                             ("client", self.client_id), ("tenant", self.tenant_id)):
             if name.endswith("group") and not value:
                 continue
@@ -74,10 +81,12 @@ class AccessPolicy:
         return "disabled" if not self.enabled else "misconfigured" if self.problem else "enabled"
 
     def public(self) -> dict:
-        result = {"mode": self.mode}
+        result: dict[str, str | bool] = {"mode": self.mode}
         if self.mode == "enabled":
             result |= {"client_id": self.client_id, "tenant_id": self.tenant_id,
-                       "restricts_reads": bool(self.reader_group), "operator_group_set": bool(self.operator_group)}
+                       "restricts_reads": bool(self.reader_group or self.owner_group and not self.operator_group),
+                       "operator_group_set": bool(self.operator_group),
+                       "owner_group_set": bool(self.owner_group)}
         elif self.mode == "misconfigured":
             result["detail"] = self.problem
         else:
@@ -86,7 +95,7 @@ class AccessPolicy:
 
     def identify(self, authorization: str) -> Identity:
         if not self.enabled:
-            raise HTTPException(503, "Administration requires configured Entra reader/operator groups.")
+            raise HTTPException(503, "Administration requires configured Entra reader, operator or owner groups.")
         if self.problem:
             raise HTTPException(503, self.problem)
         if not authorization.startswith("Bearer "):
@@ -115,13 +124,14 @@ class AccessPolicy:
         groups = claims.get("groups", [])
         if not isinstance(groups, list):
             raise HTTPException(403, "Your token carries no usable group list.")
-        operator = bool(self.operator_group) and self.operator_group in groups
-        reader = operator or (self.reader_group in groups if self.reader_group else True)
+        owner = bool(self.owner_group) and self.owner_group in groups
+        operator = owner or bool(self.operator_group) and self.operator_group in groups
+        reader = operator or (self.reader_group in groups if self.reader_group else bool(self.operator_group))
         who = claims.get("preferred_username") or claims.get("name") or claims["oid"]
         if not reader:
             log.warning("admin_access_denied", extra={"oid": claims["oid"]})
             raise HTTPException(403, "Your account is not in a group allowed to use this console.")
-        return Identity(f"entra:{claims['oid']}", str(who)[:120], True, operator)
+        return Identity(f"entra:{claims['oid']}", str(who)[:120], True, operator, owner, int(claims["exp"]))
 
     def require(self, authorization: str, *, act: bool) -> Identity:
         identity = self.identify(authorization)
@@ -131,4 +141,11 @@ class AccessPolicy:
                 raise HTTPException(403, "Protective actions need membership of the operator group.")
             raise HTTPException(403, "Protective actions are disabled while access control is off. Set the reader "
                                      "and operator group variables, or explicitly allow open actions.")
+        return identity
+
+    def require_owner(self, authorization: str) -> Identity:
+        identity = self.identify(authorization)
+        if not identity.can_own:
+            log.warning("admin_owner_action_denied", extra={"actor": identity.actor})
+            raise HTTPException(403, "This decision requires membership of the platform owners group.")
         return identity

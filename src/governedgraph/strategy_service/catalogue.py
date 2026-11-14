@@ -6,7 +6,7 @@ approved through plane P3.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from governedgraph.common.config import DATA_DIR
@@ -59,6 +59,8 @@ class Catalogue:
             )
             for s in data["strategies"]
         }
+        self._history = {(row["strategy_id"], row["version"]): Strategy(**row)
+                         for row in data.get("retired_versions", [])}
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Catalogue":
@@ -73,6 +75,16 @@ class Catalogue:
 
     def all(self) -> list[Strategy]:
         return list(self._by_id.values())
+
+    def historical(self, strategy_id: str, version: str) -> Strategy | None:
+        current = self._by_id.get(strategy_id)
+        if current is not None and current.version == version and current.status == "active":
+            return current
+        return self._history.get((strategy_id, version))
+
+    def to_dict(self) -> dict:
+        return {"catalogue_version": self.version, "strategies": [asdict(item) for item in self.all()],
+                "retired_versions": [asdict(item) for item in self._history.values()]}
 
     def rankable_for(self, key: RequestKey) -> list[Strategy]:
         return [s for s in self._by_id.values() if s.ranked_for_resolution and s.eligible_for(key)]

@@ -132,6 +132,7 @@ def deploy(runner, inputs, composition) -> dict:
                           "GOVERNEDGRAPH_ADMIN_CLIENT_ID": registrations["adminClientId"],
                           "GOVERNEDGRAPH_ADMIN_READER_GROUP_ID": registrations["adminReaderGroupId"],
                           "GOVERNEDGRAPH_ADMIN_OPERATOR_GROUP_ID": registrations["adminOperatorGroupId"],
+                          "GOVERNEDGRAPH_ADMIN_OWNER_GROUP_ID": registrations["adminOwnerGroupId"],
                           "STRATEGY_RECOVERY_OPERATOR_ID": inputs.operator_id,
                           "CONTACT_CENTRE_CLIENT_ID": registrations["contactCentreApiClientId"],
                           "FAIRNESS_MANAGED_IDENTITY_CLIENT_ID": outputs["FAIRNESS_CLIENT_ID"],

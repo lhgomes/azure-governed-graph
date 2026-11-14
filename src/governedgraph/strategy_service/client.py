@@ -8,6 +8,8 @@ from governedgraph.common.contracts import SuspensionEvent
 from governedgraph.common.io import load_json
 from governedgraph.strategy_service.catalogue import Catalogue
 from governedgraph.strategy_service.snapshot import RankingSnapshot, default_signer, verify_snapshot
+from governedgraph.strategy_service.overrides import OwnerDecision, effective_suspensions
+from governedgraph.strategy_service.catalogue_release import CatalogueBundle, CatalogueDecision, CatalogueRelease
 
 
 class StrategyAdminClient:
@@ -21,10 +23,16 @@ class StrategyAdminClient:
         self.http = httpx.Client(base_url=settings.strategy_admin_url.rstrip("/") + "/", timeout=30)
         self.catalogue = Catalogue.load()
         self.priors = load_json(DATA_DIR / "catalogue" / "expert_priors_v1.json")
+        self.thresholds = load_json(DATA_DIR / "fairness" / "thresholds_v1.json")
         self.current = None
         self.protective_only = protective_only
         if not protective_only:
             self.refresh()
+        else:
+            response = self.http.get("catalogue")
+            response.raise_for_status()
+            payload = response.json()
+            self.catalogue, self.priors = Catalogue(payload["catalogue"]), payload["priors"]
 
     def refresh(self) -> dict:
         if self.protective_only:
@@ -32,6 +40,12 @@ class StrategyAdminClient:
         response = self.http.get("snapshots")
         response.raise_for_status()
         state = response.json()
+        if state.get("catalogue_release") is not None:
+            release = CatalogueRelease.from_dict(state["catalogue_release"])
+            if not release.verify(default_signer()):
+                raise ValueError("remote catalogue signature verification failed")
+            bundle = CatalogueBundle.from_dict(release.bundle)
+            self.catalogue, self.priors = Catalogue(bundle.catalogue), bundle.priors
         current = RankingSnapshot.from_dict(state["current"]) if state["current"] else None
         if current is not None:
             if (not verify_snapshot(current, default_signer()) or current.catalogue_version != self.catalogue.version
@@ -70,5 +84,25 @@ class StrategyAdminClient:
         self._post("revert-to-static")
 
     def suspended_for(self, journey_state: str) -> list[str]:
-        return sorted({e["strategy_id"] for e in self.refresh()["suspensions"]
-                       if e["journey_state"] in (journey_state, "*")})
+        return effective_suspensions(self.refresh(), journey_state)
+
+    def activate_owner_order(self, override_id: str, snapshot: RankingSnapshot) -> None:
+        self._post("owner-order-publications", {"override_id": override_id, "snapshot": snapshot.to_dict()})
+
+    def owner_decision(self, decision: OwnerDecision, authorization: str) -> dict:
+        return self._owner_post("owner-overrides", asdict(decision), authorization)
+
+    def catalogue_decision(self, decision: CatalogueDecision, authorization: str) -> dict:
+        return self._owner_post("catalogue-decisions", asdict(decision), authorization)
+
+    def _owner_post(self, path: str, payload: dict, authorization: str) -> dict:
+        token = self.credential.get_token(f"api://{settings.strategy_api_client_id}/.default")
+        response = self.http.post(path, json=payload, headers={
+            "Authorization": authorization, "X-Admin-Authorization": f"Bearer {token.token}",
+        })
+        response.raise_for_status()
+        return response.json()
+
+    def activate_catalogue(self, release: CatalogueRelease, baseline: RankingSnapshot) -> None:
+        self._post("catalogue-publications", {"release": release.to_dict(), "baseline": baseline.to_dict()})
+        self.refresh()

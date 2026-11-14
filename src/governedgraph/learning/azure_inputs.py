@@ -89,7 +89,10 @@ class BlobLearningInputs:
         with TemporaryDirectory(prefix="gg-aggregates-") as directory:
             path = Path(directory) / "outcomes.csv"
             path.write_bytes(outcomes)
-            evidence = load_outcome_aggregates(path)
+            from governedgraph.agents.clients import HttpStrategyClient
+
+            catalogue, _ = HttpStrategyClient().get_catalogue()
+            evidence = load_outcome_aggregates(path, catalogue=catalogue)
         return evidence, AuditReport(audit_id, report["threshold_version"], thresholds["max_cohort_gap_pts"],
                                      [], vetoes, report["created_at"])
 

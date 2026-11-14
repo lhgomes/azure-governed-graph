@@ -52,25 +52,32 @@ class StrategyEvidence:
         return self.resolved / self.interactions if self.interactions else 0.0
 
 
-def load_outcome_aggregates(path: Path | None = None) -> dict[str, dict[str, StrategyEvidence]]:
+def load_outcome_aggregates(path: Path | None = None, *, catalogue: Catalogue | None = None) -> dict[str, dict[str, StrategyEvidence]]:
     if path is None:
         raise ValueError("P2 must read explicitly supplied governed learning-aggregates")
     rows = load_csv(path)
-    catalogue = Catalogue.load()
+    catalogue = catalogue or Catalogue.load()
     out: dict[str, dict[str, StrategyEvidence]] = defaultdict(dict)
+    seen = set()
     for r in rows:
         allowed = {"request_key", "strategy_id", "strategy_version", "interactions",
                    "resolved_first_contact", "repeat_contact_14d"}
         if set(r) != allowed:
             raise ValueError("runtime-side aggregates have unknown or cohort columns (B7)")
         RequestKey(*r["request_key"].split("|"))
-        if not catalogue.is_active(r["strategy_id"], r["strategy_version"]):
-            raise ValueError("aggregate references a non-active strategy version")
-        if r["strategy_id"] in out[r["request_key"]]:
+        identity = (r["request_key"], r["strategy_id"], r["strategy_version"])
+        if identity in seen:
             raise ValueError("duplicate strategy aggregate")
-        out[r["request_key"]][r["strategy_id"]] = StrategyEvidence(
-            r["strategy_id"], int(r["interactions"]), int(r["resolved_first_contact"]), int(r["repeat_contact_14d"])
-        )
+        seen.add(identity)
+        evidence = StrategyEvidence(
+            r["strategy_id"], int(r["interactions"]), int(r["resolved_first_contact"]), int(r["repeat_contact_14d"]))
+        if not catalogue.is_active(r["strategy_id"], r["strategy_version"]):
+            if catalogue.historical(r["strategy_id"], r["strategy_version"]) is None:
+                raise ValueError("aggregate references an unapproved strategy version")
+            log.info("historical_strategy_aggregate_excluded",
+                extra={"strategy_id": r["strategy_id"], "strategy_version": r["strategy_version"]})
+            continue
+        out[r["request_key"]][r["strategy_id"]] = evidence
     return out
 
 

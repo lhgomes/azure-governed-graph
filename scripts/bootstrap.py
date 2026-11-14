@@ -65,7 +65,7 @@ def entra(inputs, foundation: dict) -> dict:
     if os.environ.get("AZURE_SUBSCRIPTION_ID") != inputs.subscription:
         raise DeliveryError("Entra bootstrap requires the selected delivery subscription in AZURE_SUBSCRIPTION_ID")
     from governedgraph.strategy_service.provision_auth import configure as strategy
-    from scripts.configure_admin_console import configure as admin
+    from scripts.configure_admin_console import configure as admin, signed_in_user
     from scripts.configure_contact_centre import configure as contact
     from scripts.configure_strategy_recovery import configure as recovery
     from scripts.configure_voice_demo import configure as voice
@@ -81,7 +81,7 @@ def entra(inputs, foundation: dict) -> dict:
     recovery(client, inputs.operator_id, apply=True)
     contact_app = contact(inputs.environment, security["runtimePrincipalId"], apply=True, naming_seed=inputs.naming_seed)
     console = admin(inputs.environment, foundation["gateway"]["gatewayUrl"], inputs.operator_id,
-                    apply=True, naming_seed=inputs.naming_seed)
+                    apply=True, naming_seed=inputs.naming_seed, owner_member=signed_in_user())
     presenter = voice(inputs.environment, security["runtimePrincipalId"], inputs.operator_id,
                       foundation["gateway"]["gatewayUrl"], deploy=inputs.voice_demo, apply=True,
                       naming_seed=inputs.naming_seed)
@@ -89,6 +89,7 @@ def entra(inputs, foundation: dict) -> dict:
             "contactCentreApiClientId": contact_app["client_id"], "contactCentreAudience": contact_app["audience"],
             "adminClientId": console["client_id"], "adminReaderGroupId": console["reader_group_id"],
             "adminOperatorGroupId": console["operator_group_id"],
+            "adminOwnerGroupId": console["owner_group_id"],
             "voiceDemoClientId": presenter.get("client_id", ""), "voiceDemoOperatorId": inputs.operator_id}
 
 

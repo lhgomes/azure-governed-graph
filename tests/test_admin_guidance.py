@@ -53,9 +53,8 @@ def test_every_page_in_the_menu_has_guidance_and_defined_words(guide):
             assert item[key].strip(), f"{name}.{key} is empty"
         assert item["terms"], f"{name} lists no words to explain"
         assert set(item["terms"]) <= set(guide["terms"]), f"{name} uses an undefined word"
-        if name != "configuration":
-            assert item["empty"].strip(), f"{name} has no message for an empty list"
-            assert item["columns"], f"{name} has no columns"
+        assert item["empty"].strip(), f"{name} has no message for an empty list"
+        assert item["columns"], f"{name} has no columns"
         for label, help_text in item["columns"]:
             assert label.strip() and help_text.strip(), f"{name} has a column without help"
     for term in guide["terms"].values():
@@ -87,7 +86,7 @@ def test_tasks_and_actions_point_at_things_that_exist(guide):
 def test_the_page_loads_the_wording_before_the_script_and_keeps_the_required_label():
     page = (STATIC / "index.html").read_text()
     assert page.index("assets/guide.js") < page.index("assets/admin.js")
-    assert "ILLUSTRATIVE - synthetic data" in page, "every view must stay labelled as synthetic"
+    assert page.count('<span class="watermark">Synthetic data</span>') == 1, "every view shares one synthetic-data label"
 
 
 def test_detail_views_lead_with_plain_words_and_keep_raw_records_behind_a_disclosure():
@@ -95,3 +94,415 @@ def test_detail_views_lead_with_plain_words_and_keep_raw_records_behind_a_disclo
     assert "jsonDetails" not in script
     assert 'node("summary", "Technical details (for support)")' in script
     assert script.count("showDetails(") >= 8
+
+
+@pytest.fixture
+def admin_browser():
+    if not shutil.which("node"):
+        pytest.skip("Node is needed to exercise the console presentation")
+    setup = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+class Element {
+  constructor(tag = "div") {
+    this.tag = tag; this.children = []; this.value = ""; this.style = {};
+    this.classList = { add() {}, remove() {}, toggle() {} };
+  }
+  set textContent(value) { this.text = String(value); this.children = []; }
+  get textContent() { return (this.text || "") + this.children.map((child) => child.textContent).join(" "); }
+  append(...children) { children.forEach((child) => { child.parentElement = this; }); this.children.push(...children); }
+  replaceChildren(...children) { this.text = ""; this.children = children; }
+  addEventListener(event, listener) { (this.listeners ||= {})[event] = listener; }
+  setAttribute(name, value) { (this.attributes ||= {})[name] = value; }
+  removeAttribute(name) { delete (this.attributes ||= {})[name]; }
+  showModal() { this.open = true; }
+  close() { this.open = false; }
+  reset() {}
+  reportValidity() { return true; }
+  focus() { this.focused = true; }
+  querySelectorAll(tag) {
+    return this.children.flatMap((child) => [...(child.tag === tag ? [child] : []), ...child.querySelectorAll(tag)]);
+  }
+}
+const elements = new Map();
+const document = {
+  baseURI: "https://admin.example/",
+  getElementById(id) {
+    if (!elements.has(id)) elements.set(id, new Element());
+    return elements.get(id);
+  },
+  querySelector() { return { content: "test-session" }; },
+  querySelectorAll() { return []; },
+  createElement(tag) { return new Element(tag); },
+  addEventListener() {},
+};
+const context = vm.createContext({
+  window: {}, document, Node: Element, URL,
+  setTimeout, clearTimeout, crypto: require("node:crypto").webcrypto,
+  localStorage: { getItem() { return null; }, setItem() {} },
+  fetch() { return new Promise(() => {}); },
+});
+vm.runInContext(fs.readFileSync(process.argv[1] + "/guide.js", "utf8"), context);
+vm.runInContext(fs.readFileSync(process.argv[1] + "/testing.js", "utf8"), context);
+vm.runInContext(fs.readFileSync(process.argv[1] + "/catalogue.js", "utf8"), context);
+vm.runInContext(fs.readFileSync(process.argv[1] + "/admin.js", "utf8"), context);
+const run = (script) => vm.runInContext(script, context);
+const plain = (value) => JSON.parse(JSON.stringify(value));
+run(`
+data = {
+  strategies: Array.from({length: 6}, (_, i) => ({
+    strategy_id: "S" + (i + 1), name: "Style " + (i + 1), status: "active", version: "1.0",
+    eligible_journey_states: i === 5 ? ["*"] : ["first_contact", "values_reviewed"], channels: ["chat", "voice"]
+  })),
+  access: {can_act: true, can_own: false}, thresholds: {min_sample_per_strategy: 10},
+  always_available: ["S6"], learning: {aggregates: [
+    {strategy_id: "S1", request_key: "first_contact|topic|chat|standard", interactions: 900, resolved: 800, repeat_contacts: 10}
+  ]}, state: { frozen: false, suspensions: [
+    {strategy_id: "S2", journey_state: "first_contact"}
+  ]}, cases: [], decisions: [], actions: [],
+  rankings: [
+    ["first_contact|topic|chat|accessible_english", ["S1", "S3"], ["S1", "S3"], ["S2"]],
+    ["first_contact|topic|chat|standard", ["S1", "S3"], ["S1", "S3"], ["S2"]],
+    ["first_contact|topic|voice|standard", ["S1", "S3"], ["S3", "S1"], ["S2"]],
+    ["values_reviewed|topic|voice|standard", ["S2", "S1"], ["S2", "S1"], []]
+  ].map(([request_key, effective_control, effective_treatment, suspended]) => ({
+    request_key, effective_control, effective_treatment, suspended, source: "signed snapshot",
+    expert_priors: [...effective_control, ...suspended], snapshot_order: [...effective_treatment, ...suspended]
+  }))
+};
+strategyUsage = {S1: 2, S2: 1, S6: 1};
+`);
+"""
+
+    def execute(script):
+        run = subprocess.run(["node", "-e", setup + script, str(STATIC)],
+                             capture_output=True, text=True, check=False)
+        assert run.returncode == 0, run.stderr
+
+    return execute
+
+
+def test_conversation_details_do_not_repeat_the_shared_synthetic_data_label(admin_browser):
+    admin_browser(r"""
+(async () => {
+  run(`
+    api = async () => ({watermark: "ILLUSTRATIVE - synthetic data", notice: "Example turns",
+      window: "Recent activity", turns: [], truncated: false});
+    window.traceArea = node("div"); window.traceTrigger = node("button");
+  `);
+  await run('loadTraces("J-synthetic", window.traceArea, window.traceTrigger)');
+  assert.match(context.window.traceArea.textContent, /Example conversation/);
+  assert.doesNotMatch(context.window.traceArea.textContent, /ILLUSTRATIVE|synthetic data/i);
+  assert.equal(context.window.traceTrigger.disabled, false);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+""")
+
+
+def test_style_editor_submits_owner_publication_and_pending_cancellation_without_navigation(admin_browser):
+    admin_browser(r"""
+(async () => {
+  run(`
+    data.access.can_own = true; data.revision = "a".repeat(64);
+    data.style_patterns = [{strategy_id: "S3", name: "Visual explanation", template_id: "T-S3", template_version: "1.0"}];
+    data.style_stages = ["first_contact"]; data.style_channels = ["voice"];
+    data.style_accessibility_modes = ["standard"];
+    window.posts = [];
+    api = async (path, payload) => {
+      window.posts.push({path, payload});
+      return {decision_ref: "GB-" + "b".repeat(32), status: payload.change.action === "cancel" ? "applied" : "pending_signature"};
+    };
+    refresh = async () => {};
+    openStyleEditor("add");
+  `);
+  let form = document.getElementById("style-editor").children[0];
+  form.querySelectorAll("input").find((input) => input.type !== "checkbox").value = "Illustrative visual explanation";
+  form.querySelectorAll("textarea")[0].value = "ILLUSTRATIVE - owner approves this explanation.";
+  assert.doesNotMatch(form.textContent, /I approve this human owner decision/);
+  await form.listeners.submit({preventDefault() {}});
+  const first = plain(context.window.posts[0]);
+  assert.equal(first.path, "/api/catalogue");
+  assert.deepEqual(first.payload.change, {action: "add", name: "Illustrative visual explanation",
+    pattern_id: "S3", eligible_journey_states: ["first_contact"], channels: ["voice"], accessibility_modes: ["standard"]});
+  assert.equal(first.payload.confirmed, true);
+  assert.match(document.getElementById("notification").textContent, /Publication queued/);
+  run('data.state.catalogue_pending = {decision_ref: "GB-pending"}; renderStyleManagement()');
+  const actions = document.getElementById("style-management").querySelectorAll("button");
+  assert.equal(actions[0].disabled, true);
+  actions.find((button) => button.textContent === "Cancel publication").listeners.click();
+  form = document.getElementById("style-editor").children[0];
+  form.querySelectorAll("textarea")[0].value = "ILLUSTRATIVE - owner cancels the queued change.";
+  assert.equal(form.querySelectorAll("input").length, 0);
+  await form.listeners.submit({preventDefault() {}});
+  assert.deepEqual(plain(context.window.posts[1]).payload.change, {action: "cancel"});
+  assert.match(document.getElementById("notification").textContent, /Publication cancelled/);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+""")
+
+
+def test_edit_style_button_opens_prefilled_editor_and_publishes_without_approval_checkbox(admin_browser):
+    admin_browser(r"""
+(async () => {
+  run(`
+    data.access.can_own = true; data.revision = "a".repeat(64);
+    data.style_patterns = [{strategy_id: "S3", name: "Visual explanation", template_id: "T-S3", template_version: "1.0"}];
+    data.style_stages = ["first_contact", "values_reviewed"];
+    data.style_channels = ["chat", "voice"]; data.style_accessibility_modes = ["standard"];
+    Object.assign(data.strategies[0], {template_id: "T-S3", template_version: "1.0", accessibility_modes: ["standard"]});
+    window.posts = [];
+    api = async (path, payload) => {
+      window.posts.push({path, payload});
+      return {decision_ref: "GB-" + "b".repeat(32), status: "pending_signature"};
+    };
+    refresh = async () => {};
+    render();
+    strategyDetail(data.strategies[0]);
+  `);
+  const edit = document.getElementById("detail-body").querySelectorAll("button")
+    .find((button) => button.textContent === "Edit style");
+  assert.equal(edit.disabled, false);
+  edit.listeners.click();
+  assert.equal(document.getElementById("style-dialog").open, true);
+  const form = document.getElementById("style-editor").children[0];
+  const name = form.querySelectorAll("input").find((input) => input.type !== "checkbox");
+  assert.equal(name.value, "Style 1");
+  assert.equal(form.querySelectorAll("select")[0].value, "S3");
+  assert.doesNotMatch(form.textContent, /I approve this human owner decision/);
+  name.value = "Updated explanation";
+  form.querySelectorAll("textarea")[0].value = "ILLUSTRATIVE - owner changes the style name.";
+  await form.listeners.submit({preventDefault() {}});
+  const posted = plain(context.window.posts[0]);
+  assert.equal(posted.path, "/api/catalogue");
+  assert.equal(posted.payload.change.action, "edit");
+  assert.equal(posted.payload.change.strategy_id, "S1");
+  assert.equal(posted.payload.change.name, "Updated explanation");
+  assert.equal(posted.payload.confirmed, true);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+""")
+
+
+def test_retired_styles_are_not_repeated_in_the_active_style_list(admin_browser):
+    admin_browser(r"""
+run('data.strategies[0].status = "retired"; render()');
+assert.equal(document.getElementById("result-count").textContent, "5 of 5 styles");
+assert.doesNotMatch(document.getElementById("content").textContent, /Style 1/);
+""")
+
+
+def test_style_list_is_unique_and_distinguishes_recorded_uses_from_learning_counts(admin_browser):
+    admin_browser(r"""
+run("render()");
+const content = document.getElementById("content");
+const rows = content.children[0].children[0].children[1].children;
+assert.equal(rows.length, 6);
+assert.equal(new Set(rows.map((row) => row.children[0].textContent)).size, 6);
+assert.equal(rows[0].children[4].textContent, "2");
+assert.equal(rows[2].children[4].textContent, "0");
+assert.match(rows[1].children[1].textContent, /Partly paused.*First contact/);
+assert.match(rows[5].children[1].textContent, /Always available/);
+assert.match(rows[5].children[3].textContent, /All stages/);
+assert.equal(document.getElementById("result-count").textContent, "6 of 6 styles");
+document.getElementById("search").value = "partly paused";
+run("render()");
+assert.equal(document.getElementById("result-count").textContent, "1 of 6 styles match your search");
+run('data.state.suspensions.push({strategy_id: "S2", journey_state: "values_reviewed"})');
+assert.equal(run("strategyState(data.strategies[1]).label"), "Paused");
+document.getElementById("search").value = "S2";
+run("journeysTruncated = true; render()");
+const sampled = content.children[0].children[0].children[1].children;
+assert.equal(sampled[0].children[4].textContent, "1 (sample)");
+""")
+
+
+def test_order_comparison_distinguishes_matching_publication_fallback_and_no_eligible_styles(admin_browser):
+    admin_browser(r"""
+assert.equal(run("rankingComparison(data.rankings[0]).label"), "Same as expert order");
+assert.match(run("rankingComparison(data.rankings[0]).note"), /verified published order.*does not record why/);
+run('data.rankings[0].source = "expert priors fallback"');
+assert.equal(run("rankingComparison(data.rankings[0]).label"), "Expert order used");
+assert.match(run("rankingComparison(data.rankings[0]).note"), /No published learned order covers this situation/);
+run("data.rankings[0].effective_control = []; data.rankings[0].effective_treatment = []");
+assert.match(run("rankingComparison(data.rankings[0]).note"), /human advisor is still available/);
+const places = plain(run("data.rankings.slice(0, 3).map((row) => situation(row.request_key).title)"));
+assert.equal(new Set(places).size, 3);
+""")
+
+
+def test_style_details_use_keyboard_accessible_tabs_and_embedded_testing(admin_browser):
+    admin_browser(r"""
+run("strategyDetail(data.strategies[0])");
+const body = document.getElementById("detail-body");
+assert.match(body.textContent, /Recorded uses.*2 in the saved answer records/);
+assert.match(body.textContent, /Order by situation/);
+assert.match(body.textContent, /Learning results.*Published uses.*900/);
+const tabs = body.children[0].children;
+assert.deepEqual(tabs.map((tab) => tab.textContent), ["Summary", "Order by situation", "Learning results"]);
+assert.equal(body.children[1].hidden, false);
+assert.equal(body.children[2].hidden, true);
+tabs[0].listeners.keydown({key: "ArrowRight", preventDefault() {}});
+assert.equal(body.children[1].hidden, true);
+assert.equal(body.children[2].hidden, false);
+assert.equal(tabs[1].attributes["aria-selected"], "true");
+assert.equal(tabs[1].focused, true);
+tabs[1].listeners.keydown({key: "End", preventDefault() {}});
+assert.equal(body.children[3].hidden, false);
+run("testDetail(data.strategies[1])");
+assert.equal(document.getElementById("detail-title").textContent, "Test: Style 2");
+assert.doesNotMatch(body.textContent, /Test a selected style|Selected style:|ILLUSTRATIVE -/);
+assert.match(body.textContent, /Chat.*Voice.*Persona/);
+assert.match(body.textContent, /Start test/);
+assert.equal(body.querySelectorAll("a").length, 0);
+assert.equal(run("activeTest.style.strategy_id"), "S2");
+""")
+
+
+def test_owner_pause_button_distinguishes_existing_pauses(admin_browser):
+    admin_browser(r"""
+run("data.access.can_own = true");
+const active = run("strategyActions(data.strategies[0])");
+const paused = run("strategyActions(data.strategies[1])");
+assert.equal(active.querySelectorAll("button")[0].textContent, "Pause");
+assert.equal(paused.querySelectorAll("button")[0].textContent, "Pause override");
+run("data.effective_pauses = []");
+assert.equal(run("strategyActions(data.strategies[1])").querySelectorAll("button")[0].textContent, "Pause");
+run('data.strategies[0].status = "paused"');
+assert.equal(run("strategyActions(data.strategies[0])").querySelectorAll("button")[0].textContent, "Pause override");
+""")
+
+
+def test_embedded_tester_sends_selected_style_and_displays_actual_selection(admin_browser):
+    admin_browser(r"""
+run(`
+class WebSocket {
+  static OPEN = 1;
+  constructor(url) { this.url = url; this.readyState = 1; this.sent = []; }
+  send(message) { this.sent.push(JSON.parse(message)); }
+  close() { this.readyState = 3; }
+}
+testDetail(data.strategies[1]);
+activeTest.mode.value = "chat";
+activeTest.request = async () => ({authorized: true});
+`);
+(async () => {
+  await run("activeTest.start()");
+  run("activeTest.socket.onopen()");
+  assert.equal(run("activeTest.socket.url.pathname"), "/admin-test-stream");
+  assert.deepEqual(plain(run("activeTest.socket.sent[0]")), {strategy_id: "S2", mode: "chat"});
+  run('activeTest.message(JSON.stringify({kind: "progress", strategy: "S6"}))');
+  assert.match(run("activeTest.result.textContent"), /S6, not S2.*Pauses, eligibility/);
+  run('activeTest.message(JSON.stringify({kind: "progress", strategy: "S2"}))');
+  assert.match(run("activeTest.result.textContent"), /The selected style was used/);
+  run("activeTest.end()");
+  assert.equal(run("activeTest.socket"), null);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+""")
+
+
+def test_chat_keeps_question_controls_when_conversation_grows_and_when_test_ends(admin_browser):
+    admin_browser(r"""
+run(`
+  testDetail(data.strategies[0]);
+  activeTest.mode.value = "chat";
+  activeTest.message(JSON.stringify({kind: "chat_ready"}));
+`);
+const form = run("activeTest.form");
+const transcript = run("activeTest.transcript");
+assert.equal(form.hidden, false);
+assert.equal(form.className, "test-composer");
+assert.equal(form.children[1].id, "test-question");
+assert.equal(form.children[2].textContent, "Send question");
+run(`
+  for (let index = 0; index < 100; index++) activeTest.caption("AI guide", "Illustrative test answer.");
+  activeTest.message(JSON.stringify({kind: "thinking"}));
+`);
+assert.equal(transcript.children.length, 100);
+assert.equal(form.hidden, false);
+assert.equal(run("activeTest.send.disabled"), true);
+run('activeTest.message(JSON.stringify({kind: "chat_ready"}))');
+assert.equal(run("activeTest.send.disabled"), false);
+run('activeTest.message(JSON.stringify({kind: "chat_complete"}))');
+assert.equal(form.hidden, false);
+assert.equal(run("activeTest.send.disabled"), true);
+assert.equal(run("activeTest.input.disabled"), true);
+assert.match(run("activeTest.status.textContent"), /Test finished/);
+""")
+
+
+def test_activity_combines_reviews_checks_and_action_steps_without_losing_requested_state(admin_browser):
+    admin_browser(r"""
+run(`
+data.actions = [
+  {action_id: "A1", action: "freeze", status: "requested", created_at: "2026-11-12T12:00:00Z"},
+  {action_id: "A1", action: "freeze", status: "applied", created_at: "2026-11-12T12:00:00Z", completed_at: "2026-11-12T12:01:00Z"},
+  {action_id: "A2", action: "freeze", status: "requested", created_at: "2026-11-12T13:00:00Z"}
+];
+data.cases = [{case_id: "C1", tier: "Tier 2 to reinstate", finding: {strategy_id: "S2"}}];
+data.decisions = [{reference: "D1", kind: "tier1_review", outcome: "approved", tier: "tier1"}];
+section = "activity"; render();
+`);
+const items = plain(run("activityRows()"));
+assert.equal(items.length, 4);
+assert.equal(items[0].reference, "A2");
+assert.equal(items[0].status, "Requested, not finished");
+assert.equal(items.find((row) => row.reference === "A1").records.length, 2);
+assert.equal(items.find((row) => row.reference === "A1").status, "Done");
+assert.deepEqual([...new Set(items.map((row) => row.kind))].sort(), ["action", "case", "decision"]);
+""")
+
+
+def test_owner_can_reorder_and_inspect_pending_overrides_without_changing_the_expert_comparison(admin_browser):
+    admin_browser(r"""
+run('data.access.can_own = true; data.revision = "a".repeat(64); openOwnerDialog("order", data.strategies[0])');
+const list = document.getElementById("owner-order");
+assert.equal(document.getElementById("owner-dialog").open, true);
+assert.match(document.getElementById("owner-impact").textContent, /pending.*expert comparison group stays unchanged/);
+const original = plain(run("ownerDraft.order"));
+const moves = list.querySelectorAll("button");
+moves[1].listeners.click();
+assert.deepEqual(plain(run("ownerDraft.order")), [original[1], original[0], ...original.slice(2)]);
+assert.equal(document.getElementById("save-owner").disabled, false);
+assert.deepEqual(plain(run("data.rankings[0].snapshot_order")), original);
+run(`
+data.state.owner_overrides = [{
+  override_id: "GB-" + "b".repeat(32), kind: "order", order: [...ownerDraft.order],
+  request_key: data.rankings[0].request_key, snapshot: null
+}];
+updateOwnerScope(); strategyDetail(data.strategies[0]);
+`);
+assert.equal(document.getElementById("save-owner").disabled, true);
+assert.match(document.getElementById("detail-body").textContent, /Owner overrides.*Pending signature.*Revoke override/);
+""")
+
+
+def test_owner_unpause_revokes_manual_pause_without_ignoring_other_findings(admin_browser):
+    admin_browser(r"""
+run(`
+data.access.can_own = true; data.revision = "a".repeat(64);
+const pause = {override_id: "GB-" + "b".repeat(32), kind: "pause", strategy_id: "S2",
+  journey_state: "*", order: [], source: "owner"};
+data.state.owner_overrides = [pause];
+data.effective_pauses = [pause, {...data.state.suspensions[0], source: "fairness"}];
+openOwnerDialog("unpause", data.strategies[1]);
+`);
+assert.match(document.getElementById("owner-impact").textContent, /only this owner's pause.*other pause remains/);
+assert.equal(document.getElementById("save-owner").textContent, "Revoke override");
+run('data.state.frozen = true; document.getElementById("owner-scope").value = "first_contact"; updateOwnerScope()');
+assert.equal(document.getElementById("save-owner").disabled, true);
+assert.match(document.getElementById("owner-impact").textContent, /protectively frozen/);
+assert.equal(run("strategyState(data.strategies[1]).label"), "Paused");
+""")
+
+
+def test_owner_activity_distinguishes_pending_signed_and_revoked_orders(admin_browser):
+    admin_browser(r"""
+run(`
+data.actions = [{action: "owner_order", action_id: "GB-" + "b".repeat(32), status: "pending_signature"}];
+data.state.owner_overrides = [{kind: "order", override_id: data.actions[0].action_id, snapshot: null}];
+`);
+assert.equal(run("activityRows()[0].status"), "Pending signature");
+run("data.state.owner_overrides[0].snapshot = {snapshot_id: 'signed-owner-order'}");
+assert.equal(run("activityRows()[0].status"), "Override active");
+run("data.state.owner_overrides = []");
+assert.equal(run("activityRows()[0].status"), "No longer in force");
+assert.equal(run("data.actions[0].status"), "pending_signature");
+""")

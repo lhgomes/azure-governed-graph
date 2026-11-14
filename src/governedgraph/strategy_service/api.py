@@ -13,8 +13,10 @@ from governedgraph.common.config import settings
 from governedgraph.common.operational_logging import configure_operational_logging
 from governedgraph.strategy_service.service import SnapshotRejected, StrategyService
 from governedgraph.strategy_service.snapshot import RankingSnapshot, SignatureUnavailable
-from governedgraph.strategy_service.state import BlobStateStore, StateUnavailable
-from governedgraph.strategy_service.auth import require_operator, require_recovery_operator
+from governedgraph.strategy_service.state import BlobStateStore, StateConflict, StateUnavailable
+from governedgraph.strategy_service.auth import require_operator, require_recovery_operator, require_portal_owner
+from governedgraph.strategy_service.overrides import OwnerDecision, OwnerOrderPublication
+from governedgraph.strategy_service.catalogue_release import CatalogueDecision, CataloguePublication, CatalogueRelease
 from governedgraph.strategy_service.recovery import (
     DecisionReferenceUsed, RecoveryRequest, release, require_unused_decision_ref,
 )
@@ -61,6 +63,36 @@ async def state_unavailable(request, error):
 def snapshot_state():
     """Read-only signed snapshot and global overlay for offline clients."""
     return svc.read_state()
+
+@app.get("/catalogue")
+def catalogue(version: str | None = None):
+    result = svc.read_catalogue()
+    if version is not None and result["catalogue"]["catalogue_version"] != version:
+        raise HTTPException(409, "catalogue changed; retry with a freshly served ranking")
+    return result
+
+
+@app.post("/catalogue-decisions")
+def catalogue_decision(payload: dict, actor: str = Depends(require_portal_owner)):
+    try:
+        return svc.catalogue_decision(CatalogueDecision.from_dict(payload), actor)
+    except StateConflict as error:
+        raise HTTPException(409, str(error)) from error
+    except (ContractError, ValueError, TypeError, KeyError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/catalogue-publications", dependencies=[Depends(require_operator("publish"))])
+def publish_catalogue(payload: dict):
+    try:
+        publication = CataloguePublication.from_dict(payload)
+        svc.activate_catalogue(CatalogueRelease.from_dict(publication.release),
+                               RankingSnapshot.from_dict(publication.baseline))
+    except StateConflict as error:
+        raise HTTPException(409, str(error)) from error
+    except (SnapshotRejected, ContractError, ValueError, TypeError, KeyError) as error:
+        raise HTTPException(422, str(error)) from error
+    return {"activated": payload["release"]["decision_ref"]}
 
 
 @app.post("/snapshots", dependencies=[Depends(require_operator("publish"))])
@@ -114,6 +146,28 @@ def reinstate(payload: dict):
     except (PermissionError, TypeError) as error:
         raise HTTPException(403, str(error)) from error
     return {"reinstated": payload["strategy_id"]}
+
+
+@app.post("/owner-overrides")
+def owner_override(payload: dict, actor: str = Depends(require_portal_owner)):
+    try:
+        return svc.owner_decision(OwnerDecision.from_dict(payload), actor)
+    except StateConflict as error:
+        raise HTTPException(409, str(error)) from error
+    except (ContractError, ValueError, TypeError, KeyError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/owner-order-publications", dependencies=[Depends(require_operator("publish"))])
+def publish_owner_order(payload: dict):
+    try:
+        publication = OwnerOrderPublication.from_dict(payload)
+        svc.activate_owner_order(publication.override_id, RankingSnapshot.from_dict(publication.snapshot))
+    except StateConflict as error:
+        raise HTTPException(409, str(error)) from error
+    except (SnapshotRejected, ContractError, ValueError, TypeError, KeyError) as error:
+        raise HTTPException(422, str(error)) from error
+    return {"activated": payload["override_id"]}
 
 
 @app.get("/freeze-recovery")

@@ -68,10 +68,7 @@ def wait_for_job(get_status: Callable[[], str], *, timeout: float = 7200, interv
 
 def verify_schedule_acceptance(components: list[dict], strategy_client) -> None:
     from governedgraph.common import domain
-    from governedgraph.common.config import DATA_DIR
     from governedgraph.common.contracts import RequestKey
-    from governedgraph.common.io import load_json
-    from governedgraph.strategy_service.catalogue import Catalogue
 
     expected = {*STEPS, "watchdog"}
     if (len(components) != len(expected) or {c["stage"] for c in components} != expected
@@ -88,8 +85,8 @@ def verify_schedule_acceptance(components: list[dict], strategy_client) -> None:
     if not isinstance(snapshot_id, str) or not snapshot_id or not isinstance(audit_id, str) or not audit_id:
         raise RuntimeError("live P2 acceptance lacks snapshot and fairness audit identities")
     key = RequestKey(*domain.vocabulary()["p2_acceptance_request_key"])
-    catalogue = Catalogue.load()
-    priors = load_json(DATA_DIR / "catalogue" / "expert_priors_v1.json")["rankings"][key.id]
+    catalogue, approved_priors = strategy_client.get_catalogue()
+    priors = approved_priors["rankings"][key.id]
     verified_arms = set()
     for index in range(1000):
         response = strategy_client.get_ranked({"journey_id": f"J-p2-acceptance-{index}",

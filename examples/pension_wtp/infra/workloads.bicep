@@ -43,6 +43,7 @@ module graph '../../../infra/workloads.bicep' = {
     adminClientId: configuration.adminClientId
     adminReaderGroupId: configuration.adminReaderGroupId
     adminOperatorGroupId: configuration.adminOperatorGroupId
+    adminOwnerGroupId: configuration.adminOwnerGroupId
     voiceDemoClientId: configuration.voiceDemoClientId
     voiceDemoOperatorId: configuration.voiceDemoOperatorId
     deployVoiceDemo: configuration.deployVoiceDemo

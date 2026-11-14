@@ -46,6 +46,11 @@ class Graph:
             gid = path.split("/")[1].split("?")[0]
             if gid not in self.groups:
                 raise subprocess.CalledProcessError(1, "az", stderr="not found")
+            if "/members/" in path:
+                member = path.split("/members/")[1].split("?")[0]
+                if member not in self.members[gid]:
+                    raise subprocess.CalledProcessError(1, "az", stderr="not a member")
+                return {"id": member}
             return self.groups[gid]
         if method == "POST" and path == "groups":
             return {"id": self._add_group(body["displayName"], securityEnabled=body["securityEnabled"],
@@ -53,6 +58,7 @@ class Graph:
         if method == "POST" and path.endswith("/members/$ref"):
             gid, member = path.split("/")[1], body["@odata.id"].rsplit("/", 1)[1]
             if member in self.members[gid] or self.already_member:
+                self.members[gid].add(member)
                 raise subprocess.CalledProcessError(1, "az", stderr="One or more added object references already exist")
             self.members[gid].add(member)
             return {}
@@ -102,12 +108,12 @@ def test_plan_makes_no_graph_call_and_creates_no_credential_or_permission():
     assert plan["redirect_uri"] == ORIGIN + "/admin/" and "readers" in plan["display_names"]["reader"]
 
 
-def test_apply_creates_both_groups_adds_only_the_deploying_user_and_registers_the_app():
+def test_apply_creates_separate_groups_adds_only_the_deploying_user_and_registers_the_app():
     graph = Graph()
     result = apply(graph)
-    assert sorted(result["created_groups"]) == ["operator", "reader"]
-    assert result["reader_group_id"] != result["operator_group_id"]
-    assert all(members == {USER} for members in graph.members.values()) and len(graph.members) == 2
+    assert sorted(result["created_groups"]) == ["operator", "owner", "reader"]
+    assert len({result["reader_group_id"], result["operator_group_id"], result["owner_group_id"]}) == 3
+    assert all(members == {USER} for members in graph.members.values()) and len(graph.members) == 3
     app = next(iter(graph.apps.values()))
     assert app["spa"] == {"redirectUris": [ORIGIN + "/admin/"]} and app["groupMembershipClaims"] == "ApplicationGroup"
     assert app["signInAudience"] == "AzureADMyOrg" and "passwordCredentials" not in app and "keyCredentials" not in app
@@ -121,7 +127,7 @@ def test_apply_creates_both_groups_adds_only_the_deploying_user_and_registers_th
     assert not any("00000003-0000-0000-c000-000000000000" in json.dumps(body or {}) for _, _, body in graph.calls)
     principal = next(iter(graph.principals.values()))
     assert principal["appRoleAssignmentRequired"] is True
-    assert sorted(graph.assignments) == sorted([result["reader_group_id"], result["operator_group_id"]])
+    assert sorted(graph.assignments) == sorted([result["reader_group_id"], result["operator_group_id"], result["owner_group_id"]])
     assert result["client_id"] == app["appId"] and result["member"] == USER
 
 
@@ -132,16 +138,17 @@ def test_rerun_is_idempotent_and_never_removes_or_widens_anything():
     second = apply(graph)
     assert second["created_groups"] == [] and second["client_id"] == first["client_id"]
     assert second["reader_group_id"] == first["reader_group_id"]
-    assert len(graph.apps) == len(graph.principals) == 1 and len(graph.groups) == 2
+    assert second["owner_group_id"] == first["owner_group_id"]
+    assert len(graph.apps) == len(graph.principals) == 1 and len(graph.groups) == 3
     assert not any(method == "DELETE" for method, _ in graph.writes())
     # Only the member re-add attempt and the app patches repeat; no new group, app or assignment is created.
     repeated = graph.writes()[writes_after_first:]
     assert not any(path in ("groups", "applications", "servicePrincipals") for _, path in repeated)
-    assert len(graph.assignments) == 2
+    assert len(graph.assignments) == 3
 
 
 def test_an_already_existing_membership_is_not_an_error_but_other_failures_are():
-    assert apply(Graph(already_member=True))["created_groups"] == ["reader", "operator"]
+    assert apply(Graph(already_member=True))["created_groups"] == ["reader", "operator", "owner"]
 
     class Failing(Graph):
         def __call__(self, method, path, body=None):
@@ -155,9 +162,9 @@ def test_an_already_existing_membership_is_not_an_error_but_other_failures_are()
 
 def test_supplied_groups_are_used_as_given_and_their_membership_is_never_changed():
     graph = Graph()
-    reader, operator = graph._add_group("my readers"), graph._add_group("my operators")
+    reader, operator, owner = graph._add_group("my readers"), graph._add_group("my operators"), graph._add_group("my owners")
     graph.members[reader].add(OTHER)
-    result = apply(graph, reader_group=reader, operator_group=operator)
+    result = apply(graph, reader_group=reader, operator_group=operator, owner_group=owner)
     assert result["created_groups"] == [] and result["reader_group_id"] == reader
     assert graph.members[reader] == {OTHER} and graph.members[operator] == set()
     assert not any(path.endswith("/members/$ref") or path == "groups" for _, path in graph.writes())
@@ -167,7 +174,9 @@ def test_supplied_groups_are_used_as_given_and_their_membership_is_never_changed
         apply(graph, reader_group=reader, operator_group=reader)
 
 
-@pytest.mark.parametrize("extra", [{"mailEnabled": True}, {"securityEnabled": False}, {"groupTypes": ["DynamicMembership"]}])
+@pytest.mark.parametrize("extra", [
+    {"mailEnabled": True}, {"securityEnabled": False}, {"groupTypes": ["DynamicMembership"]}, {"isAssignableToRole": True},
+])
 def test_an_existing_group_that_is_not_a_plain_security_group_is_never_reused(extra):
     name = console.names("gg-dev", SEED)["reader"]
     graph = Graph(existing_groups={name: extra})
@@ -211,7 +220,8 @@ def test_group_assignment_failure_explains_the_license_requirement_and_the_fallb
 
 @pytest.mark.parametrize("kwargs", [
     {"environment": "production"}, {"origin": "http://apim.example"}, {"origin": ORIGIN + "/admin/"},
-    {"origin": "https://apim.example:8443"}, {"member": "not-a-guid"}, {"reader_group": "x"}, {"group_claim": "All"},
+    {"origin": "https://apim.example:8443"}, {"member": "not-a-guid"}, {"reader_group": "x"}, {"owner_group": "x"},
+    {"owner_member": "not-a-guid"}, {"group_claim": "All"},
 ])
 def test_unsafe_inputs_are_rejected_before_any_graph_call(kwargs):
     graph = Graph()
@@ -267,5 +277,44 @@ def test_hook_and_guided_runner_register_the_console_in_the_same_places_as_the_v
     assert "scripts.configure_voice_demo import configure" in bootstrap
     assert "scripts.configure_admin_console import configure" in bootstrap
     assert 'foundation["gateway"]["gatewayUrl"]' in bootstrap
-    for name in ("adminReaderGroupId", "adminOperatorGroupId", "adminClientId"):
+    for name in ("adminReaderGroupId", "adminOperatorGroupId", "adminOwnerGroupId", "adminClientId"):
         assert f'"{name}": console[' in bootstrap
+
+
+def test_owner_enrollment_uses_the_deploying_human_not_the_configured_operator():
+    graph = Graph()
+    result = apply(graph, owner_member=OTHER)
+    assert graph.members[result["owner_group_id"]] == {OTHER}
+    assert graph.members[result["operator_group_id"]] == {USER}
+    assert graph.members[result["reader_group_id"]] == {USER}
+    calls = []
+
+    def caller(method, path):
+        calls.append((method, path))
+        return {"id": OTHER}
+
+    assert console.signed_in_user(caller) == OTHER
+    assert calls == [("GET", "me?$select=id")]
+    with pytest.raises(ValueError, match="signed-in deploying user"):
+        console.signed_in_user(lambda *args: {})
+
+
+def test_duplicate_graph_membership_is_verified_and_permission_failures_are_not_ignored():
+    from governedgraph.strategy_service.provision_auth import GraphError
+
+    calls = []
+
+    def member_exists(method, path, body=None):
+        calls.append((method, path))
+        if method == "POST":
+            raise GraphError(method, path, 400, "One or more added object references already exist")
+        return {"id": USER}
+
+    console.ensure_member(member_exists, OTHER, USER)
+    assert calls[-1] == ("GET", f"groups/{OTHER}/members/{USER}?$select=id")
+
+    def denied(method, path, body=None):
+        raise GraphError(method, path, 403, "Insufficient privileges")
+
+    with pytest.raises(GraphError):
+        console.ensure_member(denied, OTHER, USER)

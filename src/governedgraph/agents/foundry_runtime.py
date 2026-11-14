@@ -130,7 +130,11 @@ def task_context(tools, strategy) -> dict:
             "teach_back": strategy.teach_back,
         },
         "template_reference": {"id": strategy.template_id, "version": strategy.template_version},
-        "answer_structure": ("step_by_step_and_meaning_check_question" if strategy.strategy_id == "S5"
+        "approved_explanation_pattern": {
+            "text": tools.explanation_pattern,
+            "purpose": "Structure and tone only; the answer goal and supplied authoritative references remain controlling.",
+        },
+        "answer_structure": ("step_by_step_and_meaning_check_question" if strategy.template_id == "T-S5"
                              else "explanation_and_meaning_check_question" if strategy.teach_back
                              else "explanation"),
         "last_explanation": asdict(previous) if previous is not None else None,
@@ -252,7 +256,7 @@ class FoundryComposer:
         )}, {"type": "message", "role": "user", "content": utterance}]
         try:
             answer = _assemble_answer(self._run(tools, inputs), teach_back=strategy.teach_back,
-                                      step_by_step=strategy.strategy_id == "S5",
+                                      step_by_step=strategy.template_id == "T-S5",
                                       response_language=task["response_language"])
             return json.dumps(asdict(answer))
         except (ValueError, TypeError) as error:
@@ -310,7 +314,7 @@ class FoundryComposer:
         result = self._run(tools, inputs, allow_tools=False)
         try:
             answer = _assemble_answer(result, teach_back=strategy.teach_back,
-                                      step_by_step=strategy.strategy_id == "S5",
+                                      step_by_step=strategy.template_id == "T-S5",
                                       response_language=task["response_language"])
             available = set(tools.trace.values.by_id()) if tools.trace.values else set()
             if (not set(referenced_value_ids(answer.text)) <= available

@@ -79,6 +79,21 @@ def require_recovery_operator(authorization: str = Header(default="")) -> str:
     return authorize("recover", authorization)["oid"]
 
 
+def require_portal_owner(authorization: str = Header(default=""),
+                         x_admin_authorization: str = Header(default="")) -> str:
+    import os
+    from governedgraph.admin.access import AccessPolicy
+
+    proxy = authorize("suspend", x_admin_authorization)
+    if not settings.strategy_admin_id or proxy["oid"] != settings.strategy_admin_id:
+        raise HTTPException(403, "the journal-writing administration proxy is required")
+    policy = AccessPolicy(owner_group=os.getenv("GOVERNEDGRAPH_ADMIN_OWNER_GROUP_ID", "").strip(),
+                          client_id=os.getenv("GOVERNEDGRAPH_ADMIN_CLIENT_ID", "").strip(),
+                          tenant_id=settings.strategy_tenant_id)
+    identity = policy.require_owner(authorization)
+    return identity.actor
+
+
 def require_operator(action: str):
     def dependency(authorization: str = Header(default="")) -> None:
         authorize(action, authorization)

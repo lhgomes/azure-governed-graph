@@ -3,6 +3,7 @@ import asyncio
 import base64
 import hashlib
 import html as html_parser
+from html.parser import HTMLParser
 import json
 import re
 import shutil
@@ -314,7 +315,7 @@ def test_presenter_silent_checking_preserves_checked_sentence_audio_and_honest_l
     asyncio.run(scenario())
 
 
-def test_ui_has_accessible_voice_states_real_metadata_secondary_video_and_csp(monkeypatch):
+def test_ui_has_accessible_voice_states_real_metadata_optional_video_and_csp(monkeypatch):
     monkeypatch.setattr(presenter, "enabled", lambda: True)
     monkeypatch.setenv("VOICE_DEMO_ORIGIN", "https://demo.example")
     response = presenter.index()
@@ -325,21 +326,64 @@ def test_ui_has_accessible_voice_states_real_metadata_secondary_video_and_csp(mo
         assert state in html
     for field in ("meta-strategy", "meta-snapshot", "meta-audit", "meta-suspended"):
         assert f'id="{field}"' in html
-    assert "<details><summary>Watch the synthetic sample conversations" in html
-    assert '<div class="simulation-controls"><div class="simulation-picker">' in html
-    assert '<label for="simulation">Synthetic persona</label><select id="simulation" disabled>' in html
-    assert '<button id="simulate" disabled>Run and save video</button>' in html
+    assert '<label class="sr-only" for="simulation">Story</label><select id="simulation" disabled>' in html
+    assert '<button id="present" class="primary" disabled>Voice</button>' in html
+    assert '<button id="chat" disabled>Chat</button>' in html
+    assert '<button id="simulate" disabled>Play</button>' in html
     assert "select{font:inherit}" in html and "select:focus-visible" in html
-    assert ".simulation-controls select,.simulation-controls button{min-height:48px;line-height:1.4}" in html
-    assert "@media(max-width:600px){.simulation-picker{flex-basis:100%}" in html
-    assert '<details id="diagnostics">' in html and "not met" in html and "prefers-reduced-motion" in html
+    assert ".demo-toolbar button,.story-picker select{min-height:48px;line-height:1.4}" in html
+    assert "@media(max-width:600px)" in html and "prefers-reduced-motion" in html
+    for removed in ("Latency &amp; delivery diagnostics", "Aggregate provenance", 'id="latency-summary"',
+                    'id="result"', 'id="feedback-baseline"', 'class="voice-mark"', 'class="principles"'):
+        assert removed not in html
     assert "ILLUSTRATIVE - synthetic data" in html and "not a live training feed" in html
+    assert html.count('<p class="label">Synthetic data</p>') == 1
     policy = response.headers["content-security-policy"]
     for tag in ("script", "style"):
         content = re.search(f"<{tag}>(.*?)</{tag}>", html, re.S)[1]
         digest = base64.b64encode(hashlib.sha256(content.encode()).digest()).decode()
         assert f"'sha256-{digest}'" in policy
     assert "'unsafe-inline'" not in policy and "<script src=" not in html
+
+
+def test_executive_demo_keeps_conversation_primary_and_technical_evidence_collapsed():
+    class Layout(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.stack = []
+            self.elements = {}
+
+        def handle_starttag(self, tag, attrs):
+            attributes = dict(attrs)
+            identity = attributes.get("id")
+            if identity:
+                self.elements[identity] = (attributes, [parent for _, parent in self.stack])
+            if tag not in {"meta", "link", "input", "br", "hr"}:
+                self.stack.append((tag, identity))
+
+        def handle_endtag(self, tag):
+            for index in range(len(self.stack) - 1, -1, -1):
+                if self.stack[index][0] == tag:
+                    del self.stack[index:]
+                    break
+
+    layout = Layout()
+    html = (DATA_DIR / "catalogue" / "ui" / "presenter.html").read_text()
+    layout.feed(html)
+    assert "open" not in layout.elements["evidence"][0]
+    for identity in ("meta-strategy", "meta-snapshot", "meta-arm", "workflow-steps", "learning-feedback", "download"):
+        assert "evidence" in layout.elements[identity][1]
+    for identity in ("present", "chat", "simulation", "simulate"):
+        assert "demo-controls" in layout.elements[identity][1]
+        assert "hidden" not in layout.elements[identity][0]
+    for identity in ("stop", "chat-form", "conversation", "demo-controls"):
+        assert "evidence" not in layout.elements[identity][1]
+    for identity in ("speak", "finish", "end-session", "screen"):
+        assert "hidden" in layout.elements[identity][0]
+    assert "hidden" not in layout.elements["conversation-panel"][0]
+    assert "max-height:36dvh;overflow:auto" in html
+    assert 'id="disclosure">{{AI_DISCLOSURE}}' in html
+    assert "<aside" not in html
 
 
 def test_channel_defaults_to_voice_and_rejects_unknown_channel():
@@ -366,12 +410,18 @@ def test_ui_chat_states_and_real_workflow_evidence_without_microphone():
     harness = r"""
 const assert = require("node:assert/strict");
 const elements = new Map();
+const channelErrors = [];
+console.error = (...args) => channelErrors.push(args);
 function element(){
   return {disabled:true,hidden:false,textContent:"",value:"",dataset:{},children:[],
-    append(...items){this.children.push(...items)},replaceChildren(){this.children=[]},scrollIntoView(){},click(){},
+    append(...items){this.children.push(...items)},replaceChildren(){this.children=[]},scrollIntoView(){},
+    click(){this.clickCount=(this.clickCount||0)+1},
     getContext(){return {fillRect(){},fillText(){},measureText(){return {width:0}}}}};
 }
-global.document={getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id)},
+global.document={getElementById(id){
+    assert.ok(ids.has(id),"missing HTML element: "+id);
+    if(!elements.has(id)){const item=element();item.hidden=hiddenIds.has(id);elements.set(id,item)}
+    return elements.get(id)},
   createElement:element,createTextNode(text){return {textContent:text}}};
 global.location={origin:"https://synthetic.example",hash:""};
 global.window={addEventListener(){}};
@@ -388,14 +438,36 @@ global.WebSocket=class {
   close(){this.readyState=3}
 };
 """
+    harness = (
+        "const ids=new Set(" + json.dumps(re.findall(r'\bid="([^"]+)"', html)) + ");\n"
+        "const hiddenIds=new Set(" + json.dumps(re.findall(r'<[^>]*\bid="([^"]+)"[^>]*\shidden(?:\s|>)', html)) + ");\n"
+        + harness
+    )
     harness += "global.fetch=async()=>({ok:true,json:async()=>({simulations:" + json.dumps(
         [item.summary() for item in load_simulations()]) + "})});\n"
     assertions = r"""
 (async()=>{
+  assert.equal($("present").disabled,true);
+  assert.equal($("chat").disabled,true);
+  await authorize("synthetic-presenter-token");
+  assert.equal($("present").hidden,false);
+  assert.equal($("chat").hidden,false);
+  assert.equal($("speak").hidden,true);
+  assert.equal($("finish").hidden,true);
+  assert.equal($("stop").disabled,false,"human support must remain available");
   await connect("chat");socket.onopen();
+  assert.equal($("present").hidden,false);
+  assert.equal($("chat").hidden,false);
+  assert.equal($("present").disabled,true);
+  assert.equal($("chat").disabled,true);
+  assert.equal($("speak").hidden,true);
+  assert.equal($("end-session").hidden,false);
+  assert.equal($("conversation-panel").hidden,false);
+  assert.equal($("screen").hidden,true);
   assert.equal(audio,undefined,"chat must not create AudioContext");
   assert.equal(socket.sent[0].mode,"chat");
   await socket.onmessage({data:JSON.stringify({kind:"caption",role:"counsellor",text:"Canonical disclosure"})});
+  assert.equal($("disclosure").hidden,true,"the spoken disclosure is now visible in the conversation");
   await socket.onmessage({data:JSON.stringify({kind:"chat_ready"})});
   assert.equal($("voice-stage").dataset.state,"typing");
   $("chat-text").value="Explain my letter";$("chat-form").onsubmit({preventDefault(){}});
@@ -418,7 +490,8 @@ global.WebSocket=class {
   assert.equal($("feedback-observed").textContent,"3");
   assert.equal($("feedback-eligible").textContent,"0");
   assert.equal($("feedback-pending").textContent,"3");
-  assert.equal($("feedback-baseline").textContent,"c".repeat(64));
+  assert.equal($("feedback-status").textContent,"Aggregate outcomes available.");
+  assert.equal(elements.has("feedback-baseline"),false,"provenance digests must not create a second display");
   metadata({});
   assert.equal($("learning-feedback").hidden,true);
   assert.equal($("feedback-observed").textContent,"Unavailable","old counts must not persist when metadata is absent");
@@ -435,6 +508,10 @@ global.WebSocket=class {
   assert.equal(socket.sent[3].kind,"handover");
   assert.equal($("chat-text").disabled,true);
   socket.readyState=WebSocket.CLOSED;socket.onclose();
+  assert.equal($("present").hidden,false);
+  assert.equal($("chat").hidden,false);
+  assert.equal($("speak").hidden,true);
+  assert.equal($("finish").hidden,true);
   assert.equal($("conversation-error").hidden,false);
   assert.match($("conversation-error").textContent,/Connection closed before a reply/);
   assert.equal(timers.size,0);
@@ -448,9 +525,14 @@ global.WebSocket=class {
   assert.equal(socket.readyState,WebSocket.CLOSED);
   assert.equal(timers.size,0);
   await connect("chat");socket.onopen();
-  await socket.onmessage({data:JSON.stringify({kind:"error",message:"Synthetic delivery unavailable"})});
+  await socket.onmessage({data:JSON.stringify({kind:"error",message:"Synthetic delivery unavailable",
+    error_type:"HTTPStatusError",location:"presenter.serve.L478"})});
   assert.equal($("conversation-error").hidden,false);
   assert.equal($("conversation-error").textContent,"Synthetic delivery unavailable");
+  assert.equal($("status").hidden,true,"the actual error must not be duplicated by a generic failure status");
+  assert.equal($("voice-stage").dataset.state,"error","failure must not become a completed conversation");
+  assert.deepEqual(channelErrors.at(-1),["Channel operation failed",
+    {error_type:"HTTPStatusError",location:"presenter.serve.L478"}]);
   await connect("chat");socket.onopen();
   await socket.onmessage({data:JSON.stringify({kind:"chat_ready"})});
   $("end-session").onclick();
@@ -476,8 +558,21 @@ global.WebSocket=class {
     stop(){this.state="inactive";this.onstop()}
   };
   canvas.captureStream=()=>({getVideoTracks:()=>[],getTracks:()=>[]});
+  await connect("presenter");socket.onopen();
+  await socket.onmessage({data:JSON.stringify({kind:"capture"})});
+  assert.equal($("speak").hidden,false);
+  assert.equal($("finish").hidden,true);
+  inputStream={getTracks:()=>[]};syncControls();
+  assert.equal($("speak").hidden,true);
+  assert.equal($("finish").hidden,false);
+  stopCapture(false);
+  assert.equal($("speak").hidden,false);
+  assert.equal($("finish").hidden,true);
+  socket.readyState=WebSocket.CLOSED;socket.onclose();
   $("simulation").value="joost";
   await connect("simulator");socket.onopen();
+  assert.equal($("screen").hidden,true,"example captions use the same conversation log, never a duplicate video");
+  assert.equal($("speak").hidden,true);
   assert.deepEqual(socket.sent[0],{mode:"simulator",simulation_id:"joost"});
   assert.equal($("simulation").disabled,true);
   addCaption("persona","Synthetic opening");
@@ -486,6 +581,8 @@ global.WebSocket=class {
   $("simulation").value="samira";
   recorder.stop();
   assert.equal($("download").download,"joost-voice-fallback.webm","recording filename must capture the active persona");
+  assert.equal($("download").hidden,false);
+  assert.equal($("download").clickCount,undefined,"Play must not automatically download a video");
   socket.readyState=WebSocket.CLOSED;socket.onclose();
   await connect("simulator");socket.onopen();
   assert.deepEqual(socket.sent[0],{mode:"simulator",simulation_id:"samira"});
@@ -508,6 +605,41 @@ global.WebSocket=class {
     result = subprocess.run(["node", "-e", harness + script + assertions],
                             capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(("statuses", "detail", "delays"), [
+    ((200,), "", []),
+    ((409, 409, 200), "journey busy; retry the report", [1, 2]),
+    ((409, 409, 409, 409), "journey busy; retry the report", [1, 2, 4]),
+    ((403,), "step-up verified access to your own report required", []),
+    ((409,), "another conflict", []),
+])
+def test_final_report_retries_only_explicit_transient_contention(monkeypatch, statuses, detail, delays):
+    requests, remaining = [], iter(statuses)
+    sleep = AsyncMock()
+    monkeypatch.setattr(presenter.asyncio, "sleep", sleep)
+
+    def backend(request):
+        requests.append(request)
+        code = next(remaining)
+        return httpx.Response(code, json={"records": []} if code == 200 else {"detail": detail})
+
+    async def scenario():
+        async with httpx.AsyncClient(base_url="https://synthetic/", transport=httpx.MockTransport(backend)) as client:
+            if statuses[-1] == 200:
+                report = await presenter._final_report(client, "synthetic-member", "synthetic-token", "J-synthetic")
+                assert report.json() == {"records": []}
+            else:
+                with pytest.raises(httpx.HTTPStatusError) as failure:
+                    await presenter._final_report(client, "synthetic-member", "synthetic-token", "J-synthetic")
+                assert failure.value.response.status_code == statuses[-1]
+
+    asyncio.run(scenario())
+    assert len(requests) == len(statuses)
+    assert [call.args[0] for call in sleep.await_args_list] == delays
+    assert all(request.method == "GET"
+               and request.url.path == "/members/synthetic-member/explainability-report"
+               and request.headers["Authorization"] == "Bearer synthetic-token" for request in requests)
 
 
 def test_b9_normal_chat_end_does_not_send_an_advisor_request_or_fabricate_resolution():

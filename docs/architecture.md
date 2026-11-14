@@ -28,12 +28,69 @@ administrator effects.
 ## Runtime sequence (P1)
 
 The separate [administration console](administration.md) projects strategy, governance and response-audit
-evidence and exposes audited protective controls. Locally it is loopback-only over synthetic files. On Azure it is
-an internal Container App with its own identity behind the APIM gateway at `/admin/`: it reads three immutable
+evidence and exposes audited protective controls through three consolidated views: Explanation styles,
+Conversations and Activity. Style details separate Summary, Order by situation and Learning results into tabs.
+Recorded strategy usage is a count projection of the same bounded immutable answer-record read as Conversations,
+not the seeded learning totals or proof of delivery. The console is an internal Container App with its own
+identity behind the APIM gateway at `/admin/`: it reads three immutable
 evidence containers and its own write-once journal at container scope, and acts only through the role-protected
-Strategy API (`Strategy.Freeze` and `Strategy.Suspend`, never publish or reinstate). It is not a member channel or a
+Strategy API (`Strategy.Freeze` and `Strategy.Suspend`, never signing or publishing). It is not a member channel or a
 learning input. Optional conversation drill-down reads only previously captured, watermarked synthetic `gg-dev`
 traces and is off by default on Azure; no transcript retention is added.
+Deployment bootstrap creates a separate platform-owner Entra group and enrolls the deploying human using the
+selected tenant's Graph `/me`. Console owner membership is separately identified by `admin/access.py`;
+it includes protective-action access, but grants no signing or publication rights.
+`strategy_service/auth.py` independently checks a delegated owner's admin-audience `Admin.Access` token
+and the pinned admin proxy's existing application-only `Strategy.Suspend` token before accepting an override.
+The proxy writes its immutable decision journal first. `strategy_service/overrides.py` closes decision/state schemas;
+`service.py` applies reversible owner pause/unpause overlays and conditional, signed treatment-only orders.
+The existing isolated P2 scheduled job signs pending orders through `learning/owner_orders.py` only after its
+normal audit, key-isolation and learning checks. It cannot invent an owner decision or publish a different order.
+Revoke restores current governed selection or the retained finding, not a captured prior state.
+New fairness findings revoke overlapping unpause decisions; freeze/static revert revoke order/unpause overrides
+while retaining owner pauses. B3 signed catalogue selection, B6 autonomous veto, B8 explicit human approval,
+B9 escalation and B10 expert control/kill switch therefore remain enforced. No journal text enters P2.
+
+Selected-style testing stays inside the portal. `admin/testing.py` authenticates operator/owner
+`Admin.Access`, same-origin stream cookies and allowlisted, step-up verified synthetic members before
+creating a journey marked with `test_strategy_id`. The existing `voice/presenter.py` bridge supplies
+chat, microphone and approved-persona transports; no member bearer reaches the browser.
+`orchestrator/api.py` independently verifies the admin token on turns; `orchestrator/service.py`
+rejects an ordinary member turn on a marked test and prevents test/member answer links.
+`agents/counsellor.py` may select the pinned style only from the actual served, eligible and unsuspended
+ranking, preserving B3/B6 and all existing B2/GNA/Art. 50/B9 gates. It does not mutate the signed response.
+`learning/feedback.py` excludes test journeys and their records before projecting outcomes, repeat
+contacts or digests, so tests cannot contaminate B4/B5 learning or B10 control comparisons.
+Focused regression source is in `tests/test_admin_testing.py` and `tests/test_admin_guidance.py`.
+
+### Owner catalogue publication (IMP-ADMIN-CATALOGUE)
+
+Decision: extend the existing owner proxy and isolated P2 signer, rather than grant the
+portal signing rights or require a redeployment for each edit. No new identity, role,
+grant, storage resource or network path is introduced. The portal's closed
+`CatalogueDecision` selects only existing approved explanation patterns and bounded
+stage/channel/accessibility vocabularies; S6 is immutable. Arbitrary prompt authoring
+is outside this editor.
+
+`strategy_service/catalogue_release.py` builds versioned definitions and expert priors.
+`service.py` records the proposal with revision-based concurrency and permits cancellation.
+`learning/catalogue_publication.py` signs only that exact recorded proposal after the
+scheduled job's existing checks. Activation verifies both signatures and the unchanged
+pending proposal, then atomically installs catalogue, expert baseline and current ranking.
+A freeze prevents activation. Existing protective findings and owner pauses survive;
+incompatible owner orders/unpause overrides and the old last-good pointer are cleared.
+This serves B3/B8 without changing signing isolation or weakening B6/B9/B10.
+
+Runtime metadata is pinned to the served ranking's catalogue version; a mismatch fails
+closed. Unavailable fresh strategy state serves no ranked explanation, retaining human
+escalation rather than risking a retired style. Approved pattern content reaches the
+Foundry task context with placeholders intact; grounding, GNA and numeric fidelity still
+gate the answer (B1/B2). Admin and learning readers use the same published definitions.
+Historical approved definitions validate older evidence, but old-version outcomes cannot
+train the replacement version's ranking (B4/B5). Test journeys remain excluded. No
+demographic eligibility field or conversation-to-catalogue path is introduced (B7).
+Focused regression source extends `tests/test_strategy_azure.py`,
+`tests/test_admin_owners.py` and `tests/test_admin_guidance.py`.
 
 1. Member -> channel (Voice Live or chat): AI disclosure (Art. 50)
 2. Orchestrator: create/resume journey; step-up verification before personal values
@@ -709,11 +766,13 @@ role, and independently constrain the principal:
 | POST `/freeze` | `Strategy.Freeze` | Runtime, fairness or P2 |
 | POST `/revert-to-static` | `Strategy.Freeze` | Protective uplift kill switch; runtime, fairness or P2 |
 | POST `/reinstatements` | No app role | Delegated human in configured governance group plus `GB-` decision |
+| POST `/owner-overrides` | Admin proxy's existing `Strategy.Suspend` plus delegated `Admin.Access` | Pinned journal-writing admin identity **and** configured human owner; confirmed `GB-` decision and exact state revision |
+| POST `/owner-order-publications` | `Strategy.Publish` | P2 only; signed order must exactly match a still-pending owner decision; cannot activate while frozen |
 | GET/POST `/freeze-recovery` | No app role; delegated `Strategy.Recover` | Exact approved human/CLI in gg-dev, latest actual audit succeeded, approved dev decision, durable recovery journal and state-revision guard |
 
 Ranking reads and GET `/snapshots` need no mutation role. The service's own
 identity has none of these app roles. Reinstatement is disabled while the human
-group is unset (the current user-selected configuration). APIM exposes admin
+group is unset; the separately configured owner group authorizes the explicit reversible owner workflow above. APIM exposes admin
 operations at `/strategy-admin`; backend validation also protects direct private
 calls. Local-only development routes do not pretend to validate Entra tokens.
 `X-Strategy-Replica` and `Server-Timing` on rank responses allow separate

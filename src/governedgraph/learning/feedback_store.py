@@ -123,6 +123,7 @@ def baseline_file(store: FileFeedbackStore | BlobFeedbackStore):
 
 def publish_feedback(journey_store, audit_store, output: FileFeedbackStore | BlobFeedbackStore) -> FeedbackManifest:
     from governedgraph.common.contracts import ExplainabilityRecord
+    from governedgraph.agents.clients import HttpStrategyClient
 
     # A single producer uses the existing runtime lease, not a new identity/job.
     with journey_store.transaction("feedback-projection"):
@@ -138,7 +139,8 @@ def publish_feedback(journey_store, audit_store, output: FileFeedbackStore | Blo
         records = [ExplainabilityRecord.from_dict(record) for record in audit_store.read_all()
                    if record["journey_id"] in identifiers]
         with baseline_file(output) as baseline:
-            snapshot = project_feedback(journeys, records, baseline=baseline)
+            catalogue, _ = HttpStrategyClient().get_catalogue()
+            snapshot = project_feedback(journeys, records, baseline=baseline, catalogue=catalogue)
         if current != snapshot.manifest:
             output.save(snapshot)
         return snapshot.manifest

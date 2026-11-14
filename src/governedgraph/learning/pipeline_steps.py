@@ -93,7 +93,7 @@ def run_stage(stage: str, state: PipelineState, inputs, service, signer) -> Pipe
         with TemporaryDirectory(prefix="gg-p2-aggregates-") as directory:
             path = Path(directory) / "outcomes.csv"
             path.write_bytes(raw)
-            evidence = load_outcome_aggregates(path)
+            evidence = load_outcome_aggregates(path, catalogue=service.catalogue)
         state.outcome_digest = hashlib.sha256(raw).hexdigest()
         state.evidence = {key: {sid: asdict(ev) for sid, ev in rows.items()} for key, rows in evidence.items()}
     elif stage == "rank":

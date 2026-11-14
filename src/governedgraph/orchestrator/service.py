@@ -130,10 +130,11 @@ class OrchestratorService:
         for event in record.journey.events[previous_count:]:
             record.pending.append(Delivery("journey-events", f"{event.journey_id}:{event.event_id}", asdict(event)))
 
-    def start(self, identity: MemberIdentity, channel: str, accessibility_mode: str) -> dict:
+    def start(self, identity: MemberIdentity, channel: str, accessibility_mode: str, *,
+              test_strategy_id: str = "") -> dict:
         RequestKey("first_contact", "unclassified", channel, accessibility_mode)
         journey = Journey(f"J-{uuid4().hex}", identity.member_ref, channel=channel,
-                          accessibility_mode=accessibility_mode)
+                          accessibility_mode=accessibility_mode, test_strategy_id=test_strategy_id)
         with operation(journey.journey_id, "governedgraph.orchestrator.start",
                       agent_name="gg-orchestrator", server=True):
             journey.fire(Event.DISCLOSED_AND_AUTHENTICATED)
@@ -204,10 +205,12 @@ class OrchestratorService:
 
     def _linked_answer(self, record: JourneyRecord, reference: ResponseReference, identity: MemberIdentity,
                        *, before: datetime) -> ExplainabilityRecord:
+        if record.journey.test_strategy_id:
+            raise InvalidAnswerReference("test conversations cannot link learning evidence")
         if reference.journey_id == record.journey.journey_id:
             return self._explanation(record, reference, identity, before=before)
         with self.store.transaction(reference.journey_id) as target:
-            if target.record is None:
+            if target.record is None or target.record.journey.test_strategy_id:
                 raise InvalidAnswerReference("answer reference is not available for this member")
             return self._explanation(target.record, reference, identity, before=before)
 
@@ -347,7 +350,8 @@ class OrchestratorService:
 
     def turn(self, journey_id: str, request_id: str, identity: MemberIdentity,
              token: str, utterance: str, trace_parent: str = "", *, voice_model: str = "",
-             related_answer: ResponseReference | None = None, received_at: datetime | None = None) -> dict:
+             related_answer: ResponseReference | None = None, received_at: datetime | None = None,
+             allow_admin_test: bool = False) -> dict:
         started = perf_counter()
         received_at = _arrival(received_at)
         with self.store.transaction(journey_id) as transaction:
@@ -355,6 +359,9 @@ class OrchestratorService:
             if record is None:
                 raise KeyError(journey_id)
             journey = record.journey
+            if journey.test_strategy_id and not allow_admin_test:
+                log.warning("admin_test_access_denied", extra={"journey_id": journey_id})
+                raise MemberScopeViolation(journey_id)
             if journey.member_ref != identity.member_ref:
                 log.error("member_scope_violation", extra={"journey_id": journey_id})
                 raise MemberScopeViolation(journey_id)

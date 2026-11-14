@@ -58,6 +58,8 @@ param adminImage string
 param adminReaderGroupId string = ''
 @description('Optional Entra group object ID allowed to apply protective actions. Blank disables actions once any group is set.')
 param adminOperatorGroupId string = ''
+@description('Entra group for platform owners. The deployment enrolls the signed-in deploying user.')
+param adminOwnerGroupId string = ''
 @description('Client ID of the Entra single-page app used for console sign-in; required when a group ID is set.')
 param adminClientId string = ''
 @description('Allow protective actions while access control is off. Off by default on Azure; the console is publicly reachable.')
@@ -165,6 +167,7 @@ module compute 'modules/compute.bicep' = {
       GOVERNEDGRAPH_ADMIN_BASE_PATH: '/admin/'
       GOVERNEDGRAPH_ADMIN_READER_GROUP_ID: adminReaderGroupId
       GOVERNEDGRAPH_ADMIN_OPERATOR_GROUP_ID: adminOperatorGroupId
+      GOVERNEDGRAPH_ADMIN_OWNER_GROUP_ID: adminOwnerGroupId
       GOVERNEDGRAPH_ADMIN_CLIENT_ID: adminClientId
       GOVERNEDGRAPH_ADMIN_TENANT_ID: subscription().tenantId
       GOVERNEDGRAPH_ADMIN_ALLOW_OPEN_ACTIONS: adminAllowOpenActions ? 'true' : 'false'
@@ -180,6 +183,8 @@ module compute 'modules/compute.bicep' = {
     }
     strategyEnv: {
       AZURE_ENV_NAME: environmentName
+      GOVERNEDGRAPH_ADMIN_OWNER_GROUP_ID: adminOwnerGroupId
+      GOVERNEDGRAPH_ADMIN_CLIENT_ID: adminClientId
       STRATEGY_ADMIN_PRINCIPAL_ID: security.outputs.adminPrincipalId
       STRATEGY_RECOVERY_OPERATOR_ID: environmentName == 'gg-dev' ? strategyRecoveryOperatorId : ''
       P2_FAIRNESS_JOB_ID: empty(p2ContainerImage) ? '' : '${rg.id}/providers/Microsoft.App/jobs/job-gg-p2-fairness'
@@ -189,6 +194,12 @@ module compute 'modules/compute.bicep' = {
     }
     orchestratorEnv: {
       AZURE_ENV_NAME: environmentName
+      STRATEGY_ADMIN_URL: 'https://apim-gg-${token}.azure-api.net/strategy-admin'
+      GOVERNEDGRAPH_ADMIN_TESTING: deployAdminConsole && environmentName == 'gg-dev' ? 'true' : 'false'
+      GOVERNEDGRAPH_ADMIN_READER_GROUP_ID: adminReaderGroupId
+      GOVERNEDGRAPH_ADMIN_OPERATOR_GROUP_ID: adminOperatorGroupId
+      GOVERNEDGRAPH_ADMIN_OWNER_GROUP_ID: adminOwnerGroupId
+      GOVERNEDGRAPH_ADMIN_CLIENT_ID: adminClientId
       AZURE_VOICE_LIVE_ENDPOINT: ai.outputs.aiServicesEndpoint
       GOVERNEDGRAPH_ENABLE_VOICE_PROOF: environmentName == 'gg-dev' ? 'true' : 'false'
       // Host-authored feedback wording. Synthetic dev only; production requires B8 approval.

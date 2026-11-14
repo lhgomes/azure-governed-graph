@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import logging
 import traceback
 import os
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import uuid4
 
 import jwt
@@ -38,6 +38,7 @@ from governedgraph.common.contracts import ContractError, OutcomeSubmission, Res
 from governedgraph.voice.hosted import VoiceScriptRequest, run_hosted
 from governedgraph.voice.voice_live_bridge import VoiceError
 from governedgraph.voice.presenter import router as presenter_router
+from governedgraph.admin.testing import router as admin_testing_router
 
 log = logging.getLogger("governedgraph.orchestrator")
 member_authenticator: MemberAuthenticator = SignedClaimAuthenticator()
@@ -87,6 +88,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="GovernedGraph Member Journey Orchestrator", version="1.1.0", lifespan=lifespan)
 app.include_router(presenter_router)
+app.include_router(admin_testing_router)
 
 
 class StartJourney(BaseModel):
@@ -139,9 +141,16 @@ def start(body: StartJourney, request: Request, authorization: str = Header(""))
 @app.post("/journeys/{journey_id}/turns")
 def turn(journey_id: str, body: Turn, request: Request, authorization: str = Header(""),
          traceparent_header: str = Header("", alias="traceparent"),
-         idempotency_key: str = Header("", alias="Idempotency-Key")):
+         idempotency_key: str = Header("", alias="Idempotency-Key"),
+         admin_authorization: Annotated[str, Header(alias="X-Admin-Authorization")] = ""):
     received_at = datetime.now(timezone.utc)
     token, identity = authenticate(authorization)
+    if admin_authorization:
+        from governedgraph.admin.access import AccessPolicy
+        from governedgraph.admin.testing import require_testing
+
+        require_testing()
+        AccessPolicy.from_env().require(admin_authorization, act=True)
     try:
         validate_id(journey_id)
         request_id = validate_id(idempotency_key) if idempotency_key else uuid4().hex
@@ -181,7 +190,8 @@ def turn(journey_id: str, body: Turn, request: Request, authorization: str = Hea
                                               **({"related_answer": reference, "received_at": received_at}
                                                  if reference is not None else {}),
                                               **({"voice_model": request.state.voice_candidate}
-                                                 if hasattr(request.state, "voice_candidate") else {}))
+                                                 if hasattr(request.state, "voice_candidate") else {}),
+                                              **({"allow_admin_test": True} if admin_authorization else {}))
     except KeyError:
         raise HTTPException(404, "unknown journey") from None
     except MemberScopeViolation:

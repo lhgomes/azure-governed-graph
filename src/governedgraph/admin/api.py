@@ -21,12 +21,13 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from governedgraph.admin.access import AccessPolicy, Identity
 from governedgraph.admin.data import WATERMARK, revision
-from governedgraph.admin.sources import AdminSourceError, AzureSources
+from governedgraph.admin.sources import AdminSourceError, AzureSources, OwnerDecisionError
 from governedgraph.admin.traces import SyntheticTraceReader, TraceUnavailable, monitor_runner
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import ContractError, SuspensionEvent, _strict, utcnow
 from governedgraph.strategy_service.catalogue import ESCALATION_STRATEGY
 from governedgraph.strategy_service.state import StateUnavailable
+from governedgraph.strategy_service.overrides import OwnerDecision
 
 log = logging.getLogger("governedgraph.admin")
 STATIC = Path(__file__).with_name("static")
@@ -100,8 +101,9 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
             "Cache-Control": "no-store", "Pragma": "no-cache", "Referrer-Policy": "no-referrer",
             "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
             "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; "
-                                       f"connect-src 'self'{sign_in}; img-src 'self'; base-uri 'self'; "
+                                       f"connect-src 'self' {public_origin.replace('https://', 'wss://', 1)}{sign_in}; img-src 'self'; base-uri 'self'; "
                                        "frame-ancestors 'none'; form-action 'none'",
+            "Permissions-Policy": "microphone=(self), camera=()",
         })
         return response
 
@@ -117,6 +119,10 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
     def require_act(request: Request) -> Identity:
         operator(request)
         return policy.require(request.headers.get("authorization", ""), act=True)
+
+    def require_owner(request: Request) -> Identity:
+        operator(request)
+        return policy.require_owner(request.headers.get("authorization", ""))
 
     @application.exception_handler(StateUnavailable)
     @application.exception_handler(TraceUnavailable)
@@ -142,7 +148,7 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
 
     @application.get("/assets/{name}", dependencies=[Depends(enabled)])
     def asset(name: str):
-        if name not in {"admin.css", "admin.js", "guide.js"}:
+        if name not in {"admin.css", "admin.js", "guide.js", "testing.js", "catalogue.js"}:
             raise HTTPException(404)
         return FileResponse(STATIC / name, media_type="text/css" if name.endswith(".css") else "text/javascript")
 
@@ -154,15 +160,19 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
     def dashboard(identity: Identity = Depends(require_read)):  # noqa: B008
         source = backend()
         return {**source.overview(), "source_profile": source.profile, "trace_lookup_enabled": reader.enabled,
-                "reinstatement_enabled": False,
+                "reinstatement_enabled": bool(policy.owner_group),
                 "access": {"mode": policy.mode, "user": identity.display, "can_act": identity.can_act,
+                           "can_own": identity.can_own,
                            "open_actions": policy.allow_open_actions}}
 
     @application.get("/api/journeys", dependencies=[Depends(require_read)])
     def journeys():
         grouped: dict[str, dict] = {}
+        strategy_usage: dict[str, int] = {}
         records, truncated = backend().audit_records()
         for row in records:
+            if row["strategy_id"]:
+                strategy_usage[row["strategy_id"]] = strategy_usage.get(row["strategy_id"], 0) + 1
             item = grouped.setdefault(row["journey_id"], {
                 "journey_id": row["journey_id"], "member_ref": row["member_ref"],
                 "responses": 0, "last_activity": row["created_at"], "strategies": [],
@@ -172,7 +182,7 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
             if row["strategy_id"] and row["strategy_id"] not in item["strategies"]:
                 item["strategies"].append(row["strategy_id"])
         return {"journeys": sorted(grouped.values(), key=lambda row: row["last_activity"], reverse=True),
-                "truncated": truncated}
+                "truncated": truncated, "strategy_usage": strategy_usage}
 
     @application.get("/api/journeys/{journey_id}", dependencies=[Depends(require_read)])
     def journey(journey_id: str):
@@ -208,12 +218,14 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
         source = backend()
         with lock:
             state = source.state()
-            context = source.context()
+            context = source.context(state)
             if revision(state) != request.expected_revision:
                 raise HTTPException(409, "strategy state changed; refresh and review the action again")
             event = None
             if request.action == "suspend":
                 try:
+                    if request.suspension is None:
+                        raise ContractError("suspension evidence is required")
                     event = SuspensionEvent.from_dict(request.suspension)
                     text_fields = (event.strategy_id, event.strategy_version, event.journey_state, event.audit_id,
                                    event.threshold_version, event.governance_case_id, event.created_at)
@@ -254,6 +266,52 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
                                     f"Refresh and investigate {record['action_id']} before retrying.") from error
             log.info("admin_protective_action", extra={"action_id": record["action_id"], "action": request.action})
             return {"action_id": record["action_id"], "status": "applied"}
+
+    @application.post("/api/owner-actions")
+    def owner_action(payload: dict, request: Request, identity: Identity = Depends(require_owner)):  # noqa: B008
+        return submit_owner_action(payload, request, identity, OwnerDecision)
+
+    @application.post("/api/catalogue")
+    def catalogue_action(payload: dict, request: Request, identity: Identity = Depends(require_owner)):  # noqa: B008
+        from governedgraph.strategy_service.catalogue_release import CatalogueDecision
+
+        return submit_owner_action(payload, request, identity, CatalogueDecision)
+
+    def submit_owner_action(payload: dict, request: Request, identity: Identity, contract):
+        decision_ref = "GB-" + uuid4().hex
+        try:
+            if "decision_ref" in payload:
+                raise ContractError("the console records the owner decision reference")
+            decision = contract.from_dict({**payload, "decision_ref": decision_ref})
+        except (ContractError, ValueError, TypeError) as error:
+            raise HTTPException(400, str(error)) from error
+        source = backend()
+        with lock:
+            if revision(source.state()) != decision.expected_revision:
+                raise HTTPException(409, "strategy state changed; refresh and confirm the owner decision again")
+            record = {"action_id": decision_ref, "action": "owner_" + decision.action, "actor": identity.actor,
+                      "reason": decision.reason.strip(), "created_at": utcnow(), "watermark": WATERMARK,
+                      "expected_revision": decision.expected_revision,
+                      "owner_decision": {key: value for key, value in payload.items() if key != "reason"}}
+            source.journal({**record, "status": "requested"})
+            try:
+                result = source.apply_owner(decision, request.headers.get("authorization", ""))
+            except OwnerDecisionError as error:
+                source.journal({**record, "status": "failed"})
+                raise HTTPException(error.status_code, str(error)) from error
+            except (AdminSourceError, OSError, StateUnavailable) as error:
+                source.journal({**record, "status": "uncertain"})
+                raise HTTPException(503, f"Owner decision outcome is uncertain. Refresh and investigate {decision_ref} "
+                                    "before retrying.") from error
+            try:
+                source.journal({**record, "status": result["status"], "completed_at": utcnow(),
+                                "result_revision": revision(source.state())})
+            except (AdminSourceError, OSError, StateUnavailable) as error:
+                log.error("admin_owner_completion_unavailable", extra={"action_id": decision_ref})
+                raise HTTPException(503, f"Decision may have applied but completion could not be recorded. "
+                                    f"Refresh and investigate {decision_ref} before retrying.") from error
+            log.info("admin_owner_decision", extra={"action_id": decision_ref, "action": decision.action})
+            return result
 
     return application
 

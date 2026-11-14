@@ -8,6 +8,8 @@
   <title>GovernedGraph | Administration</title>
   <link rel="stylesheet" href="assets/admin.css">
   <script defer src="assets/guide.js"></script>
+  <script defer src="assets/testing.js"></script>
+  <script defer src="assets/catalogue.js"></script>
   <script defer src="assets/admin.js"></script>
 </head>
 <body>
@@ -18,21 +20,14 @@
       <span>GovernedGraph<small>Administration</small></span>
     </a>
     <nav aria-label="Administration sections">
-      <button data-section="overview" aria-current="page">Overview<small>Start here</small></button>
-      <button data-section="strategies">Explanation styles<small>The approved ways of explaining</small></button>
-      <button data-section="rankings">Style order<small>Which style comes first</small></button>
-      <button data-section="suspensions">Paused styles<small>Switched off for fairness</small></button>
-      <button data-section="cases">Fairness reviews<small>Why a style was paused</small></button>
-      <button data-section="decisions">Review outcomes<small>Checks on proposed changes</small></button>
-      <button data-section="learning">Learning data<small>What the system learns from</small></button>
-      <button data-section="journeys">Member journeys<small>How questions were answered</small></button>
-      <button data-section="actions">Action history<small>Who used the safety controls</small></button>
-      <button data-section="configuration">Rules &amp; settings<small>What can and cannot change</small></button>
+      <button data-section="strategies" aria-current="page">Explanation styles<small>Status, use and controls</small></button>
+      <button data-section="journeys">Conversations<small>Answers and captured turns</small></button>
+      <button data-section="activity">Activity<small>Reviews, checks and actions</small></button>
     </nav>
   </aside>
   <div class="shell">
     <header class="topbar">
-      <span class="watermark">ILLUSTRATIVE - synthetic data</span>
+      <span class="watermark">Synthetic data</span>
       <div class="refresh-group"><span id="user" hidden></span><span id="updated">Not yet refreshed</span><button id="help-open" class="quiet" aria-haspopup="dialog">Help &amp; glossary</button><button id="refresh" class="quiet">Refresh</button><button id="sign-out" class="quiet" hidden>Sign out</button></div>
     </header>
     <div id="access-banner" class="access-banner" role="status" hidden>
@@ -50,27 +45,23 @@
         <button id="switch-account" class="quiet" hidden>Use a different account</button>
       </section>
       <div class="heading gated">
-        <div><h1 id="page-title">Overview</h1><p id="page-description">See how the system chooses explanations, and keep it safe.</p></div>
+        <div><h1 id="page-title">Explanation styles</h1><p id="page-description">One row per style. Select a style for its orders, results and pause details.</p></div>
         <button id="controls" class="primary" disabled>Safety controls</button>
       </div>
-      <div id="welcome" class="welcome gated" role="note" hidden>
-        <p id="welcome-text"></p>
-        <div><button id="welcome-tour" class="primary">Show me around</button><button id="welcome-dismiss" class="quiet">Not now</button></div>
-      </div>
-      <details id="guide" class="guide gated" open>
+      <details id="guide" class="guide gated">
         <summary>About this page</summary>
         <div id="guide-body"></div>
       </details>
       <div id="error" class="notice error" role="alert" hidden></div>
       <div id="notification" class="notice success" role="status" hidden></div>
       <div id="state-banner" class="state-banner gated" role="status">Loading the current state...</div>
-      <section id="summary" class="summary gated" aria-label="At a glance"></section>
       <section class="workspace-panel gated" aria-labelledby="section-title">
         <div class="panel-heading">
-          <div><h2 id="section-title">Which explanation style comes first?</h2><p id="section-description"></p></div>
+          <div><h2 id="section-title">Styles, availability and use</h2><p id="section-description"></p></div>
           <div class="filter"><label for="search">Search this page</label><input id="search" type="search" placeholder="Type to narrow the list" autocomplete="off"></div>
         </div>
         <p id="result-count" class="result-count" aria-live="polite"></p>
+        <div id="style-management" class="strategy-actions" hidden></div>
         <form id="trace-lookup" class="trace-lookup" hidden>
           <div><label for="trace-journey">Look up an example conversation by journey ID</label><input id="trace-journey" maxlength="100" pattern="[A-Za-z0-9][A-Za-z0-9_\-]{0,99}" placeholder="J-..." required></div>
           <button type="submit" class="quiet">Find conversation</button>
@@ -81,7 +72,7 @@
           <button id="previous" class="quiet">Previous</button><span id="page-number"></span><button id="next" class="quiet">Next</button>
         </div>
       </section>
-      <footer class="gated">What you see here is never used for learning. This console cannot edit styles, publish a new order, change a model or bring a paused style back.</footer>
+      <footer class="gated">Console activity is not a learning input. Pauses apply to everyone. Changes that widen availability require the protected approval workflow.</footer>
     </main>
   </div>
   <div id="help-popover" class="help-popover" role="region" aria-label="Explanation" hidden></div>
@@ -92,6 +83,28 @@
   <dialog id="detail-dialog" aria-labelledby="detail-title">
     <div class="dialog-heading"><h2 id="detail-title">Details</h2><button id="close-detail" class="quiet" aria-label="Close details">Close</button></div>
     <div id="detail-body"></div>
+  </dialog>
+  <dialog id="owner-dialog" aria-labelledby="owner-title">
+    <div class="dialog-heading"><h2 id="owner-title">Owner override</h2><button id="close-owner" class="quiet">Cancel</button></div>
+    <p id="owner-impact" class="notice"></p>
+    <form id="owner-form">
+      <fieldset id="owner-fields">
+        <legend id="owner-style">Explanation style</legend>
+        <label id="owner-scope-label" for="owner-scope">Where does this apply?</label>
+        <select id="owner-scope" required></select>
+        <div id="owner-order" hidden></div>
+      </fieldset>
+      <p>Other pauses still apply. New fairness findings and protective freezes take precedence. The human advisor stays available.</p>
+      <label for="owner-reason">Why are you overriding the current decision?</label>
+      <textarea id="owner-reason" minlength="8" maxlength="500" rows="3" required placeholder="Record your decision. Do not include member details or conversation text."></textarea>
+      <label class="checkbox"><input id="owner-confirm" type="checkbox" required> I approve this as a human owner decision and understand how to revoke it.</label>
+      <div id="owner-error" class="notice error" role="alert" hidden></div>
+      <button id="save-owner" type="submit">Save override</button>
+    </form>
+  </dialog>
+  <dialog id="style-dialog" aria-labelledby="style-editor-title">
+    <div class="dialog-heading"><h2 id="style-editor-title">Explanation style</h2><button id="close-style" class="quiet">Close</button></div>
+    <div id="style-editor"></div>
   </dialog>
   <dialog id="action-dialog" aria-labelledby="action-title">
     <div class="dialog-heading"><h2 id="action-title">Safety controls</h2><button id="close-action" class="quiet">Cancel</button></div>
@@ -110,8 +123,8 @@
         <div class="form-grid">
           <div><label for="strategy-id">Which style?</label><select id="strategy-id" required></select></div>
           <div><label for="journey-state">At which stage of the journey?</label><select id="journey-state" required></select></div>
-          <div><label for="audit-id">Check reference</label><input id="audit-id" maxlength="150" required><small class="hint">The fairness check that found the gap. Find it on the Fairness reviews page.</small></div>
-          <div><label for="case-id">Fairness review reference</label><input id="case-id" maxlength="150" required><small class="hint">The review that holds the evidence. Also on the Fairness reviews page.</small></div>
+          <div><label for="audit-id">Check reference</label><input id="audit-id" maxlength="150" required><small class="hint">The fairness check that found the gap. Find it on the Activity page.</small></div>
+          <div><label for="case-id">Fairness review reference</label><input id="case-id" maxlength="150" required><small class="hint">The review that holds the evidence. Also on the Activity page.</small></div>
           <div><label for="gap-metric">Gap found (percentage points)</label><input id="gap-metric" type="number" step="any" min="0" required><small class="hint">How much worse the style works for a group. Copy it from the review. Do not estimate.</small></div>
         </div>
         <p>The human advisor cannot be paused. Limit in use: version <span id="threshold-version"></span>.</p>
@@ -122,7 +135,7 @@
       <div id="action-error" class="notice error" role="alert" hidden></div>
       <button type="submit" class="danger" id="apply-action">Do this now</button>
     </form>
-    <p class="boundary-note">Bringing a paused style back, or restarting learning after a pause, needs a person with approval rights. It is done outside this console.</p>
+    <p class="boundary-note">Owners can approve or revoke style overrides from a style's Details. Restarting learning uses the separate human recovery workflow.</p>
   </dialog>
 </body>
 </html>

@@ -83,8 +83,13 @@ class Journey:
     _seen: set[str] = field(default_factory=set)
     response_language: str = "en"
     last_explanation: ExplanationContext | None = None
+    test_strategy_id: str = ""
 
     def __post_init__(self):
+        if (not isinstance(self.test_strategy_id, str) or len(self.test_strategy_id) > 100
+                or self.test_strategy_id and not self.test_strategy_id.isascii()
+                or any(not (char.isalnum() or char in "_-") for char in self.test_strategy_id)):
+            raise ContractError("invalid test strategy identifier")
         if not isinstance(self.response_language, str) or self.response_language not in RESPONSE_LANGUAGES:
             raise ContractError("unsupported response language")
         if isinstance(self.last_explanation, dict):
@@ -100,6 +105,8 @@ class Journey:
         result = asdict(self)
         result["state"] = self.state.value
         result["_seen"] = sorted(self._seen)
+        if not self.test_strategy_id:
+            result.pop("test_strategy_id")
         return result
 
     @classmethod

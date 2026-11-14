@@ -176,12 +176,17 @@ resource strategyAdminApi 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
   }
 }
 var strategyAdminOperations = [
+  { name: 'read-catalogue', method: 'GET', path: '/catalogue' }
+  { name: 'catalogue-decision', method: 'POST', path: '/catalogue-decisions' }
+  { name: 'catalogue-publication', method: 'POST', path: '/catalogue-publications' }
   { name: 'read-snapshots', method: 'GET', path: '/snapshots' }
   { name: 'publish-snapshot', method: 'POST', path: '/snapshots' }
   { name: 'suspend', method: 'POST', path: '/suspensions' }
   { name: 'freeze', method: 'POST', path: '/freeze' }
   { name: 'revert-to-static', method: 'POST', path: '/revert-to-static' }
   { name: 'human-reinstatement', method: 'POST', path: '/reinstatements' }
+  { name: 'owner-decision', method: 'POST', path: '/owner-overrides' }
+  { name: 'owner-order-publication', method: 'POST', path: '/owner-order-publications' }
   { name: 'human-recovery-readiness', method: 'GET', path: '/freeze-recovery' }
   { name: 'human-freeze-recovery', method: 'POST', path: '/freeze-recovery' }
 ]
@@ -213,6 +218,8 @@ var adminOperations = [
   { name: 'journey', method: 'GET', path: '/api/journeys/{journeyId}', parameters: [ 'journeyId' ] }
   { name: 'trace', method: 'GET', path: '/api/traces/{journeyId}', parameters: [ 'journeyId' ] }
   { name: 'action', method: 'POST', path: '/api/actions', parameters: [] }
+  { name: 'owner-action', method: 'POST', path: '/api/owner-actions', parameters: [] }
+  { name: 'catalogue-action', method: 'POST', path: '/api/catalogue', parameters: [] }
 ]
 resource adminOps 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = [for op in adminOperations: if (deployAdminConsole) {
   parent: adminApi
@@ -241,6 +248,46 @@ resource startJourney 'Microsoft.ApiManagement/service/apis/operations@2024-05-0
   parent: journeysApi
   name: 'start'
   properties: { displayName: 'Start journey', method: 'POST', urlTemplate: '/journeys' }
+}
+
+resource startAdminTestJourney 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = if (deployAdminConsole) {
+  parent: journeysApi
+  name: 'start-admin-test'
+  properties: { displayName: 'Start authenticated synthetic style test', method: 'POST', urlTemplate: '/admin-test/journeys' }
+}
+
+resource adminTesting 'Microsoft.ApiManagement/service/apis@2024-05-01' = if (deployAdminConsole) {
+  parent: apim
+  name: 'admin-testing'
+  properties: {
+    displayName: 'Authenticated synthetic admin testing'
+    path: 'admin-testing'
+    protocols: [ 'https' ]
+    subscriptionRequired: false
+    serviceUrl: '${orchestratorBackendUrl}/admin-testing'
+  }
+}
+var adminTestingOperations = [
+  { name: 'config', method: 'GET', path: '/config' }
+  { name: 'authorize', method: 'POST', path: '/authorize' }
+]
+resource adminTestingRoutes 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = [for operation in adminTestingOperations: if (deployAdminConsole) {
+  parent: adminTesting
+  name: operation.name
+  properties: { displayName: operation.name, method: operation.method, urlTemplate: operation.path }
+}]
+resource adminTestStream 'Microsoft.ApiManagement/service/apis@2024-05-01' = if (deployAdminConsole) {
+  parent: apim
+  name: 'admin-test-stream'
+  properties: {
+    displayName: 'Authenticated synthetic admin conversation stream'
+    apiType: 'websocket'
+    type: 'websocket'
+    path: 'admin-test-stream'
+    protocols: [ 'wss' ]
+    subscriptionRequired: false
+    serviceUrl: '${replace(orchestratorBackendUrl, 'https://', 'wss://')}/admin-test-stream'
+  }
 }
 
 resource advisorQueue 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {

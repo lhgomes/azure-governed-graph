@@ -12,8 +12,8 @@ from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 from fastapi.testclient import TestClient
 
 from governedgraph.admin import api, sources
-from governedgraph.admin.access import AccessPolicy
-from governedgraph.admin.data import Context
+from governedgraph.admin.access import AccessPolicy, Identity
+from governedgraph.admin.data import Context, revision
 from governedgraph.admin.sources import AdminSourceError, AzureSources, Containers
 from governedgraph.admin.traces import SyntheticTraceReader
 from governedgraph.common.config import settings
@@ -21,6 +21,7 @@ from governedgraph.common.contracts import ExplainabilityRecord, SuspensionEvent
 from governedgraph.explainability.store import encoded
 from governedgraph.learning.feedback import FeedbackManifest
 from governedgraph.learning.feedback_store import snapshot_name
+from governedgraph.strategy_service.snapshot import RankingSnapshot
 
 KEY = "first_contact|transition_impact_question|voice|standard"
 EMPTY_STATE = {"current": None, "last_good": None, "frozen": False, "suspensions": []}
@@ -73,6 +74,9 @@ class FakeStrategyClient:
 
     def suspend(self, event):
         self._do("suspend", event.strategy_id)
+
+    def owner_decision(self, decision, authorization) -> dict:
+        raise AssertionError("this protective-action double does not authorize owner decisions")
 
 
 class Strategy:
@@ -160,6 +164,51 @@ def test_strategy_state_that_is_malformed_or_unavailable_is_an_explicit_error(st
     source, _, _, _ = build(strategy=Strategy(state, status))
     with pytest.raises(AdminSourceError):
         source.state()
+
+
+@pytest.mark.parametrize("static_override", [False, True])
+def test_admin_reads_strategy_static_baseline_without_losing_protective_state(static_override, monkeypatch):
+    baseline = RankingSnapshot(
+        "expert-priors-1.1", "1.0", "1.0", "expert-priors", "expert_priors",
+        {KEY: [["S1", "1.0"]]}, signature="synthetic-signature", signer="synthetic-signer",
+    ).to_dict()
+    state = {**EMPTY_STATE, "static": baseline, "suspensions": [SUSPENSION]}
+    if static_override:
+        state.update(frozen=True, static_override=True)
+    source, _, _, strategy = build(state)
+    result = source.overview()
+    assert result["state"] == state
+    assert result["revision"] == revision(state)
+    assert all("S2" not in row["effective_control"] + row["effective_treatment"]
+               for row in result["rankings"] if row["suspended"])
+    assert strategy.requests == [("GET", "/strategy-admin/snapshots")]
+    monkeypatch.setenv("GOVERNEDGRAPH_ADMIN_ENABLED", "true")
+    monkeypatch.setenv("GOVERNEDGRAPH_ADMIN_PUBLIC_ORIGIN", "https://admin.example")
+    monkeypatch.setattr(AccessPolicy, "require",
+                        lambda self, authorization, *, act: Identity("synthetic-reader", "Synthetic", True, False))
+    with TestClient(api.create_app(sources=source)) as web:
+        page = web.get("/")
+        session = re.search(r'admin-session" content="([^"]+)"', page.text)
+        assert session is not None
+        response = web.get("/api/overview", headers={"x-admin-session": session[1]})
+        assert response.status_code == 200
+        assert response.json()["state"] == state
+
+
+@pytest.mark.parametrize("changes", [
+    {"static": None},
+    {"static": {"unexpected": True}},
+    {"static_override": False},
+    {"static_override": True},
+    {"static_override": True, "frozen": True, "current": {}},
+    {"suspensions": {}},
+    {"age_band": "synthetic"},
+])
+def test_admin_rejects_malformed_extended_strategy_state(changes, caplog):
+    source, _, _, _ = build({**EMPTY_STATE, **changes})
+    with pytest.raises(AdminSourceError, match="unexpected format"):
+        source.state()
+    assert "admin_source_failed" in caplog.text
 
 
 def test_tampered_learning_aggregate_fails_verification_and_missing_manifest_is_not_history():
@@ -299,7 +348,8 @@ def test_open_azure_console_is_read_only_until_actions_are_explicitly_allowed(ho
     source, containers, client, _ = build()
     web = hosted(source)
     overview = web.get("/api/overview").json()
-    assert overview["access"] == {"mode": "disabled", "user": "Access control off", "can_act": False, "open_actions": False}
+    assert overview["access"] == {"mode": "disabled", "user": "Access control off", "can_act": False,
+                                  "can_own": False, "open_actions": False}
     assert web.get("/api/access").json() == {"mode": "disabled", "open_actions": False}
     response = freeze_request(web)
     assert response.status_code == 403 and "disabled while access control is off" in response.json()["detail"]

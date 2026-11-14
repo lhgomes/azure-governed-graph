@@ -9,6 +9,7 @@ from governedgraph.common.config import settings
 from governedgraph.common.contracts import MemberValue, MemberValues, RankedStrategy, StrategyResponse
 from governedgraph.common.member_auth import verify_member_token
 from governedgraph.common.tracing import traceparent
+from governedgraph.strategy_service.catalogue import Catalogue
 
 log = logging.getLogger("governedgraph.member_values")
 
@@ -46,6 +47,22 @@ class ApimValuesClient:
 
 
 class HttpStrategyClient:
+    def get_catalogue(self, version: str | None = None) -> tuple[Catalogue, dict]:
+        from governedgraph.agents.connections import http_client
+
+        if not settings.strategy_admin_url:
+            raise ValueError("STRATEGY_ADMIN_URL is required for the approved catalogue")
+        response = http_client().get(f"{settings.strategy_admin_url.rstrip('/')}/catalogue",
+                                     params={"version": version} if version is not None else {}, timeout=5)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or set(payload) != {"catalogue", "priors"}:
+            raise ValueError("invalid served catalogue contract")
+        catalogue = Catalogue(payload["catalogue"])
+        if version is not None and catalogue.version != version:
+            raise ValueError("catalogue does not match the served ranking")
+        return catalogue, payload["priors"]
+
     def get_ranked(self, request: dict) -> StrategyResponse:
         import httpx
 

@@ -22,7 +22,7 @@ def advisor_queue_html(rows: list[dict]) -> str:
     body = "".join("<tr>" + "".join(f"<td>{html.escape(str(row[field]))}</td>" for field in headings)
                    + "</tr>" for row in rows)
     return ('<!doctype html><html lang="en"><meta charset="utf-8"><title>Synthetic advisor queue</title>'
-            '<h1>Advisor queue</h1><p>ILLUSTRATIVE - synthetic data. No live callbacks.</p>'
+            '<h1>Advisor queue</h1><p>Synthetic data. No live callbacks.</p>'
             f"<table border=1><thead><tr>{header}</tr></thead><tbody>{body}</tbody></table></html>")
 
 

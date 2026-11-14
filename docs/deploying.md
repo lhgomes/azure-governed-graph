@@ -47,6 +47,23 @@ The Azure-only runtime has no deployment-mode switch or
 both modes through the real WebSocket handler, including issuer failures;
 mocking the entire session handler would miss a shared startup regression.
 
+The admin console reads the Strategy Service's required `current`, `last_good`,
+`frozen` and `suspensions` fields and its optional signed `static` baseline and
+`static_override` marker. The marker is valid only when true, frozen and without
+a current learned snapshot. Unknown fields and malformed state remain errors;
+the console must not drop protective state to render an overview.
+
+Bounded Entra bootstrap also creates a distinct platform **owners** security group
+and enrolls the signed-in deploying human, resolved through Microsoft Graph `/me`
+using the selected subscription's tenant. The configured delivery operator may be
+a different person and is not substituted for that caller. Reusing the managed
+group verifies existing membership; supplied groups are not modified.
+`GOVERNEDGRAPH_ADMIN_OWNER_GROUP_ID` is persisted in the azd environment and passed
+through the workload configuration to the console. Owners have protective-action
+access and a separate owner authorization flag. Creating this group grants no
+Azure resource roles or signing/publication rights, and does not by itself
+implement revocable ranking or reinstatement overrides.
+
 ### Choose an existing or new deployment
 
 Without target flags, an interactive terminal queries resource groups in the
@@ -222,6 +239,21 @@ into closed live-simulation scripts. Only that profile-free projection reaches
 the runtime image; raw persona profiles remain in the builder/probe, never the
 counsellor payload. Runtime and P2 dependency manifests remain isolated and are installed once in
 their respective framework targets.
+
+The demo opens with a single conversation surface. Sign in, then use **Voice**,
+**Chat**, or the story selector and **Play** on one toolbar. Start controls stay
+visible but disabled during a conversation; recording controls appear when needed.
+**Talk to a person** stays available after sign-in. Conversation captions scroll without
+moving the question composer. Stories play in that same conversation log, without a
+duplicate video panel. Video export is an optional download under the closed
+**Behind the conversation** section, not an automatic download. Latency diagnostics
+and aggregate-provenance displays are omitted; delivery measurements and provenance
+contracts remain unchanged. Errors appear once in the conversation area; sanitized
+failure type and location remain in the browser console. The final audit report retries
+only the explicit journey-busy response, with bounded waits; persistent contention and
+other failures still prevent successful completion. Canonical AI disclosure, a
+single small **Synthetic data** label, authentication
+authentication and all existing channel guardrails are unchanged.
 
 To inspect the presenter after redeployment, select the environment explicitly:
 

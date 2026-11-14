@@ -72,6 +72,7 @@ class CounsellorTools:
         self.store = store
         self.model_deployment = model_deployment
         self.template_version = template_version
+        self.explanation_pattern = ""
         self.agent_name = agent_name
         self.agent_version = agent_version
         self.prompt_screen = prompt_screen

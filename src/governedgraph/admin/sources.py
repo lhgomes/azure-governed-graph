@@ -15,19 +15,39 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from threading import Lock
+from typing import Protocol
 
 from governedgraph.admin.data import Context, build_overview, tier1_decision, uplift_decision
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import ExplainabilityRecord, SuspensionEvent
 from governedgraph.strategy_service.snapshot import RankingSnapshot
+from governedgraph.strategy_service.overrides import OwnerDecision, OwnerOverride
+from governedgraph.strategy_service.catalogue import Catalogue
+from governedgraph.strategy_service.catalogue_release import CatalogueBundle, CatalogueDecision, CatalogueRelease
 
 log = logging.getLogger("governedgraph.admin")
 STATE_KEYS = {"current", "last_good", "frozen", "suspensions"}
+OPTIONAL_STATE_KEYS = {"static", "static_override", "owner_overrides", "owner_revision",
+                       "catalogue_release", "catalogue_pending"}
 BOARD_OPTIONS = ["revise as new version", "retire", "reinstate with recorded justification"]
 
 
 class AdminSourceError(RuntimeError):
     """An operator-safe explanation; its message may be shown in the console."""
+
+
+class OwnerDecisionError(AdminSourceError):
+    def __init__(self, status_code: int, detail: str):
+        super().__init__(detail)
+        self.status_code = status_code
+
+
+class AdminStrategyClient(Protocol):
+    def freeze(self) -> None: ...
+    def revert_to_static(self) -> None: ...
+    def suspend(self, event: SuspensionEvent) -> None: ...
+    def owner_decision(self, decision: OwnerDecision, authorization: str) -> dict: ...
+    def catalogue_decision(self, decision: CatalogueDecision, authorization: str) -> dict: ...
 
 
 @dataclass
@@ -44,10 +64,11 @@ class AzureSources:
     mode = "azure"
     profile = "azure"
 
-    def __init__(self, *, http, containers: Containers, strategy_client_factory: Callable[[], object],
+    def __init__(self, *, http, containers: Containers, strategy_client_factory: Callable[[], AdminStrategyClient],
                  context: Context | None = None, max_audit_blobs: int = 1000, cache_seconds: float = 30.0):
         self.http, self.containers = http, containers
-        self._client_factory, self._client = strategy_client_factory, None
+        self._client_factory = strategy_client_factory
+        self._client: AdminStrategyClient | None = None
         self._context, self.max_audit_blobs, self.cache_seconds = context, max_audit_blobs, cache_seconds
         self._cache: dict[str, tuple[float, object]] = {}
         self._cache_lock = Lock()
@@ -112,7 +133,14 @@ class AzureSources:
             return list(pool.map(lambda name: container.get_blob_client(name).download_blob().readall(), names))
 
     # ----- strategy state -----
-    def context(self) -> Context:
+    def context(self, state: dict | None = None) -> Context:
+        if state is None:
+            state = self.state()
+        if state.get("catalogue_release") is not None:
+            release = CatalogueRelease.from_dict(state["catalogue_release"])
+            bundle = CatalogueBundle.from_dict(release.bundle)
+            initial = self._context or Context.load()
+            return Context(Catalogue(bundle.catalogue), bundle.priors, initial.thresholds, initial.control_share)
         if self._context is None:
             self._context = Context.load()
         return self._context
@@ -127,14 +155,39 @@ class AzureSources:
         except (httpx.HTTPError, ValueError) as error:
             raise AdminSourceError("The Strategy service state is unavailable; refresh shortly.") from error
         try:
-            if not isinstance(state, dict) or set(state) != STATE_KEYS or not isinstance(state["frozen"], bool):
+            if (not isinstance(state, dict) or not STATE_KEYS <= set(state)
+                    or set(state) - STATE_KEYS - OPTIONAL_STATE_KEYS
+                    or not isinstance(state["frozen"], bool)
+                    or not isinstance(state["suspensions"], list)):
                 raise ValueError("unexpected strategy state shape")
+            if "static_override" in state and (
+                    state["static_override"] is not True or not state["frozen"] or state["current"] is not None):
+                raise ValueError("invalid static override state")
             for field in ("current", "last_good"):
                 if state[field] is not None:
                     RankingSnapshot.from_dict(state[field])
+            if "static" in state:
+                RankingSnapshot.from_dict(state["static"])
             for entry in state["suspensions"]:
                 SuspensionEvent.from_dict(entry)
+            if "catalogue_release" in state:
+                CatalogueRelease.from_dict(state["catalogue_release"])
+            if "catalogue_pending" in state:
+                pending = state["catalogue_pending"]
+                if not isinstance(pending, dict) or set(pending) != {"decision_ref", "base_version", "bundle"}:
+                    raise ValueError("invalid pending catalogue release")
+                CatalogueBundle.from_dict(pending["bundle"])
+            if "owner_overrides" in state or "owner_revision" in state:
+                import re
+
+                if (not isinstance(state.get("owner_revision"), str)
+                        or not re.fullmatch(r"[a-f0-9]{32}", state["owner_revision"])
+                        or not isinstance(state.get("owner_overrides"), list)):
+                    raise ValueError("invalid owner decision state")
+                for entry in state["owner_overrides"]:
+                    OwnerOverride.from_dict(entry)
         except (ValueError, TypeError, KeyError) as error:
+            log.error("admin_source_failed", extra={"source": "strategy_state", "error_type": type(error).__name__})
             raise AdminSourceError("The Strategy service returned state in an unexpected format.") from error
         return state
 
@@ -163,7 +216,7 @@ class AzureSources:
             raise AdminSourceError("Assurance evidence storage is unavailable; check the identity's read access.") from error
         return sorted(rows, key=lambda row: str(row.get("created_at", "")), reverse=True)
 
-    def _learning(self) -> dict:
+    def _learning(self, context: Context | None = None) -> dict:
         from azure.core.exceptions import ResourceNotFoundError
 
         from governedgraph.admin.data import project_learning
@@ -183,7 +236,8 @@ class AzureSources:
             with tempfile.TemporaryDirectory(prefix="gg-admin-") as directory:
                 path = Path(directory) / "outcomes.csv"
                 path.write_bytes(payload)
-                return project_learning(manifest, load_outcome_aggregates(path))
+                return project_learning(manifest, load_outcome_aggregates(
+                    path, catalogue=(context or self.context()).catalogue))
         except (ValueError, TypeError, KeyError) as error:
             raise AdminSourceError("Learning aggregates failed verification; do not rely on them.") from error
         except Exception as error:
@@ -203,8 +257,9 @@ class AzureSources:
 
     def overview(self) -> dict:
         state = self.state()
-        return build_overview(self.context(), state, mode="azure", cases=self._cases(state),
-                              decisions=self._decisions(), learning=self._learning(), actions=self.actions())
+        context = self.context(state)
+        return build_overview(context, state, mode="azure", cases=self._cases(state),
+                              decisions=self._decisions(), learning=self._learning(context), actions=self.actions())
 
     def audit_records(self) -> tuple[list[dict], bool]:
         def load() -> tuple[list[dict], bool]:
@@ -231,7 +286,42 @@ class AzureSources:
         try:
             blob.upload_blob(json.dumps(record).encode(), overwrite=False)
         except AzureError as error:
-            raise AdminSourceError("The admin journal is unavailable. No protective action was attempted.") from error
+            raise AdminSourceError("The admin journal write failed; investigate the action reference before retrying.") from error
+
+    def apply_owner(self, decision: OwnerDecision | CatalogueDecision, authorization: str) -> dict:
+        import httpx
+        from azure.core.exceptions import ClientAuthenticationError
+
+        try:
+            if self._client is None:
+                self._client = self._client_factory()
+            if isinstance(decision, CatalogueDecision):
+                result = self._client.catalogue_decision(decision, authorization)
+            else:
+                result = self._client.owner_decision(decision, authorization)
+            expected = "pending_signature" if decision.action in {
+                "order", "catalogue_add", "catalogue_edit", "catalogue_remove"} else "applied"
+            if result != {"decision_ref": decision.decision_ref, "status": expected}:
+                raise ValueError("unexpected owner decision result")
+        except httpx.HTTPStatusError as error:
+            status = error.response.status_code
+            if status in {400, 401, 403, 409}:
+                try:
+                    detail = error.response.json()["detail"]
+                    if not isinstance(detail, str):
+                        raise ValueError("invalid error detail")
+                except (ValueError, KeyError, TypeError) as malformed:
+                    log.error("admin_owner_response_invalid", extra={"status": status})
+                    raise AdminSourceError("The owner decision error response is invalid; inspect its journal reference.") from malformed
+                raise OwnerDecisionError(status, detail) from error
+            raise AdminSourceError(f"The owner decision was not confirmed (HTTP {status}).") from error
+        except ClientAuthenticationError as error:
+            raise AdminSourceError("The admin proxy could not authenticate to the Strategy service.") from error
+        except (httpx.HTTPError, ValueError) as error:
+            raise AdminSourceError("Owner decision outcome is uncertain; refresh and inspect its reference before retrying.") from error
+        with self._cache_lock:
+            self._cache.clear()
+        return result
 
     def apply(self, action: str, event: SuspensionEvent | None) -> None:
         import httpx

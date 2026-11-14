@@ -11,7 +11,6 @@ from pathlib import Path
 import re
 
 from governedgraph.common.contracts import ExplainabilityRecord, RequestKey, _strict
-from governedgraph.common.io import load_csv
 from governedgraph.learning.ranking_pipeline import load_outcome_aggregates
 from governedgraph.orchestrator.state_machine import Event, Journey
 from governedgraph.strategy_service.catalogue import Catalogue
@@ -77,20 +76,24 @@ def _time(value: str) -> datetime:
 
 
 def project_feedback(journeys: list[Journey], records: list[ExplainabilityRecord], *,
-                     baseline: Path | None = None, now: datetime | None = None) -> FeedbackSnapshot:
+                     baseline: Path | None = None, now: datetime | None = None,
+                     catalogue: Catalogue | None = None) -> FeedbackSnapshot:
+    catalogue = catalogue or Catalogue.load()
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
         raise ValueError("feedback projection requires a timezone-aware observation time")
+    test_journeys = {journey.journey_id for journey in journeys if journey.test_strategy_id}
+    journeys = [journey for journey in journeys if journey.journey_id not in test_journeys]
+    records = [record for record in records if record.journey_id not in test_journeys]
     counts: dict[tuple[str, str, str], list[int]] = {}
     baseline_bytes = b""
     if baseline is not None:
         # Preserve the governed Azure baseline import; never fall back to bundled seed data.
-        load_outcome_aggregates(baseline)
+        evidence = load_outcome_aggregates(baseline, catalogue=catalogue)
         baseline_bytes = baseline.read_bytes()
-        for row in load_csv(baseline):
-            counts[(row["request_key"], row["strategy_id"], row["strategy_version"])] = [
-                int(row["interactions"]), int(row["resolved_first_contact"]), int(row["repeat_contact_14d"]),
-            ]
+        for key, strategies in evidence.items():
+            for sid, row in strategies.items():
+                counts[(key, sid, catalogue.get(sid).version)] = [row.interactions, row.resolved, row.repeat_contacts]
 
     sources = {}
     for journey in journeys:
@@ -109,7 +112,6 @@ def project_feedback(journeys: list[Journey], records: list[ExplainabilityRecord
             if identity in playbacks:
                 raise ValueError("duplicate voice playback evidence")
             playbacks[identity] = event
-    catalogue = Catalogue.load()
     decisions = {}
     delivered_responses = {}
     audits = {}
@@ -149,10 +151,9 @@ def project_feedback(journeys: list[Journey], records: list[ExplainabilityRecord
             continue
         delivered_responses[identity] = delivered[0]
         key = RequestKey.from_dict(record.request_key)
-        if (record.arm not in {"control", "treatment"}
-                or not any(strategy.strategy_id == record.strategy_id
-                           and strategy.version == record.strategy_version
-                           for strategy in catalogue.rankable_for(key))):
+        approved = catalogue.historical(record.strategy_id, record.strategy_version)
+        if (record.arm not in {"control", "treatment"} or approved is None
+                or not approved.ranked_for_resolution or not approved.eligible_for(key)):
             raise ValueError("feedback decision references an unapproved ranking context")
         if delivered[0].outcome_offered:
             decisions[identity] = (started, record, sequence)
@@ -198,6 +199,8 @@ def project_feedback(journeys: list[Journey], records: list[ExplainabilityRecord
     provenance = []
 
     for (journey_id, response_id), (started, record, sequence) in sorted(decisions.items()):
+        if not catalogue.is_active(record.strategy_id, record.strategy_version):
+            continue
         journey = sources[journey_id]
         key = RequestKey.from_dict(record.request_key).id
         sid, version = record.strategy_id, record.strategy_version

@@ -170,6 +170,12 @@ def execute(role: str, cadence: int, image: str, artifacts, audits, lease_store,
 
                 state = run_pipeline(inputs, service, audit, cycle, cadence, image,
                                      checkpoint, lease_check, clock, audit_check)
+                from governedgraph.learning.owner_orders import publish_owner_orders
+
+                publish_owner_orders(service, default_signer(signing=True), lease_check)
+                from governedgraph.learning.catalogue_publication import publish_catalogue
+
+                publish_catalogue(service, default_signer(signing=True), lease_check)
                 result = {"cycle_id": cycle, "role": role, "status": "Succeeded",
                           "snapshot_id": state.snapshot["snapshot_id"], "tier": state.snapshot["tier"],
                           "audit_id": state.audit_id, "uplift_decision": state.uplift["decision"]}

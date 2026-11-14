@@ -79,6 +79,12 @@ td:first-child { min-width: 150px; }
 .badge.good { background: #e2f2ed; color: #006253; }
 .badge.warn { background: #fff0d6; color: #814900; }
 .badge.bad { background: #fbe6eb; color: #96253e; }
+.row-actions, .strategy-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row-actions { min-width: 135px; }
+.row-actions .quiet { padding: 5px 8px; font-size: 12px; }
+.strategy-actions { padding: 13px 20px; margin: 20px 0; padding-block: 14px; border-block: 1px solid var(--line); }
+.strategy-actions p { flex-basis: 100%; margin: 3px 0 0; }
+.demo-link { display: inline-block; color: var(--blue); margin-block: 12px; font-weight: 600; }
 .rank-lane { display: grid; gap: 4px; padding: 3px 0; min-width: 240px; }
 .rank-chip { display: flex; border: 1px solid #c6d6e6; border-radius: 4px; padding: 4px 9px; background: #f3f7fc; font-weight: 600; line-height: 1.35; }
 .rank-chip:first-child { border-color: #61aa9c; background: #e2f2ed; }
@@ -88,10 +94,28 @@ td:first-child { min-width: 150px; }
 .notice.error { background: #fbe6eb; border-left: 4px solid var(--red); color: #852139; }
 .notice.success { background: #e2f2ed; border-left: 4px solid var(--teal); color: #006253; }
 .pagination { display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding: 16px 24px; border-top: 1px solid var(--line); font-size: 13px; }
-footer { color: var(--muted); font-size: 12px; line-height: 1.8; margin-top: 20px; max-width: 100ch; }
+footer { color: var(--muted); font-size: 12px; line-height: 1.8; margin-top: 20px; }
 dialog { padding: 26px; width: min(840px, calc(100vw - 32px)); max-height: 88vh; color: var(--ink); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 20px 80px #173b5833; }
 dialog::backdrop { background: #173b5870; }
 .dialog-heading { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-bottom: 15px; }
+.detail-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 20px; overflow-x: auto; }
+.detail-tab { border: 0; border-bottom: 3px solid transparent; border-radius: 0; white-space: nowrap; padding: 12px 10px; background: transparent; color: var(--muted); }
+.detail-tab[aria-selected="true"] { border-color: var(--blue); color: var(--ink); }
+[role="tabpanel"] > .lead { margin-top: 0; }
+.testing-dialog[open] { display: flex; flex-direction: column; height: 88dvh; max-height: 88dvh; overflow: hidden; }
+.testing-dialog > .dialog-heading { flex: none; }
+.testing-dialog #detail-body { display: flex; flex: 1; min-height: 0; }
+.style-test { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; gap: 12px; }
+.style-test > :not(.test-transcript) { flex-shrink: 0; }
+.style-test > p { margin: 0; }
+.test-controls { display: grid; gap: 8px; }
+.test-controls label { margin: 0; }
+.test-transcript { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; overflow-wrap: anywhere; border-left: 3px solid var(--line); padding: 0 12px 0 16px; }
+.test-transcript p { max-width: 75ch; }
+.test-composer { display: grid; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.test-composer > label { margin: 0; }
+.test-composer textarea { display: block; min-height: 4rem; max-height: 18dvh; resize: vertical; }
+.test-composer button { justify-self: start; }
 pre { background: var(--soft); padding: 18px; border-radius: 5px; font-size: 12px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 55vh; overflow-y: auto; }
 .evidence-list { display: grid; gap: 12px; }
 .evidence-entry { border-left: 3px solid var(--line); padding: 3px 0 3px 16px; }
@@ -178,3 +202,9 @@ details.technical > summary { cursor: pointer; color: var(--muted); font-size: 1
   .facts, .glossary { grid-template-columns: 1fr; gap: 4px; } nav button small { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
+.override-entry { margin-block: 0.75rem; padding: 0.75rem; border-inline-start: 3px solid currentColor; }
+.override-entry .cell-note { display: block; overflow-wrap: anywhere; }
+.owner-order-list { padding-inline-start: 1.5rem; }
+.owner-order-list li { padding-block: 0.5rem; }
+.owner-order-list li span { display: inline-block; min-width: 12rem; margin-inline-end: 0.5rem; }
+.owner-order-list button { margin: 0.2rem; }

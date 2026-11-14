@@ -3,69 +3,67 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>GovernedGraph | Demo</title>
 <style>
-:root{color-scheme:light;--ink:#172e50;--blue:#254b82;--paper:#f5f7fc;--line:#cbd5e6;--lilac:#e4def5;--quiet:#50617b}
+:root{color-scheme:light;--ink:#172e50;--blue:#254b82;--paper:#f5f7fc;--line:#cbd5e6;--lilac:#e8eef9;--quiet:#50617b}
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.6 "Segoe UI",Candara,sans-serif}
-header,main,footer{max-width:1240px;margin:auto;padding:24px 40px}header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);gap:20px}
-.brand{font-weight:700;font-size:20px}.label{margin:0;font-size:13px;color:var(--quiet)}button,input,textarea,select{font:inherit}
+header,main{max-width:1040px;margin:auto;padding:20px 32px}header{display:flex;align-items:center;justify-content:space-between;gap:20px}
+.label{margin:0;font-size:12px;color:var(--quiet)}button,input,textarea,select{font:inherit}
 button{border:1px solid var(--line);border-radius:8px;padding:12px 20px;background:white;color:var(--ink);cursor:pointer}
 button:hover:not(:disabled){background:var(--lilac)}button:disabled{opacity:.5;cursor:default}button:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid #6c4ac2;outline-offset:4px}
 .primary{background:var(--blue);color:white;border-color:var(--blue)}.primary:hover:not(:disabled){background:#183c70}
-main{padding-top:48px}h1{font:400 clamp(36px,5vw,60px)/1.12 Georgia,serif;letter-spacing:-1.6px;max-width:650px;margin:0 0 20px}h2{font-size:22px;margin:0 0 12px}p{max-width:72ch}
-.intro{max-width:720px;color:var(--quiet);margin-bottom:32px}.workspace{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(280px,1fr);gap:32px;align-items:start}
-.voice-stage{background:#e8eef9;border-radius:24px 24px 8px 8px;padding:36px;text-align:center;border:1px solid #d5dfef}
-.voice-mark{height:124px;display:flex;align-items:center;justify-content:center;gap:7px;margin:10px auto 24px}
-.voice-mark span{display:block;width:9px;height:24px;background:var(--blue);border-radius:10px;transition:height .25s}
-.voice-mark span:nth-child(2),.voice-mark span:nth-child(6){height:48px}.voice-mark span:nth-child(3),.voice-mark span:nth-child(5){height:76px}.voice-mark span:nth-child(4){height:106px}
-[data-state="listening"] .voice-mark span{background:#356e66;animation:listen 1s ease-in-out infinite alternate}
-[data-state="speaking"] .voice-mark span{animation:listen .5s ease-in-out infinite alternate}
-[data-state="thinking"] .voice-mark{opacity:.6}
-@keyframes listen{to{transform:scaleY(.5)}}.voice-mark span:nth-child(even){animation-delay:.2s}
-#status{min-height:3.2em;margin:12px auto;max-width:48ch}.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
-.privacy{font-size:14px;color:var(--quiet)}.disclosure{font-size:15px;text-align:left;background:white;border-left:3px solid #8e7ab8;padding:16px;margin-top:24px}
-.conversation{padding:28px 4px}#conversation{list-style:none;padding:0;max-height:420px;overflow:auto;scrollbar-gutter:stable}#conversation li{padding:14px 18px;margin:12px 0;background:white;border-left:3px solid var(--line);white-space:pre-wrap;overflow-wrap:anywhere}
-#conversation li.member{border-color:var(--blue);background:#e8eef9}#conversation strong{display:block;font-size:13px;color:var(--quiet);margin-bottom:4px}
-aside{border-left:1px solid var(--line);padding-left:28px}aside p{font-size:15px;color:var(--quiet)}dl{margin:24px 0}dl div{padding:12px 0;border-bottom:1px solid var(--line)}dt{font-size:13px;color:var(--quiet)}dd{margin:2px 0;overflow-wrap:anywhere}
+main{padding-top:0}h2{font-size:21px;margin:0 0 8px}p{max-width:72ch}
+.workspace{background:white;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.demo-toolbar{display:flex;align-items:center;gap:12px;padding:20px 24px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.demo-toolbar .story-picker{flex:1;min-width:180px;display:flex;align-items:center;gap:8px}
+.story-picker select{width:100%;min-width:0;border:1px solid var(--line);border-radius:8px;padding:12px;background:white;color:var(--ink)}
+.demo-toolbar button,.story-picker select{min-height:48px;line-height:1.4}.demo-toolbar button{flex:0 0 auto;white-space:nowrap}
+#status{margin:0;padding:12px 24px 0;color:var(--quiet);font-size:14px}.controls{display:flex;gap:12px;flex-wrap:wrap}
+.privacy{font-size:13px;color:var(--quiet);margin:12px 0 0}.disclosure{font-size:15px;max-width:78ch;color:var(--quiet)}
+.conversation{padding:20px 24px}#conversation{list-style:none;padding:0;margin:0;max-height:36dvh;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}#conversation li{padding:12px 16px;margin:8px 0;background:#f5f7fc;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+#conversation li.member{background:#e8eef9;margin-left:10%}#conversation strong{display:block;font-size:13px;color:var(--quiet);margin-bottom:4px}
+.session-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line);padding:12px 24px}
+.evidence p{font-size:15px;color:var(--quiet)}dl{margin:24px 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px}dl div{padding:12px 0;border-bottom:1px solid var(--line)}dt{font-size:13px;color:var(--quiet)}dd{margin:2px 0;overflow-wrap:anywhere}
 .learning-note{background:var(--lilac);padding:18px;border-radius:8px;font-size:14px}details{border-top:1px solid var(--line);padding:20px 0;margin-top:20px}summary{cursor:pointer;font-weight:600}
-.simulation-controls{display:flex;align-items:flex-end;flex-wrap:wrap;gap:12px;max-width:760px}
-.simulation-picker{display:grid;gap:6px;flex:1 1 320px;min-width:0}.simulation-picker label{font-size:15px;color:var(--quiet)}
-.simulation-picker select{width:100%;min-width:0;border:1px solid var(--line);border-radius:8px;padding:10px 14px;background:white;color:var(--ink)}
-.simulation-controls select,.simulation-controls button{min-height:48px;line-height:1.4}.simulation-controls button{flex:0 0 auto;padding:10px 16px;white-space:nowrap}
-canvas{width:100%;border-radius:8px;margin-top:20px}#result{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;background:#e8eef9;padding:16px;max-height:440px;overflow:auto}
-textarea{display:block;width:100%;min-height:100px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:12px;background:white;color:var(--ink);margin:8px 0 12px}
+textarea{display:block;width:100%;min-height:80px;max-height:18dvh;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:12px;background:white;color:var(--ink);margin:0}
+#chat-form{display:grid;gap:12px;border-top:1px solid var(--line);padding-top:16px;margin-top:16px}#chat-form button{justify-self:start}
 [hidden]{display:none!important}.text-button{background:transparent;border-color:transparent;text-decoration:underline;font-size:15px}
-footer{font-size:13px;color:var(--quiet);border-top:1px solid var(--line);margin-top:32px}.handover{margin-top:16px}.empty{color:var(--quiet);font-size:15px}
-@media(max-width:800px){header,main,footer{padding:20px}.workspace{grid-template-columns:1fr}aside{border-left:0;border-top:1px solid var(--line);padding:24px 0}main{padding-top:32px}.voice-stage{padding:24px 16px}header{align-items:flex-start}.brand{font-size:17px}}
-@media(max-width:600px){.simulation-picker{flex-basis:100%}.simulation-controls button{width:100%}}
+.empty{color:var(--quiet);font-size:15px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+#conversation-error{padding:12px 16px;border-left:3px solid #ad334b;background:#fff0f3;color:#852139}
+@media(max-width:800px){header,main{padding:16px}main{padding-top:0}.demo-toolbar,.conversation{padding:16px}.session-actions{padding:12px}dl{grid-template-columns:1fr}}
+@media(max-width:600px){.demo-toolbar{gap:8px}.demo-toolbar .story-picker{flex-basis:calc(100% - 90px);min-width:0;order:1}#simulate{order:2}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 <body>
-<header><div><div class="brand">Pension Counsellor</div><p class="label">ILLUSTRATIVE - synthetic data. gg-dev only.</p></div><button id="login">Sign in with Entra</button></header>
+<header><p class="label">Synthetic data</p><button id="login" class="primary">Sign in</button></header>
 <main>
-<h1>Your pension.<br>A conversation, not a maze.</h1>
-<p class="intro">Talk through your transition letter at your own pace. Official figures stay with the fund's systems. A person is always an option.</p>
-<div class="workspace">
+<h1 class="sr-only">Conversation demo</h1>
+<div class="workspace" id="voice-stage" data-state="ready">
 <section aria-label="Your conversation">
-<div class="voice-stage" id="voice-stage" data-state="ready">
-<div class="voice-mark" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-<h2 id="activity">Ready when you are</h2>
-<p id="status" role="status" aria-live="polite">Sign in with the assigned dev operator account.</p>
-<div class="controls"><button id="present" class="primary" disabled>Start voice conversation</button><button id="speak" class="primary" disabled>Speak (maximum 20 seconds)</button><button id="finish" disabled>Finish speaking</button></div>
-<p class="privacy">Microphone audio is not recorded. Synthetic conversation text may appear in this dev demo's traces.</p>
-<div class="controls"><button id="chat" class="text-button" disabled>Prefer to type?</button><button id="stop" class="text-button" disabled>Ask a person</button><button id="end-session" class="text-button" disabled>End conversation</button></div>
-<div class="disclosure" id="disclosure">{{AI_DISCLOSURE}}</div>
+<div class="demo-toolbar" id="demo-controls" role="group" aria-label="Demo controls">
+<button id="present" class="primary" disabled>Voice</button><button id="chat" disabled>Chat</button>
+<div class="story-picker"><label class="sr-only" for="simulation">Story</label><select id="simulation" disabled></select></div><button id="simulate" disabled>Play</button>
+<button id="speak" class="primary" disabled hidden>Speak</button><button id="finish" class="primary" disabled hidden>Send recording</button>
 </div>
-<section class="conversation" aria-labelledby="conversation-title"><h2 id="conversation-title">Conversation &amp; captions</h2>
-<p id="empty" class="empty">Your conversation will appear here. Guidance, not advice.</p>
+<p id="status" role="status" aria-live="polite">Sign in to try the conversation.</p>
+<section class="conversation" id="conversation-panel" aria-label="Conversation">
+<div class="disclosure" id="disclosure">{{AI_DISCLOSURE}}</div>
+<p id="empty" class="empty" hidden>Your conversation will appear here.</p>
 <ol id="conversation" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Conversation and live captions"></ol>
 <div id="outcome-controls" hidden role="group" aria-label="Optional feedback">
 <div class="controls"><button id="outcome-yes" disabled>Yes</button><button id="outcome-no" disabled>No</button><button id="outcome-skip" disabled>Skip</button></div>
 </div>
 <p id="related-status" class="privacy" hidden>Next question is linked to the selected answer. <button id="clear-related" class="text-button">Cancel link</button></p>
 <p id="conversation-error" role="alert" hidden></p>
-<form id="chat-form" hidden><label for="chat-text">Your message</label><textarea id="chat-text" maxlength="4000" disabled></textarea><button id="send" class="primary" disabled>Send message</button><p class="privacy">Uses the same authenticated journey and safety checks as voice. No microphone needed.</p></form>
+<form id="chat-form" hidden><label for="chat-text">Your message</label><textarea id="chat-text" maxlength="4000" rows="2" placeholder="What would you like to understand?" disabled></textarea><button id="send" class="primary" disabled>Send message</button></form>
 </section>
+<div class="session-actions"><button id="stop" class="text-button" disabled>Talk to a person</button><button id="end-session" class="text-button" disabled hidden>End conversation</button></div>
 </section>
-<aside aria-labelledby="learning-title"><h2 id="learning-title">How it learns</h2>
+</div>
+<canvas id="screen" hidden width="1280" height="720" aria-hidden="true"></canvas>
+<details id="evidence" class="evidence"><summary>Behind the conversation</summary>
+<a id="download" hidden>Download example video</a>
+<p class="privacy">Microphone audio is not saved. Synthetic conversation text may appear in this demo's diagnostic traces.</p>
+<h2 id="learning-title">How it learns</h2>
 <p>Learning can reorder approved explanation strategies using aggregate outcomes. It does not retrain from this conversation or change your official figures.</p>
 <div class="learning-note">This pane shows metadata returned for your journey. It is not a live training feed. Missing metadata stays unavailable.</div>
 <dl><div><dt>Journey state</dt><dd id="meta-state">Not started</dd></div><div><dt>Selected explanation strategy</dt><dd id="meta-strategy">Not yet served</dd></div><div><dt>Signed ranking snapshot</dt><dd id="meta-snapshot">Not yet returned</dd></div><div><dt>Approved ranking served</dt><dd id="meta-ranked">Not yet returned</dd></div><div><dt>Fairness suspensions</dt><dd id="meta-suspended">Not yet returned</dd></div><div><dt>Answer audit</dt><dd id="meta-audit">Not yet returned</dd></div><div><dt>Evaluation arm</dt><dd id="meta-arm">Not yet returned</dd></div></dl>
@@ -75,18 +73,10 @@ footer{font-size:13px;color:var(--quiet);border-top:1px solid var(--line);margin
 <div id="learning-feedback" hidden>
 <p>Last background projection, not this turn. Pending means the repeat-contact window or explicit outcome evidence is incomplete; it is not completed/FCR evidence.</p>
 <dl><div><dt>Observed decisions</dt><dd id="feedback-observed">Unavailable</dd></div><div><dt>Eligible decisions (observation window complete)</dt><dd id="feedback-eligible">Unavailable</dd></div><div><dt>Pending decisions (window or outcome evidence incomplete)</dt><dd id="feedback-pending">Unavailable</dd></div></dl>
-<details><summary>Aggregate provenance</summary><p>Seeded historical counts are separate from these observed decision counts. The baseline digest identifies the historical seed; none of these counts demonstrates improved performance.</p>
-<dl><div><dt>Outcome snapshot digest</dt><dd id="feedback-outcome">Unavailable</dd></div><div><dt>Audited source digest</dt><dd id="feedback-source">Unavailable</dd></div><div><dt>Historical baseline digest (separate seed)</dt><dd id="feedback-baseline">Unavailable</dd></div></dl>
-</details>
 </div>
 <p>Fairness can veto a strategy. Material changes require human approval; bounded ranking is not permission to invent new guidance.</p>
-</aside>
-</div>
-<details><summary>Watch the synthetic sample conversations</summary><p>Live scripted demonstrations from the deployed sample data. Chat personas are narrated using their chat journey; voice personas use a voice journey. Only these synthetic flows can be saved as a video; your microphone conversation cannot.</p>
-<div class="simulation-controls"><div class="simulation-picker"><label for="simulation">Synthetic persona</label><select id="simulation" disabled></select></div><button id="simulate" disabled>Run and save video</button></div>
-<canvas id="screen" width="1280" height="720" aria-label="Synthetic persona video; accessible captions appear in the conversation"></canvas><a id="download" hidden>Download synthetic fallback video</a></details>
-<details id="diagnostics"><summary>Latency &amp; delivery diagnostics</summary><p id="latency-summary">No samples yet. Browser playback dispatch is not an acoustic measurement. A short demonstration does not certify the SLO.</p><pre id="result">No completed journey yet.</pre></details>
-</main><footer>ILLUSTRATIVE - synthetic data. Guidance, not advice. No pension option recommendations.</footer>
+</details>
+</main>
 <script>
 "use strict";
 const $ = id => document.getElementById(id), origin = location.origin;
@@ -105,7 +95,7 @@ const canvas = $("screen"), ctx = canvas.getContext("2d");
 function paint(){
   ctx.fillStyle="#101c30";ctx.fillRect(0,0,1280,720);
   ctx.fillStyle="#ffd36a";ctx.font="bold 25px system-ui";ctx.fillText("ILLUSTRATIVE - synthetic data | GovernedGraph dev",45,55);
-  ctx.fillStyle="#f4f7ff";ctx.font="bold 40px system-ui";ctx.fillText("Governed Pension Counsellor",45,130);
+  ctx.fillStyle="#f4f7ff";ctx.font="bold 40px system-ui";ctx.fillText("Conversation demo",45,130);
   ctx.fillStyle="#8ed9f9";ctx.font="30px system-ui";ctx.fillText(speaker,45,205);
   ctx.fillStyle="#f4f7ff";ctx.font="30px system-ui";
   const words=caption.split(/\s+/);let line="",y=270;
@@ -117,11 +107,16 @@ function paint(){
   requestAnimationFrame(paint);
 }
 paint();
-function status(text){$("status").textContent=text;}
+function syncControls(){
+  const active=Boolean(socket&&socket.readyState!==WebSocket.CLOSED);
+  for(const id of ["present","chat","simulation","simulate"])$(id).disabled=!authenticated||active;
+  $("speak").hidden=!(active&&sessionMode==="presenter"&&waitingForInput&&!inputStream);
+  $("finish").hidden=!inputStream;
+  $("end-session").hidden=!active;
+}
+function status(text){$("status").textContent=text;$("status").hidden=!text;syncControls();}
 function activity(name){
   $("voice-stage").dataset.state=name;
-  $("activity").textContent=({ready:"Ready when you are",listening:"I'm listening",thinking:"Checking your request",
-    speaking:"Your explanation",typing:"Type at your own pace",complete:"Conversation complete",error:"Let's get you support"})[name];
 }
 function setFeedbackAvailability(){
   for(const choice of ["yes","no","skip"])$("outcome-"+choice).disabled=!waitingForInput;
@@ -134,10 +129,12 @@ function selectRelated(reference){
   if(sessionMode!=="chat")socket.send(JSON.stringify({kind:"related",request_id:crypto.randomUUID(),related_answer:reference}));
 }
 function addCaption(role,text,reference=null,existing=null){
-  $("empty").hidden=true;const item=existing||document.createElement("li");
+  $("conversation-panel").hidden=false;$("empty").hidden=true;
+  if(role==="counsellor")$("disclosure").hidden=true;
+  const item=existing||document.createElement("li");
   if(!existing){
     const label=document.createElement("strong");
-    item.className=role;label.textContent=role==="member"?"You":role==="persona"?simulationName+" (synthetic)":role==="system"?"Session":"Pension Counsellor (AI)";
+    item.className=role;label.textContent=role==="member"?"You":role==="persona"?simulationName+" (synthetic)":role==="system"?"Session":"AI guide";
     item.append(label);
   }
   item.append(document.createTextNode(text));
@@ -147,7 +144,7 @@ function addCaption(role,text,reference=null,existing=null){
     button.onclick=()=>selectRelated(reference);relatedButtons.push(button);item.append(button);
   }
   if(!existing)$("conversation").append(item);
-  item.scrollIntoView({block:"nearest"});return item;
+  $("conversation").scrollTop=$("conversation").scrollHeight;return item;
 }
 function showOutcome(message){
   currentOffer=message.outcome_offer||null;
@@ -169,9 +166,8 @@ function metadata(message){
   }
   const feedback=message.learning_feedback;
   $("learning-feedback").hidden=!feedback;
-  $("feedback-status").textContent=feedback?feedback.watermark:"No aggregate projection metadata returned.";
-  for(const [field,key] of Object.entries({observed:"observed_decisions",eligible:"eligible_decisions",pending:"pending_decisions",
-    outcome:"outcome_digest",source:"source_digest",baseline:"baseline_digest"})){
+  $("feedback-status").textContent=feedback?"Aggregate outcomes available.":"No aggregate projection metadata returned.";
+  for(const [field,key] of Object.entries({observed:"observed_decisions",eligible:"eligible_decisions",pending:"pending_decisions"})){
     $("feedback-"+field).textContent=feedback?String(feedback[key]):"Unavailable";
   }
 }
@@ -184,10 +180,11 @@ function awaitChatReply(){
   },150000);
 }
 function fail(error){
-  clearReplyTimeout();activity("error");status("FAILED: "+error.message);
+  clearReplyTimeout();activity("error");status("");
+  $("conversation-panel").hidden=false;
   $("conversation-error").textContent=error.message;$("conversation-error").hidden=false;
   $("conversation-error").scrollIntoView({block:"nearest"});
-  console.error("Channel operation failed");
+  console.error("Channel operation failed",{error_type:error.name,location:error.location});
 }
 const b64 = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 async function setupAudio(){
@@ -198,7 +195,8 @@ async function authorize(token){
   const response=await fetch("/demo/authorize",{method:"POST",headers:{Authorization:"Bearer "+token}});
   if(!response.ok)throw Error("Assigned presenter authorization rejected ("+response.status+")");
   authenticated=true;$("simulation").disabled=false;$("simulate").disabled=false;$("present").disabled=false;$("chat").disabled=false;$("stop").disabled=false;
-  status("Signed in. Start a voice conversation, or choose to type. Member tokens remain server-side.");
+  $("login").textContent="Signed in";$("login").disabled=true;$("login").className="text-button";
+  status("Choose Voice, Chat or a story to play.");
 }
 async function load(){
   const query=new URLSearchParams(location.hash.slice(1));
@@ -212,7 +210,7 @@ async function load(){
   $("simulation").replaceChildren();
   for(const item of config.simulations){
     const option=document.createElement("option");option.value=item.simulation_id;
-    option.textContent=item.display_name+" ("+item.channel+", "+item.accessibility_mode+")";
+    option.textContent=item.display_name;
     $("simulation").append(option);
   }
 }
@@ -251,7 +249,7 @@ function startRecording(){
     for(const track of video.getTracks())track.stop();
     if(recording){recordingUrl=URL.createObjectURL(new Blob(chunks,{type:recorder.mimeType}));
       $("download").href=recordingUrl;$("download").download=filename;
-      $("download").hidden=false;$("download").click();}
+      $("download").hidden=false;}
     chunks=[];recording=false;
   };
   recording=true;recorder.start(1000);
@@ -264,11 +262,12 @@ async function connect(mode, handover=false){
     simulationId=selected.simulation_id;simulationName=selected.display_name;
   }
   if(mode!=="chat")await setupAudio();sessionMode=mode;waitingForInput=false;handoverPending=handover;
+  $("conversation-panel").hidden=false;
   $("chat-form").hidden=mode!=="chat";$("conversation").replaceChildren();$("empty").hidden=false;
   currentOffer=null;captionReference=null;selectedRelated=null;relatedButtons=[];replyCaption=null;
   $("outcome-controls").hidden=true;$("related-status").hidden=true;setFeedbackAvailability();
   clearReplyTimeout();$("conversation-error").hidden=true;$("conversation-error").textContent="";
-  $("result").textContent="Journey in progress.";$("download").hidden=true;outcome="";
+  $("download").hidden=true;outcome="";
   metadata({state:"Starting"});
   firstSamples=[];completeSamples=[];substantiveSamples=[];acknowledgementSamples=[];
   turnStartedAt=null;firstPlayed=false;substantivePlayed=false;
@@ -276,7 +275,7 @@ async function connect(mode, handover=false){
   socket=new WebSocket(origin.replace("https:","wss:")+"/demo-stream");socket.binaryType="arraybuffer";
   socket.onopen=()=>{
     if(mode==="simulator")startRecording();
-    socket.send(JSON.stringify(mode==="simulator"?{mode,simulation_id:simulationId}:{mode}));activity("thinking");status("Connected. Waiting for the AI disclosure.");
+    socket.send(JSON.stringify(mode==="simulator"?{mode,simulation_id:simulationId}:{mode}));activity("thinking");status("Starting your conversation...");
   };
   socket.onmessage=async event=>{
     try{
@@ -288,7 +287,7 @@ async function connect(mode, handover=false){
           addCaption(message.role,message.text,message.role==="counsellor"?captionReference:null);
           if(message.role==="counsellor")captionReference=null;
         }
-        else if(message.kind==="thinking"){activity("thinking");status("Checking your request through the governed journey.");}
+        else if(message.kind==="thinking"){activity("thinking");status("Preparing your explanation...");}
         else if(message.kind==="chat_ready"){
           clearReplyTimeout();
           waitingForInput=true;activity("typing");status(message.duplicate?"Message already committed; not repeated.":"Your turn. Type your message.");
@@ -303,10 +302,10 @@ async function connect(mode, handover=false){
           waitingForInput=!terminal;$("chat-text").disabled=terminal;$("send").disabled=terminal;
           $("end-session").disabled=terminal;
           setFeedbackAvailability();
-          activity(terminal?"complete":"typing");status(terminal?"Human handover requested through the fund's journey.":"Your turn. Ask a follow-up question.");
+          activity(terminal?"complete":"typing");status(terminal?"A handover to a person has been requested.":"Your turn. Ask a follow-up question.");
         }
         else if(message.kind==="capture"){
-          waitingForInput=true;activity("ready");status("Your turn. Speak, then finish.");$("speak").disabled=false;
+          waitingForInput=true;activity("ready");status("Select Speak to ask your question.");$("speak").disabled=false;
           $("end-session").disabled=false;
           setFeedbackAvailability();
           if(handoverPending)requestHandover();
@@ -333,18 +332,15 @@ async function connect(mode, handover=false){
             target_ms:2000,first_audio_target_met:firstSamples.length>0&&p95(firstSamples)<2000,
             acoustic_measurement:false};
           outcome="Strategy "+message.strategy+" | suspended: "+message.suspended.join(", ")+" | "+message.state;
-          $("result").textContent=JSON.stringify(message,null,2);
-          const met=message.metrics.target_met===true;
-          $("latency-summary").textContent="Complete-audio target: "+(met?"met for this sample":"not met")+
-            ". "+message.metrics.turn_count+" measured turns. SLO certified: "+(message.metrics.slo_certified?"yes":"no")+
-            ". Expand for first-audio and substantive-audio timings; no samples are hidden.";
           window.voiceDemoResult=message;activity("complete");
-          status(message.state==="escalation_requested"?"Human handover requested through the fund's journey.":
-            message.session_ended?"Conversation ended. Latency and delivery results are available below.":
-            "Flow complete. Latency and delivery results are available below.");
+          status(message.state==="escalation_requested"?"A handover to a person has been requested.":
+            message.session_ended?"Conversation ended. Thank you.":
+            "Example complete. You can start another conversation.");
           if(recorder&&recorder.state==="recording"){
             await new Promise(resolve=>setTimeout(resolve,200));recorder.stop();}
-        }else if(message.kind==="error")throw Error(message.message);
+        }else if(message.kind==="error"){
+          throw Object.assign(Error(message.message),{name:message.error_type||"Error",location:message.location});
+        }
       }else{
         if(!pending)throw Error("Unbound audio rejected");
         audioReceivedAt=performance.now();
@@ -358,7 +354,7 @@ async function connect(mode, handover=false){
         nextPlaybackAt=startAt+buffer.duration;
         const dispatchAt=performance.now()+(startAt-audio.currentTime)*1000;
         setTimeout(()=>{if(activeSources.has(source)){
-          speaker=message.role==="persona"?simulationName+" (simulated)":"Pension Counsellor (AI)";
+          speaker=message.role==="persona"?simulationName+" (simulated)":"AI guide";
           caption=message.text;
           const reference=message.role==="counsellor"&&message.final_sentence!==false?captionReference:null;
           const continuing=message.role==="counsellor"&&!message.acknowledgement;
@@ -373,9 +369,7 @@ async function connect(mode, handover=false){
             if(message.acknowledgement){acknowledgementSamples.push(dispatchAt-turnStartedAt);}
             else {
               if(!substantivePlayed){substantiveSamples.push(dispatchAt-turnStartedAt);substantivePlayed=true;}
-              if(message.final_sentence!==false){completeSamples.push(readyAt-turnStartedAt);
-                $("latency-summary").textContent="Latest complete audio ready: "+Math.round(readyAt-turnStartedAt)+" ms. Target "+
-                  (readyAt-turnStartedAt<2000?"met for this sample":"not met")+"; SLO not certified. Full measurements follow at completion.";}
+              if(message.final_sentence!==false)completeSamples.push(readyAt-turnStartedAt);
             }
           }
         });
@@ -395,6 +389,7 @@ async function connect(mode, handover=false){
     $("end-session").disabled=true;
     waitingForInput=false;$("chat-text").disabled=true;$("send").disabled=true;setFeedbackAvailability();
     $("simulation").disabled=!authenticated;$("simulate").disabled=!authenticated;$("present").disabled=!authenticated;$("chat").disabled=!authenticated;
+    syncControls();
   };
 }
 $("simulate").onclick=()=>connect("simulator").catch(fail);
@@ -414,7 +409,7 @@ function requestHandover(){
     socket.send(JSON.stringify({kind:"handover",request_id:crypto.randomUUID()}));waitingForInput=false;
     if(sessionMode==="chat")awaitChatReply();
     $("speak").disabled=true;$("chat-text").disabled=true;$("send").disabled=true;
-    activity("thinking");status("Requesting a human advisor through the fund's journey.");
+    activity("thinking");status("Requesting a person to help you.");
   }else status("Human support requested. Finishing the current checked response before handover.");
 }
 $("stop").onclick=requestHandover;
@@ -434,7 +429,7 @@ $("chat-form").onsubmit=event=>{
   selectedRelated=null;$("related-status").hidden=true;$("outcome-controls").hidden=true;
   awaitChatReply();
   $("chat-text").value="";$("chat-text").disabled=true;$("send").disabled=true;waitingForInput=false;setFeedbackAvailability();activity("thinking");
-  status("Checking your request through the governed journey.");
+  status("Preparing your explanation...");
 };
 $("speak").onclick=async()=>{
   try{
@@ -446,7 +441,7 @@ $("speak").onclick=async()=>{
     processor.onaudioprocess=event=>{captured.push(new Float32Array(event.inputBuffer.getChannelData(0)));
       if(captured.length*4096>=24000*20)stopCapture(true);};
     inputSource.connect(processor);processor.connect(audio.destination);
-    $("speak").disabled=true;$("finish").disabled=false;activity("listening");status("Listening (not recorded).");
+    $("speak").disabled=true;$("finish").disabled=false;activity("listening");status("Listening. Select Send recording when you're done (up to 20 seconds).");
   }catch(error){stopCapture(false);fail(error);}
 };
 function stopCapture(send){
@@ -459,11 +454,12 @@ function stopCapture(send){
     for(const part of captured)for(const sample of part){if(offset<count)pcm[offset++]=Math.max(-32768,Math.min(32767,Math.round(sample*32767)));}
     turnStartedAt=performance.now();firstPlayed=false;substantivePlayed=false;waitingForInput=false;
     setFeedbackAvailability();
-    socket.send(pcm.buffer);activity("thinking");status("Checking your request through the governed journey.");
+    socket.send(pcm.buffer);activity("thinking");status("Preparing your explanation...");
   }
   captured=[];
+  syncControls();
 }
 $("finish").onclick=()=>stopCapture(true);
 window.addEventListener("pagehide",()=>{if(socket)socket.close();stopCapture(false);});
-load().catch(fail);
+syncControls();load().catch(fail);
 </script></body></html>

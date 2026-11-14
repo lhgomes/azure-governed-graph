@@ -1,4 +1,4 @@
-"""B3/B6/B8/B10: durable, verified state and separately authorized mutations."""
+"""ILLUSTRATIVE - synthetic data; B3/B6/B8/B10 durable state and authorized mutations."""
 import copy
 import hashlib
 import json
@@ -6,10 +6,12 @@ import logging
 import math
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import asdict, replace
 from types import ModuleType, SimpleNamespace
 from pathlib import Path
 from urllib.parse import quote
+from uuid import uuid4
 
 import jwt
 import pytest
@@ -21,6 +23,8 @@ from governedgraph.common.contracts import ContractError, SuspensionEvent
 from governedgraph.strategy_service.service import SnapshotRejected, StrategyService
 from governedgraph.strategy_service.snapshot import LocalHmacSigner, RankingSnapshot, sign_snapshot
 from governedgraph.strategy_service.state import StateConflict, StateUnavailable
+from governedgraph.strategy_service.overrides import OwnerDecision, state_revision
+from governedgraph.strategy_service.catalogue_release import CatalogueDecision, sign_release
 
 KEY = "first_contact|transition_impact_question|voice|standard"
 SIGNER = LocalHmacSigner("azure-state-test")
@@ -35,7 +39,7 @@ class MemoryState:
         self.etag = None
         self.read_failure = False
         self.write_failure = False
-        self.conflict = None
+        self.conflict: Callable[[], None] | None = None
         self.reads = 0
 
     def read(self, etag=None):
@@ -64,6 +68,260 @@ def snapshot(name="snap-one", order=("S2", "S5", "S1", "S4", "S3")):
 
 def service(store, tmp_path, share=0.0):
     return StrategyService(store=store, signer=SIGNER, state_dir=tmp_path, control_share=share)
+
+
+def style_decision(svc, action="edit", strategy_id="S1"):
+    change: dict[str, object] = {"action": action}
+    if action != "add":
+        change["strategy_id"] = strategy_id
+    if action in {"add", "edit"}:
+        change.update(name="ILLUSTRATIVE - visual explanation", pattern_id="S3",
+                      eligible_journey_states=["first_contact"], channels=["voice"],
+                      accessibility_modes=["standard"])
+    return CatalogueDecision.from_dict({
+        "expected_revision": state_revision(svc.read_state()), "decision_ref": "GB-" + uuid4().hex,
+        "reason": "ILLUSTRATIVE - synthetic owner style approval", "confirmed": True, "change": change,
+    })
+
+
+def pending_release(svc):
+    pending = svc.read_state()["catalogue_pending"]
+    return sign_release(pending["decision_ref"], pending["bundle"], SIGNER, svc.thresholds["threshold_version"])
+
+
+def test_b3_b6_catalogue_publication_is_atomic_versioned_and_retains_protective_pauses(tmp_path):
+    store = MemoryState()
+    svc = service(store, tmp_path)
+    svc.load_snapshot(snapshot())
+    svc.suspend(EVENT)
+    svc.owner_decision(owner_decision(svc, "pause", strategy_id="S3", journey_state="*"), "synthetic-owner")
+    svc.owner_decision(owner_decision(svc, "order", request_key=KEY,
+                                     order=["S1", "S2", "S3", "S4", "S5"]), "synthetic-owner")
+    decision = style_decision(svc)
+    svc.catalogue_decision(decision, "synthetic-owner")
+    assert svc.catalogue.get("S1").version == "1.0"
+    release, baseline = pending_release(svc)
+    svc.activate_catalogue(release, baseline)
+    replica = service(store, tmp_path / "replica")
+    assert replica.catalogue.get("S1").version == decision.decision_ref
+    assert replica.catalogue.get("S1").template_id == "T-S3"
+    assert replica.catalogue.historical("S1", "1.0") is not None
+    assert replica.current == replica.static == baseline and replica.last_good is None
+    assert [entry.kind for entry in replica.owner_overrides] == ["pause"]
+    assert {"S2", "S3"} <= set(replica.suspended_for("first_contact"))
+    replica.suspend(SuspensionEvent("S1", "1.0", "first_contact", "old-approved-audit", 26.0, "1.0", "GC-old"))
+    assert "S1" not in {row.strategy_id for row in replica.get_ranked(REQUEST).ranked}
+    with pytest.raises(StateConflict):
+        svc.activate_catalogue(release, baseline)
+
+
+@pytest.mark.parametrize("blocked", ["tampered", "unsigned", "cancelled", "frozen"])
+def test_b8_p2_cannot_publish_a_changed_cancelled_or_frozen_owner_catalogue(tmp_path, blocked):
+    svc = service(MemoryState(), tmp_path)
+    svc.catalogue_decision(style_decision(svc), "synthetic-owner")
+    release, baseline = pending_release(svc)
+    if blocked == "tampered":
+        bundle = copy.deepcopy(release.bundle)
+        next(row for row in bundle["catalogue"]["strategies"] if row["strategy_id"] == "S1")["name"] = "Different approval"
+        release, baseline = sign_release(release.decision_ref, bundle, SIGNER, svc.thresholds["threshold_version"])
+    elif blocked == "unsigned":
+        release = replace(release, signature="not-a-valid-signature")
+    elif blocked == "cancelled":
+        svc.catalogue_decision(CatalogueDecision.from_dict({
+            "expected_revision": state_revision(svc.read_state()), "decision_ref": "GB-" + uuid4().hex,
+            "reason": "ILLUSTRATIVE - synthetic cancellation", "confirmed": True, "change": {"action": "cancel"},
+        }), "synthetic-owner")
+    else:
+        svc.freeze()
+    with pytest.raises(SnapshotRejected if blocked == "unsigned" else StateConflict):
+        svc.activate_catalogue(release, baseline)
+    assert svc.catalogue.version == "1.0.0"
+    if blocked == "frozen":
+        assert svc.read_state()["catalogue_pending"]["decision_ref"] == release.decision_ref
+
+
+def test_b7_style_changes_reject_demographic_and_unknown_fields(tmp_path):
+    svc = service(MemoryState(), tmp_path)
+    payload = asdict(style_decision(svc))
+    payload["change"]["age_band"] = "not-permitted"
+    with pytest.raises(ContractError):
+        CatalogueDecision.from_dict(payload)
+
+
+def test_b3_b9_styles_can_be_added_and_retired_but_escalation_is_immutable(tmp_path):
+    svc = service(MemoryState(), tmp_path)
+    decision = style_decision(svc, "add")
+    svc.catalogue_decision(decision, "synthetic-owner")
+    svc.activate_catalogue(*pending_release(svc))
+    sid = "STYLE-" + decision.decision_ref.removeprefix("GB-")
+    assert sid in {row.strategy_id for row in svc.get_ranked(REQUEST).ranked}
+    svc.catalogue_decision(style_decision(svc, "remove", sid), "synthetic-owner")
+    svc.activate_catalogue(*pending_release(svc))
+    assert sid not in {row.strategy_id for row in svc.get_ranked(REQUEST).ranked}
+    assert svc.catalogue.historical(sid, decision.decision_ref) is not None
+    for action in ("edit", "remove"):
+        with pytest.raises(ContractError, match="escalation"):
+            svc.catalogue_decision(style_decision(svc, action, "S6"), "synthetic-owner")
+    assert svc.get_ranked(REQUEST).always_available == ["S6"]
+
+
+def test_b5_catalogue_changes_never_borrow_aggregate_evidence_from_an_old_version(tmp_path):
+    from governedgraph.learning.ranking_pipeline import load_outcome_aggregates
+
+    svc = service(MemoryState(), tmp_path)
+    decision = style_decision(svc)
+    svc.catalogue_decision(decision, "synthetic-owner")
+    svc.activate_catalogue(*pending_release(svc))
+    path = tmp_path / "outcomes.csv"
+    header = "request_key,strategy_id,strategy_version,interactions,resolved_first_contact,repeat_contact_14d\n"
+    path.write_text(header + f"{KEY},S1,1.0,900,800,100\n" + f"{KEY},S1,{decision.decision_ref},2,1,1\n")
+    evidence = load_outcome_aggregates(path, catalogue=svc.catalogue)[KEY]["S1"]
+    assert (evidence.interactions, evidence.resolved, evidence.repeat_contacts) == (2, 1, 1)
+    path.write_text(header + f"{KEY},S1,1.0,-1,0,0\n")
+    with pytest.raises(ValueError, match="counts"):
+        load_outcome_aggregates(path, catalogue=svc.catalogue)
+
+
+def owner_decision(svc, action, **scope):
+    return OwnerDecision.from_dict({
+        "action": action, "decision_ref": "GB-" + uuid4().hex,
+        "expected_revision": state_revision(svc.read_state()), "reason": "ILLUSTRATIVE - synthetic owner decision",
+        "confirmed": True, **scope,
+    })
+
+
+def owner_snapshot(svc, decision):
+    return sign_snapshot(RankingSnapshot(
+        "owner-" + decision.decision_ref, svc.catalogue.version, svc.thresholds["threshold_version"],
+        decision.decision_ref, "tier2_owner", {decision.request_key: [
+            [sid, svc.catalogue.get(sid).version] for sid in decision.order]},
+    ), SIGNER)
+
+
+def test_b3_b8_b10_owner_order_waits_for_p2_and_revocation_uses_latest_governed_order(tmp_path, monkeypatch):
+    from governedgraph.learning.owner_orders import publish_owner_orders
+
+    store = MemoryState()
+    svc, control = service(store, tmp_path / "treatment"), service(store, tmp_path / "control", share=1)
+    svc.load_snapshot(snapshot())
+    before = svc.get_ranked(REQUEST)
+    expert = control.get_ranked(REQUEST)
+    decision = owner_decision(svc, "order", request_key=KEY, order=["S5", "S3", "S1", "S4", "S2"])
+    result = svc.owner_decision(decision, "entra:owner")
+    assert result["status"] == "pending_signature"
+    assert svc.get_ranked(REQUEST).snapshot_id == before.snapshot_id
+    publisher = SimpleNamespace(refresh=svc.read_state, catalogue=svc.catalogue, priors=svc.priors,
+                                thresholds=svc.thresholds, activate_owner_order=svc.activate_owner_order)
+    publish_owner_orders(publisher, SIGNER, lambda: None)
+
+    def no_exploration(*_):
+        raise AssertionError("an owner order must not be automatically reordered")
+
+    monkeypatch.setattr("governedgraph.strategy_service.service.explore", no_exploration)
+    svc.exploration_enabled = True
+    signed = svc.get_ranked(REQUEST)
+    assert signed.signature_valid and not signed.exploration
+    svc.exploration_enabled = False
+    assert signed.snapshot_id == "owner-" + decision.decision_ref
+    eligible = {item.strategy_id for item in before.ranked}
+    assert [item.strategy_id for item in signed.ranked] == [sid for sid in decision.order if sid in eligible]
+    assert [item.strategy_id for item in control.get_ranked(REQUEST).ranked] == [item.strategy_id for item in expert.ranked]
+    svc.load_snapshot(snapshot("new-governed", ("S1", "S2", "S5", "S4", "S3")))
+    svc.owner_decision(owner_decision(svc, "revoke", override_id=decision.decision_ref), "entra:owner")
+    assert svc.get_ranked(REQUEST).snapshot_id == "new-governed"
+
+
+def test_b6_b8_owner_pause_and_unpause_are_independently_revocable_without_erasing_findings(tmp_path):
+    svc = service(MemoryState(), tmp_path)
+    pause = owner_decision(svc, "pause", strategy_id="S2", journey_state="*")
+    svc.owner_decision(pause, "entra:owner")
+    assert svc.get_ranked(REQUEST).suspended == ["S2"]
+    assert svc.read_state()["suspensions"] == []
+    svc.suspend(EVENT)
+    svc.owner_decision(owner_decision(svc, "revoke", override_id=pause.decision_ref), "entra:owner")
+    assert svc.get_ranked(REQUEST).suspended == ["S2"]
+    unpause = owner_decision(svc, "unpause", strategy_id="S2", journey_state=EVENT.journey_state)
+    svc.owner_decision(unpause, "entra:owner")
+    assert svc.get_ranked(REQUEST).suspended == []
+    assert svc.read_state()["suspensions"] == [asdict(EVENT)]
+    svc.owner_decision(owner_decision(svc, "revoke", override_id=unpause.decision_ref), "entra:owner")
+    assert svc.get_ranked(REQUEST).suspended == ["S2"]
+    assert svc.read_state()["suspensions"] == [asdict(EVENT)]
+    with pytest.raises(ValueError, match="non-escalation"):
+        svc.owner_decision(owner_decision(svc, "pause", strategy_id="S6", journey_state="*"), "entra:owner")
+
+
+def test_b6_new_veto_and_protective_freeze_take_precedence_over_owner_decisions(tmp_path):
+    svc = service(MemoryState(), tmp_path)
+    svc.load_snapshot(snapshot())
+    svc.suspend(EVENT)
+    unpause = owner_decision(svc, "unpause", strategy_id="S2", journey_state=EVENT.journey_state)
+    svc.owner_decision(unpause, "entra:owner")
+    svc.suspend(replace(EVENT, audit_id="new-audit"))
+    assert svc.get_ranked(REQUEST).suspended == ["S2"]
+    assert not svc.read_state()["owner_overrides"]
+    pause = owner_decision(svc, "pause", strategy_id="S1", journey_state="*")
+    svc.owner_decision(pause, "entra:owner")
+    order = owner_decision(svc, "order", request_key=KEY, order=["S5", "S3", "S1", "S4", "S2"])
+    svc.owner_decision(order, "entra:owner")
+    signed = owner_snapshot(svc, order)
+    svc.freeze()
+    assert [item["kind"] for item in svc.read_state()["owner_overrides"]] == ["pause"]
+    assert svc.get_ranked(REQUEST).suspended == ["S1", "S2"]
+    with pytest.raises(StateConflict):
+        svc.activate_owner_order(order.decision_ref, signed)
+    with pytest.raises(ValueError, match="freeze"):
+        svc.owner_decision(owner_decision(svc, "order", request_key=KEY, order=order.order), "entra:owner")
+
+
+def test_b8_revocation_and_concurrent_changes_prevent_owner_command_replay(tmp_path):
+    store = MemoryState()
+    svc, other = service(store, tmp_path / "a"), service(store, tmp_path / "b")
+    pause = owner_decision(svc, "pause", strategy_id="S2", journey_state="*")
+    svc.owner_decision(pause, "entra:owner")
+    svc.owner_decision(owner_decision(svc, "revoke", override_id=pause.decision_ref), "entra:owner")
+    with pytest.raises(StateConflict):
+        svc.owner_decision(pause, "entra:owner")
+    fresh = owner_decision(svc, "pause", strategy_id="S2", journey_state="*")
+    store.conflict = lambda: other.suspend(EVENT)
+    with pytest.raises(StateConflict):
+        svc.owner_decision(fresh, "entra:owner")
+    assert svc.read_state()["suspensions"] == [asdict(EVENT)]
+    assert svc.read_state()["owner_overrides"] == []
+
+
+def test_b6_missing_fresh_state_cannot_continue_lifting_a_recorded_fairness_finding(tmp_path):
+    store = MemoryState()
+    svc = service(store, tmp_path)
+    svc.suspend(EVENT)
+    svc.owner_decision(owner_decision(svc, "unpause", strategy_id="S2", journey_state=EVENT.journey_state), "entra:owner")
+    assert svc.get_ranked(REQUEST).suspended == []
+    store.read_failure = True
+    result = svc.get_ranked(REQUEST)
+    assert result.suspended == ["S2"]
+    assert result.always_available == ["S6"]
+
+
+def test_b3_owner_signature_must_match_the_recorded_order_and_cannot_reactivate_revoked_requests(tmp_path):
+    svc = service(MemoryState(), tmp_path)
+    svc.load_snapshot(snapshot())
+    order = owner_decision(svc, "order", request_key=KEY, order=["S5", "S3", "S1", "S4", "S2"])
+    svc.owner_decision(order, "entra:owner")
+    signed = owner_snapshot(svc, order)
+    wrong = replace(signed, rankings={KEY: list(reversed(signed.rankings[KEY]))})
+    with pytest.raises(SnapshotRejected):
+        svc.activate_owner_order(order.decision_ref, sign_snapshot(wrong, SIGNER))
+    svc.owner_decision(owner_decision(svc, "revoke", override_id=order.decision_ref), "entra:owner")
+    with pytest.raises(StateConflict):
+        svc.activate_owner_order(order.decision_ref, signed)
+
+
+@pytest.mark.parametrize("extra", [{"age": 60}, {"confirmed": False}, {"order": ["S2", "S2"]}])
+def test_b7_owner_decisions_reject_demographics_missing_confirmation_and_duplicate_styles(tmp_path, extra):
+    svc = service(MemoryState(), tmp_path)
+    scope = {"request_key": KEY, "order": ["S1", "S2"], **extra}
+    with pytest.raises(ContractError):
+        owner_decision(svc, "order", **scope)
 
 
 def test_b6_health_refreshes_shared_protective_state_and_fails_closed(tmp_path, monkeypatch):

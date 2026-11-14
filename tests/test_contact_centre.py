@@ -148,9 +148,11 @@ def test_b4_operational_logs_exclude_utterances_tokens_and_figures():
     text = OperationalFormatter().format(record)
     assert json.loads(text)["queue"] == "escalations"
     assert not any(value in text for value in ("private words", "1,412", "authorization", "token"))
-    assert "&lt;script&gt;" in advisor_queue_html([{
+    page = advisor_queue_html([{
         "handover_id": "<script>", "escalation_id": "E", "journey_id": "J", "reason_code": "safety", "status": "pending",
     }])
+    assert "&lt;script&gt;" in page
+    assert "<p>Synthetic data. No live callbacks.</p>" in page
 
 
 def test_entra_registration_defaults_to_plan_without_graph_writes(monkeypatch):

@@ -11,6 +11,7 @@ import re
 import time
 import traceback
 from dataclasses import dataclass
+from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
 
@@ -376,11 +377,32 @@ async def member_bearer(credential, client: httpx.AsyncClient, *, member_ref: st
     return payload["token"]
 
 
-async def serve(socket: WebSocket, claims: dict):
+async def _final_report(client: httpx.AsyncClient, member_ref: str, token: str, journey_id: str) -> httpx.Response:
+    path = f"members/{member_ref}/explainability-report"
+    headers = {"Authorization": "Bearer " + token}
+    response = await client.get(path, headers=headers)
+    for delay in (1, 2, 4):
+        if response.status_code != 409:
+            break
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("detail") != "journey busy; retry the report":
+            break
+        log.warning("voice_presenter_report_busy", extra={"journey_id": journey_id})
+        await asyncio.sleep(delay)
+        response = await client.get(path, headers=headers)
+    response.raise_for_status()
+    return response
+
+
+async def serve(socket: WebSocket, claims: dict, *, request: SessionRequest | None = None,
+                channel_factory: Callable[[httpx.AsyncClient, Callable[[], str]], OrchestratorChannel] | None = None):
     from azure.identity.aio import ManagedIdentityCredential
 
+    if channel_factory is None:
+        channel_factory = OrchestratorChannel
     async with asyncio.timeout(min(850, max(0, claims["exp"] - time.time()))):
-        request = SessionRequest.from_dict(await asyncio.wait_for(socket.receive_json(), 20))
+        if request is None:
+            request = SessionRequest.from_dict(await asyncio.wait_for(socket.receive_json(), 20))
         simulation = select_simulation(request.simulation_id) if request.simulation_id is not None else None
         member_ref = simulation.member_ref if simulation else domain.demo()["member_ref"]
         async with ManagedIdentityCredential(client_id=os.environ["AZURE_CLIENT_ID"]) as credential:
@@ -389,7 +411,7 @@ async def serve(socket: WebSocket, claims: dict):
                 if request.mode == "chat":
                     async with httpx.AsyncClient(base_url=os.environ["GOVERNEDGRAPH_ORCHESTRATOR_URL"].rstrip("/") + "/",
                                                  timeout=120, follow_redirects=False) as channel:
-                        await serve_chat(socket, OrchestratorChannel(channel, lambda: token))
+                        await serve_chat(socket, channel_factory(channel, lambda: token))
                     return
                 if request.mode == "benchmark":
                     from governedgraph.voice.benchmark import run_benchmark
@@ -408,7 +430,7 @@ async def serve(socket: WebSocket, claims: dict):
                     audio = SocketAudio(socket)
                     async with httpx.AsyncClient(base_url=os.environ["GOVERNEDGRAPH_ORCHESTRATOR_URL"].rstrip("/") + "/",
                                                  timeout=120, follow_redirects=False) as channel:
-                        bridge = VoiceBridge(OrchestratorChannel(channel, lambda: token),
+                        bridge = VoiceBridge(channel_factory(channel, lambda: token),
                                              CaptionedSpeech(speech, audio, "counsellor",
                                                              transcribe_captions=request.mode != "simulator"), audio,
                                              spoken_acknowledgement=False)
@@ -467,9 +489,7 @@ async def serve(socket: WebSocket, claims: dict):
                                 replies.append(reply)
                                 await audio.response_metadata(reply)
                                 await bridge._speak(reply.text)
-                            audit = await channel.get(f"members/{member_ref}/explainability-report",
-                                                       headers={"Authorization": "Bearer " + token})
-                            audit.raise_for_status()
+                            audit = await _final_report(channel, member_ref, token, bridge.journey_id)
                             rows = [row for row in audit.json()["records"] if row["journey_id"] == bridge.journey_id]
                             session_ended = session_ended and not audio.handover_requested
                             if session_ended:

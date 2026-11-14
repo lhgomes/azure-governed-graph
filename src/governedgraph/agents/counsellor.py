@@ -311,6 +311,9 @@ class Counsellor:
         if (t.trace.ranked is None or (t.trace.ranked.source == "expert_priors_fallback"
                 and not t.trace.ranked.static_fallback_authorized)):
             raise DependencyFailure("strategy snapshot unavailable")
+        if t.trace.ranked.catalogue_version != self.catalogue.version:
+            self.catalogue, _ = dependency("strategy_catalogue", t.strategy_client.get_catalogue,
+                                           t.trace.ranked.catalogue_version)
         try:
             if not self._prefetched:
                 with t.trace.measure("content_lookup"):
@@ -318,9 +321,15 @@ class Counsellor:
         except ContentSafetyError:
             return self._escalate("approved content screening unavailable or blocked", "safety")
         ranked = [r for r in t.trace.ranked.ranked if r.strategy_id not in exclude]
+        if self.journey.test_strategy_id:
+            ranked = [r for r in ranked if r.strategy_id == self.journey.test_strategy_id]
         if not ranked:
-            return self._escalate("no eligible approved strategy left", "teach_back_failed")
+            return self._escalate("selected test style is not currently eligible or available"
+                                  if self.journey.test_strategy_id else "no eligible approved strategy left",
+                                  "teach_back_failed")
         strategy = self.catalogue.get(ranked[0].strategy_id)
+        t.explanation_pattern = self._pattern_for(strategy)
+        t.template_version = strategy.template_version
 
         escalation_count = len(t.trace.escalations)
         from governedgraph.agents.foundry_runtime import ToolUnavailable
@@ -404,6 +413,9 @@ class Counsellor:
         task_template = _task_template(self.tools, strategy)
         if task_template:
             return task_template
+        return self._pattern_for(strategy)
+
+    def _pattern_for(self, strategy) -> str:
         have = set(self.tools.trace.values.by_id()) if self.tools.trace.values else set()
         for variant in TEMPLATES["templates"][strategy.template_id].values():
             if set(referenced_value_ids(variant)) <= have:

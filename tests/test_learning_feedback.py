@@ -6,8 +6,11 @@ import json
 import pytest
 
 from governedgraph.agents.counsellor import new_session
-from governedgraph.common.config import settings
+from governedgraph.common.config import DATA_DIR, settings
 from governedgraph.common.contracts import ContractError, ExplainabilityRecord
+from governedgraph.common.io import load_json
+from governedgraph.strategy_service.catalogue import Catalogue
+from governedgraph.strategy_service.catalogue_release import CatalogueDecision, prepare_bundle
 from governedgraph.explainability.store import LocalExplainabilityStore
 from governedgraph.learning.feedback import FeedbackManifest, project_feedback
 from governedgraph.learning.feedback_store import FileFeedbackStore, publish_feedback
@@ -157,7 +160,26 @@ def test_b7_feedback_manifest_rejects_demographics_and_transcripts(observed):
         FeedbackManifest.from_dict({**payload, "observed_decisions": True})
 
 
-def test_b4_feedback_publication_survives_restart_without_duplicate_counts(observed, tmp_path):
+def test_b5_historical_member_outcomes_cannot_count_for_an_edited_style(observed):
+    agent, records, _ = observed
+    explained = next(record for record in records if record.response_kind == "explanation")
+    assert project_feedback([agent.journey], records).manifest.observed_decisions > 0
+    decision = CatalogueDecision.from_dict({
+        "expected_revision": "a" * 64, "decision_ref": "GB-" + "b" * 32,
+        "reason": "ILLUSTRATIVE - owner approves changed wording pattern", "confirmed": True,
+        "change": {"action": "edit", "strategy_id": explained.strategy_id, "name": "Illustrative replacement",
+                   "pattern_id": "S3", "eligible_journey_states": ["first_contact"],
+                   "channels": ["voice"], "accessibility_modes": ["standard"]},
+    })
+    bundle = prepare_bundle(Catalogue.load(), load_json(DATA_DIR / "catalogue" / "expert_priors_v1.json"), decision)
+    result = project_feedback([agent.journey], records, catalogue=Catalogue(bundle.catalogue))
+    assert result.manifest.observed_decisions == 0
+
+
+def test_b4_feedback_publication_survives_restart_without_duplicate_counts(observed, tmp_path, monkeypatch):
+    from governedgraph.agents.clients import HttpStrategyClient
+
+    monkeypatch.setattr(HttpStrategyClient, "get_catalogue", lambda *_: (Catalogue.load(), {}))
     agent, _, _ = observed
     journeys = FileJourneyStore(tmp_path / "journeys")
     with journeys.transaction(agent.journey.journey_id) as transaction:
