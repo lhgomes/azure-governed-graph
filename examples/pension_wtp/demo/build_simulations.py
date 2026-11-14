@@ -1,4 +1,4 @@
-"""Project ILLUSTRATIVE - synthetic data into deployment scripts, never profiles."""
+"""Project ILLUSTRATIVE - synthetic data into demo personas: behaviour cards only, never profiles or ages."""
 import argparse
 import json
 from dataclasses import asdict
@@ -21,11 +21,10 @@ def main() -> None:
         item = Simulation.from_dict({
             "simulation_id": profile["persona_id"],
             **{key: profile[key] for key in (
-                "display_name", "member_ref", "channel", "accessibility_mode", "opening",
+                "display_name", "member_ref", "channel", "accessibility_mode",
             )},
-            "teach_back_answer": profile.get("teach_back_answer", ""),
-            "follow_up_questions": profile.get("follow_up_questions", []),
-            "closing": profile.get("closing", ""),
+            "persona": {"persona_id": profile["persona_id"], "goal": profile["goal"],
+                        "opening": profile["opening"], **profile["live"]},
         })
         rows.append(asdict(item))
     if not rows or len({row["simulation_id"] for row in rows}) != len(rows):

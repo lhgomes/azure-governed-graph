@@ -22,6 +22,7 @@ from starlette.websockets import WebSocketDisconnect
 from governedgraph.agents.counsellor import DISCLOSURE
 from governedgraph.common.config import DATA_DIR
 from governedgraph.common.contracts import ContractError
+from governedgraph.orchestrator.state_machine import Journey
 from governedgraph.voice import presenter
 from governedgraph.voice.simulations import load_simulations
 from governedgraph.voice.voice_live_bridge import ACKNOWLEDGEMENT, OrchestratorChannel, VoiceBridge, VoiceReply
@@ -296,6 +297,33 @@ def test_b7_workflow_evidence_cannot_carry_unapproved_fields(steps):
         VoiceReply(text="Approved.", state="explained", workflow_steps=steps)
 
 
+@pytest.mark.parametrize("trace", [
+    [{"stage": "intent", "result": "What does my pension mean for me", "issues": []}],
+    [{"stage": "transcript", "result": "pass", "issues": []}],
+    [{"stage": "answer_review", "result": "revise", "issues": [], "quote": "leaked text"}],
+    [{"stage": "answer_review", "result": "revise", "issues": ["Your pension is 1,000"]}],
+])
+def test_b4_turn_evidence_carries_closed_codes_never_conversation_text(trace):
+    with pytest.raises(ContractError):
+        VoiceReply(text="Approved.", state="explaining", turn_trace=trace)
+
+
+def test_turn_evidence_reaches_the_presenter_so_a_declined_turn_is_explained():
+    trace = [{"stage": "answer_review", "result": "revise", "issues": ["grounding", "relevance"]},
+             {"stage": "outcome", "result": "follow_up_question", "issues": []}]
+    reply = VoiceReply(text="What would you like me to explain?", state="explaining",
+                       composition_source="unanswered", turn_trace=trace)
+    metadata = presenter.reply_metadata(reply)
+    assert metadata["turn_trace"] == trace and metadata["composition_source"] == "unanswered"
+
+
+def test_unanswered_streak_is_persisted_only_when_set():
+    journey = Journey(journey_id="J-streak", member_ref="member")
+    assert "unanswered_streak" not in journey.to_dict()
+    journey.unanswered_streak = 1
+    assert Journey.from_dict(journey.to_dict()).unanswered_streak == 1
+
+
 def test_presenter_silent_checking_preserves_checked_sentence_audio_and_honest_latency():
     async def scenario():
         speech = SimpleNamespace(checked_sentence_audio=True, synthesize=AsyncMock(return_value=b"\0\0"),
@@ -415,6 +443,7 @@ console.error = (...args) => channelErrors.push(args);
 function element(){
   return {disabled:true,hidden:false,textContent:"",value:"",dataset:{},children:[],
     append(...items){this.children.push(...items)},replaceChildren(){this.children=[]},scrollIntoView(){},
+    setAttribute(key,value){this.attrs={...this.attrs,[key]:value}},
     click(){this.clickCount=(this.clickCount||0)+1},
     getContext(){return {fillRect(){},fillText(){},measureText(){return {width:0}}}}};
 }
@@ -545,8 +574,9 @@ global.WebSocket=class {
   assert.equal($("send").disabled,true);
   socket.readyState=WebSocket.CLOSED;socket.onclose();
   await load();
-  assert.equal($("simulation").children.length,5);
+  assert.equal($("simulation").children.length,6);
   assert.ok($("simulation").children.some(option=>option.value==="samira"));
+  assert.ok($("simulation").children.some(option=>option.value==="daan"),"the Dutch persona is offered");
   global.AudioContext=class {
     async resume(){}
     createMediaStreamDestination(){return {stream:{getAudioTracks:()=>[]}}}
@@ -575,8 +605,20 @@ global.WebSocket=class {
   assert.equal($("speak").hidden,true);
   assert.deepEqual(socket.sent[0],{mode:"simulator",simulation_id:"joost"});
   assert.equal($("simulation").disabled,true);
+  assert.equal($("takeover").hidden,false,"the presenter can take over a persona simulation");
+  assert.equal($("takeover").disabled,false);
+  $("takeover").onclick();
+  assert.deepEqual({...JSON.parse(JSON.stringify(socket.sent.at(-1))),request_id:undefined},{kind:"takeover",request_id:undefined});
+  assert.equal($("takeover").disabled,true,"takeover is requested once");
+  await socket.onmessage({data:JSON.stringify({kind:"takeover_ready",channel:"chat"})});
+  assert.equal($("chat-form").hidden,false,"a taken-over chat persona becomes a typed conversation");
+  assert.equal($("takeover").hidden,true);
+  assert.equal(sessionMode,"chat");
+  socket.onmessage({data:JSON.stringify({kind:"complete",ended_by:"persona_unavailable",state:"explaining",
+    strategy:null,suspended:[],session_ended:false})});
+  assert.match($("status").textContent,/simulated member could not continue/);
   addCaption("persona","Synthetic opening");
-  assert.equal($("conversation").children[0].children[0].textContent,"Joost (synthetic)");
+  assert.equal($("conversation").children[1].children[0].textContent,"Joost (synthetic)");
   recorder.ondataavailable({data:new Blob(["synthetic-video"])});
   $("simulation").value="samira";
   recorder.stop();
@@ -597,6 +639,38 @@ global.WebSocket=class {
   recorder.stop();
   assert.equal($("download").download,"samira-voice-fallback.webm");
   socket.readyState=WebSocket.CLOSED;socket.onclose();
+  await connect("simulator");socket.onopen();
+  const turn=(strategy,trace)=>socket.onmessage({data:JSON.stringify({kind:"progress",state:"explaining",strategy,suspended:[],ranked:[],
+    audit_status:"committed",composition_source:"foundry",turn_trace:trace,
+    workflow_steps:["screen-input","intent-agent","explain-with-approved-tools","commit-checked-evidence"]})});
+  const text=node=>(node.textContent||"")+" "+(node.children||[]).map(text).join(" ");
+  assert.equal($("conversation-summary").hidden,true,"the consolidated view waits for the end");
+  await turn("S5",[{stage:"intent",result:"payment_continuity",issues:[]},{stage:"answer_review",result:"pass",issues:[]},
+    {stage:"outcome",result:"answered",issues:[]}]);
+  await socket.onmessage({data:JSON.stringify({kind:"caption",role:"counsellor",text:"Approved answer."})});
+  const answered=$("conversation").children.at(-1),badge=answered.children.find(child=>child.className==="info-badge");
+  assert.equal(badge.textContent,"i");assert.equal(badge.attrs["aria-expanded"],"false");
+  assert.equal(answered.turnPanel.hidden,true,"the detail is collapsed until the i badge is selected");
+  badge.onclick();
+  assert.equal(answered.turnPanel.hidden,false);assert.equal(badge.attrs["aria-expanded"],"true");
+  assert.match(text(answered.turnPanel),/Understood the question as: payment continuity\./);
+  assert.match(text(answered.turnPanel),/Explanation style: S5\./);
+  assert.match(text(answered.turnPanel),/Drafted an answer from approved content/);
+  await turn("S5",[{stage:"answer_review",result:"revise",issues:["relevance"]},{stage:"outcome",result:"follow_up_question",issues:[]}]);
+  await socket.onmessage({data:JSON.stringify({kind:"caption",role:"counsellor",text:"What would you like me to explain?"})});
+  const followUp=$("conversation").children.at(-1);
+  assert.match(text(followUp.turnPanel),/did not answer the question that was asked/);
+  assert.equal(answered.turnPanel.hidden,false,"opening one reply never changes another");
+  socket.onmessage({data:JSON.stringify({kind:"complete",ended_by:"persona",state:"explaining",strategy:"S5",suspended:[],
+    session_ended:true})});
+  assert.equal($("conversation-summary").hidden,false);
+  assert.equal($("summary-counts").textContent,"2 guide replies: 1 answered, 1 asked a follow-up question.");
+  assert.equal($("summary-turns").children.length,2);
+  assert.match(text($("summary-turns").children[1]),/Reply 2: The guide asked a follow-up question instead of answering\./);
+  socket.readyState=WebSocket.CLOSED;socket.onclose();
+  await connect("simulator");socket.onopen();
+  assert.equal($("conversation-summary").hidden,true,"a new conversation starts with a clean log");
+  socket.readyState=WebSocket.CLOSED;socket.onclose();
   global.fetch=async()=>({ok:true,json:async()=>({})});
   await assert.rejects(load(),/Sample conversations unavailable/);
   console.log("UX states and evidence passed");
@@ -605,6 +679,7 @@ global.WebSocket=class {
     result = subprocess.run(["node", "-e", harness + script + assertions],
                             capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
+    assert "UX states and evidence passed" in result.stdout, "the DOM harness stopped before its final assertion"
 
 
 @pytest.mark.parametrize(("statuses", "detail", "delays"), [

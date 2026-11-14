@@ -61,6 +61,18 @@ def agents(composition, endpoint: str, *, subscription: str) -> tuple[dict, dict
     return results, approval
 
 
+def persona_agent(endpoint: str, *, subscription: str) -> str:
+    """Provision the demo persona's pinned, tool-free agent; the caller grants its own identity access to it."""
+    from scripts.create_agents import project_client, provision as create
+
+    with project_client(endpoint, subscription=subscription) as project:
+        result = create(project, apply=True, role="persona")
+    version = result.get("agent_version", "")
+    if not re.fullmatch(r"[1-9][0-9]*", version):
+        raise DeliveryError("Foundry returned no immutable numeric pin for the persona agent")
+    return version
+
+
 def entra(inputs, foundation: dict) -> dict:
     if os.environ.get("AZURE_SUBSCRIPTION_ID") != inputs.subscription:
         raise DeliveryError("Entra bootstrap requires the selected delivery subscription in AZURE_SUBSCRIPTION_ID")

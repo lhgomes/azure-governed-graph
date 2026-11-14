@@ -22,6 +22,13 @@ main{padding-top:0}h2{font-size:21px;margin:0 0 8px}p{max-width:72ch}
 #conversation li.member{background:#e8eef9;margin-left:10%}#conversation strong{display:block;font-size:13px;color:var(--quiet);margin-bottom:4px}
 .session-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line);padding:12px 24px}
 .evidence p{font-size:15px;color:var(--quiet)}dl{margin:24px 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px}dl div{padding:12px 0;border-bottom:1px solid var(--line)}dt{font-size:13px;color:var(--quiet)}dd{margin:2px 0;overflow-wrap:anywhere}
+.analysis{margin-top:20px;padding:20px 24px;background:white;border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:12px}
+.analysis-summary{font-weight:600;margin:0 0 6px}.analysis-why{margin:0 0 6px}
+#conversation li.has-info{position:relative;padding-right:56px}
+.info-badge{position:absolute;top:10px;right:12px;width:28px;height:28px;padding:0;border-radius:50%;border-color:var(--blue);color:var(--blue);font:italic 700 15px/26px Georgia,serif;text-align:center}
+.turn-info{margin-top:10px;padding:12px 14px;background:white;border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:8px;white-space:normal;font-size:15px}
+.turn-info h4{margin:10px 0 4px;font-size:14px;color:var(--quiet)}.turn-info ol,.turn-info ul{margin:0;padding-left:22px}
+.turn-list{list-style:none;padding:0;margin:12px 0}.turn-list>li{border-top:1px solid var(--line)}.turn-list details{border:0;padding:10px 0;margin:0}
 .learning-note{background:var(--lilac);padding:18px;border-radius:8px;font-size:14px}details{border-top:1px solid var(--line);padding:20px 0;margin-top:20px}summary{cursor:pointer;font-weight:600}
 textarea{display:block;width:100%;min-height:80px;max-height:18dvh;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:12px;background:white;color:var(--ink);margin:0}
 #chat-form{display:grid;gap:12px;border-top:1px solid var(--line);padding-top:16px;margin-top:16px}#chat-form button{justify-self:start}
@@ -56,10 +63,16 @@ textarea{display:block;width:100%;min-height:80px;max-height:18dvh;resize:vertic
 <p id="conversation-error" role="alert" hidden></p>
 <form id="chat-form" hidden><label for="chat-text">Your message</label><textarea id="chat-text" maxlength="4000" rows="2" placeholder="What would you like to understand?" disabled></textarea><button id="send" class="primary" disabled>Send message</button></form>
 </section>
-<div class="session-actions"><button id="stop" class="text-button" disabled>Talk to a person</button><button id="end-session" class="text-button" disabled hidden>End conversation</button></div>
+<div class="session-actions"><button id="takeover" class="text-button" hidden disabled>Take over as the member</button><button id="stop" class="text-button" disabled>Talk to a person</button><button id="end-session" class="text-button" disabled hidden>End conversation</button></div>
 </section>
 </div>
 <canvas id="screen" hidden width="1280" height="720" aria-hidden="true"></canvas>
+<section id="conversation-summary" class="analysis" aria-labelledby="summary-title" hidden>
+<h2 id="summary-title">How this conversation went</h2>
+<p id="summary-counts" class="analysis-summary" role="status"></p>
+<ol id="summary-turns" class="turn-list"></ol>
+<p class="privacy">Built from closed codes returned for each reply. It never contains conversation text. Select the <i>i</i> badge on any reply to see the same detail in place.</p>
+</section>
 <details id="evidence" class="evidence"><summary>Behind the conversation</summary>
 <a id="download" hidden>Download example video</a>
 <p class="privacy">Microphone audio is not saved. Synthetic conversation text may appear in this demo's diagnostic traces.</p>
@@ -136,6 +149,7 @@ function addCaption(role,text,reference=null,existing=null){
     const label=document.createElement("strong");
     item.className=role;label.textContent=role==="member"?"You":role==="persona"?simulationName+" (synthetic)":role==="system"?"Session":"AI guide";
     item.append(label);
+    if(role==="counsellor"&&pendingTurn){attachTurnInfo(item,pendingTurn);pendingTurn=null;}
   }
   item.append(document.createTextNode(text));
   if(reference){
@@ -143,6 +157,7 @@ function addCaption(role,text,reference=null,existing=null){
     button.textContent="Follow up on this answer";button.disabled=!waitingForInput;
     button.onclick=()=>selectRelated(reference);relatedButtons.push(button);item.append(button);
   }
+  if(item.turnPanel)item.append(item.turnPanel);
   if(!existing)$("conversation").append(item);
   $("conversation").scrollTop=$("conversation").scrollHeight;return item;
 }
@@ -156,7 +171,82 @@ function showOutcome(message){
   }
   selectedRelated=null;$("related-status").hidden=true;setFeedbackAvailability();
 }
+const ISSUE_TEXT={relevance:"the draft did not answer the question that was asked",grounding:"a claim was not supported by approved content",language:"the draft was not in the member's language",uncertainty:"the draft implied more certainty than the sources allow",strategy:"the draft did not follow the approved explanation style",advice:"the draft strayed into personal advice",document_context:"the draft implied knowledge of a letter that is not available",grounding_contract:"the draft cited content that was not retrieved for this turn",placeholder_contract:"the draft contained a figure that was not an official-value placeholder",unbound_figure:"a figure was not tied to an official value",numeric_fidelity:"a figure did not match the official value",steers_choice:"the wording could steer the member toward an option",no_approved_fallback:"no approved template fits this question"};
+const ESCALATION_TEXT={safety:"a safety or screening check",advice_intent:"the question asked for a personal choice",component_failure:"a required service was unavailable",conversation_limit:"the conversation reached its automated-assistance limit",member_request:"the member asked for a person",teach_back_failed:"the explanation was not understood after two attempts"};
+const OUTCOME_TEXT={answered:"The guide answered using approved content.",follow_up_question:"The guide asked a follow-up question instead of answering.",advisor_offer:"The guide still could not answer and offered an advisor.",escalated:"The guide arranged a handover to an advisor.",step_up_required:"The guide needs step-up verification before using personal figures.",comprehension_confirmed:"The member's own explanation was confirmed as correct."};
+const words=code=>String(code).replace(/_/g," ");
+const reasons=(codes,table)=>codes.map(code=>table[code]||words(code)).join("; ");
+const PROCESS_TEXT={"screen-input":"Screened your message for safety","intent-agent":"Worked out what you were asking","understanding-agent":"Checked whether your explanation matched","explain-with-approved-tools":"Drafted an answer from approved content and your official figures","clarify-question":"Asked what you would like explained","requested-human-handoff":"Arranged for a person to help","personal-advice-handoff":"Passed a personal-choice question to an advisor","service-failure-handoff":"Handed over because a required service failed","commit-checked-evidence":"Recorded the checked reply in the audit log"};
+const SOURCE_TEXT={foundry:"drafted by the AI, then reviewed against approved content",template_fallback:"an approved template, because the AI draft did not pass review",template:"an approved template",unanswered:"no answer was released"};
+const OUTCOME_SHORT={answered:"answered",follow_up_question:"asked a follow-up question",advisor_offer:"offered an advisor",escalated:"handed over to an advisor",step_up_required:"asked for step-up verification",comprehension_confirmed:"confirmed the member's understanding"};
+let turnLog=[],pendingTurn=null,turnCounter=0;
+function describeTurn(message){
+  const trace=message.turn_trace;
+  const outcome=[...trace].reverse().find(item=>item.stage==="outcome");
+  const failed=[...new Set(trace.filter(item=>(item.stage==="answer_review"||item.stage==="output_gate")&&item.result!=="pass"&&item.result!=="template_fallback")
+    .flatMap(item=>item.issues.length?item.issues:[item.result]))];
+  const result=outcome?outcome.result:"replied";
+  const why=!outcome?"":result==="escalated"?reasons(outcome.issues,ESCALATION_TEXT):
+    (result==="follow_up_question"||result==="advisor_offer")?
+      (failed.length?reasons(failed,ISSUE_TEXT):"no approved wording could be released for this question"):"";
+  const checks=[];
+  for(const item of trace){
+    let line="";
+    if(item.stage==="intent")line="Understood the question as: "+words(item.result)+".";
+    else if(item.stage==="answer_review")line="Quality review of the draft: "+item.result+(item.issues.length?" ("+reasons(item.issues,ISSUE_TEXT)+")":"")+".";
+    else if(item.stage==="rate_limit")line="A model call was briefly rate limited, so the guide waited and retried it.";
+    else if(item.stage==="answer_repair")line=item.result==="revised"?"The draft was rewritten using that feedback.":"The rewrite could not be used.";
+    else if(item.stage==="output_gate")line=item.result==="blocked"?"Output gate blocked a draft: "+reasons(item.issues,ISSUE_TEXT)+".":
+      item.result==="template_fallback"?"An approved template was used instead of the draft.":"No approved template fits this question.";
+    if(line)checks.push(line);
+  }
+  const facts=[];
+  if(message.strategy&&result==="answered")facts.push("Explanation style: "+message.strategy+".");
+  if(SOURCE_TEXT[message.composition_source]&&result!=="escalated")facts.push("Wording: "+SOURCE_TEXT[message.composition_source]+".");
+  if(message.state)facts.push("Journey state afterwards: "+words(message.state)+".");
+  return {outcome:result,summary:outcome?(OUTCOME_TEXT[result]||words(result)):"The guide replied.",why,checks,facts,
+    process:(message.workflow_steps||[]).map(step=>PROCESS_TEXT[step]).filter(Boolean),item:null};
+}
+function renderTurnInfo(container,info,withSummary=true){
+  container.replaceChildren();
+  const add=(tag,text,className)=>{const element=document.createElement(tag);element.textContent=text;if(className)element.className=className;container.append(element);};
+  if(withSummary)add("p",info.summary,"analysis-summary");
+  if(info.why)add("p","Why: "+info.why+".","analysis-why");
+  const list=(title,items)=>{
+    if(!items.length)return;add("h4",title);
+    const ordered=document.createElement("ol");
+    for(const text of items){const entry=document.createElement("li");entry.textContent=text;ordered.append(entry);}
+    container.append(ordered);
+  };
+  list("What the guide did",info.process);list("Checks on the draft",info.checks);list("Details",info.facts);
+}
+function attachTurnInfo(item,info){
+  const id="turn-info-"+(++turnCounter);info.item=item;
+  const badge=document.createElement("button");badge.type="button";badge.className="info-badge";badge.textContent="i";
+  badge.setAttribute("aria-label","How this answer was produced");badge.setAttribute("aria-expanded","false");badge.setAttribute("aria-controls",id);
+  const panel=document.createElement("div");panel.id=id;panel.className="turn-info";panel.hidden=true;renderTurnInfo(panel,info);
+  badge.onclick=()=>{panel.hidden=!panel.hidden;badge.setAttribute("aria-expanded",String(!panel.hidden));};
+  item.className+=" has-info";item.turnPanel=panel;item.append(badge);
+}
+function showSummary(){
+  $("conversation-summary").hidden=!turnLog.length;
+  if(!turnLog.length)return;
+  const list=$("summary-turns"),tally={};list.replaceChildren();
+  turnLog.forEach((info,index)=>{
+    tally[info.outcome]=(tally[info.outcome]||0)+1;
+    const entry=document.createElement("li"),details=document.createElement("details"),head=document.createElement("summary"),body=document.createElement("div");
+    head.textContent="Reply "+(index+1)+": "+info.summary;renderTurnInfo(body,info,false);
+    if(info.item){
+      const jump=document.createElement("button");jump.type="button";jump.className="text-button";
+      jump.textContent="Show this reply in the conversation";jump.onclick=()=>info.item.scrollIntoView({block:"nearest"});body.append(jump);
+    }
+    details.append(head,body);entry.append(details);list.append(entry);
+  });
+  const parts=Object.entries(tally).map(([key,count])=>count+" "+(OUTCOME_SHORT[key]||words(key)));
+  $("summary-counts").textContent=turnLog.length+" guide "+(turnLog.length===1?"reply":"replies")+": "+parts.join(", ")+".";
+}
 function metadata(message){
+  if(Array.isArray(message.turn_trace)&&message.turn_trace.length){pendingTurn=describeTurn(message);turnLog.push(pendingTurn);}
   for(const [field,key] of Object.entries({state:"state",strategy:"strategy",snapshot:"snapshot_id",ranked:"ranked",suspended:"suspended",audit:"audit_status",arm:"arm"})){
     const value=message[key];$("meta-"+field).textContent=Array.isArray(value)?(value.length?value.join(", "):"None returned"):(value||"Unavailable");
   }
@@ -268,10 +358,12 @@ async function connect(mode, handover=false){
   $("outcome-controls").hidden=true;$("related-status").hidden=true;setFeedbackAvailability();
   clearReplyTimeout();$("conversation-error").hidden=true;$("conversation-error").textContent="";
   $("download").hidden=true;outcome="";
+  turnLog=[];pendingTurn=null;$("conversation-summary").hidden=true;
   metadata({state:"Starting"});
   firstSamples=[];completeSamples=[];substantiveSamples=[];acknowledgementSamples=[];
   turnStartedAt=null;firstPlayed=false;substantivePlayed=false;
   $("simulation").disabled=true;$("simulate").disabled=true;$("present").disabled=true;$("chat").disabled=true;$("stop").disabled=false;
+  $("takeover").hidden=mode!=="simulator";$("takeover").disabled=mode!=="simulator";
   socket=new WebSocket(origin.replace("https:","wss:")+"/demo-stream");socket.binaryType="arraybuffer";
   socket.onopen=()=>{
     if(mode==="simulator")startRecording();
@@ -303,6 +395,7 @@ async function connect(mode, handover=false){
           $("end-session").disabled=terminal;
           setFeedbackAvailability();
           activity(terminal?"complete":"typing");status(terminal?"A handover to a person has been requested.":"Your turn. Ask a follow-up question.");
+          if(terminal)showSummary();
         }
         else if(message.kind==="capture"){
           waitingForInput=true;activity("ready");status("Select Speak to ask your question.");$("speak").disabled=false;
@@ -310,8 +403,13 @@ async function connect(mode, handover=false){
           setFeedbackAvailability();
           if(handoverPending)requestHandover();
         }
+        else if(message.kind==="takeover_ready"){
+          sessionMode=message.channel==="chat"?"chat":"presenter";$("takeover").hidden=true;
+          $("chat-form").hidden=message.channel!=="chat";
+          addCaption("system","You are now the member. The simulated persona has stopped.");
+        }
         else if(message.kind==="session_ended"){
-          clearReplyTimeout();waitingForInput=false;activity("complete");status("Conversation ended.");
+          clearReplyTimeout();waitingForInput=false;activity("complete");status("Conversation ended.");showSummary();
           if(sessionMode==="simulator")addCaption("system","Conversation ended. Human support remains available.");
         }
         else if(message.kind==="progress"){metadata(message);showOutcome(message);outcome="Strategy "+message.strategy+" | suspended: "+message.suspended.join(", ");}
@@ -332,8 +430,9 @@ async function connect(mode, handover=false){
             target_ms:2000,first_audio_target_met:firstSamples.length>0&&p95(firstSamples)<2000,
             acoustic_measurement:false};
           outcome="Strategy "+message.strategy+" | suspended: "+message.suspended.join(", ")+" | "+message.state;
-          window.voiceDemoResult=message;activity("complete");
-          status(message.state==="escalation_requested"?"A handover to a person has been requested.":
+          window.voiceDemoResult=message;activity("complete");showSummary();
+          status(message.ended_by==="persona_unavailable"?"The simulated member could not continue. The guide's journey was not affected.":
+            message.state==="escalation_requested"?"A handover to a person has been requested.":
             message.session_ended?"Conversation ended. Thank you.":
             "Example complete. You can start another conversation.");
           if(recorder&&recorder.state==="recording"){
@@ -383,8 +482,10 @@ async function connect(mode, handover=false){
     if(replyTimeout!==undefined)fail(Error("Connection closed before a reply arrived. Your message may already be saved. Start a new conversation or ask a person."));
     clearReplyTimeout();
     if(recorder&&recorder.state==="recording"){recording=false;recorder.stop();}
+    showSummary();
     stopCapture(false);for(const source of activeSources){source.stop();source.disconnect();}
     activeSources.clear();playbackSource=null;nextPlaybackAt=0;
+    $("takeover").hidden=true;$("takeover").disabled=true;
     $("stop").disabled=!authenticated;$("speak").disabled=true;
     $("end-session").disabled=true;
     waitingForInput=false;$("chat-text").disabled=true;$("send").disabled=true;setFeedbackAvailability();
@@ -413,6 +514,11 @@ function requestHandover(){
   }else status("Human support requested. Finishing the current checked response before handover.");
 }
 $("stop").onclick=requestHandover;
+$("takeover").onclick=()=>{
+  if(!socket||socket.readyState!==WebSocket.OPEN||sessionMode!=="simulator")return;
+  socket.send(JSON.stringify({kind:"takeover",request_id:crypto.randomUUID()}));
+  $("takeover").disabled=true;status("Taking over after the current line...");
+};
 $("clear-related").onclick=()=>selectRelated(null);
 for(const choice of ["yes","no","skip"])$("outcome-"+choice).onclick=()=>{
   if(!waitingForInput||!currentOffer||!socket||socket.readyState!==WebSocket.OPEN)return;

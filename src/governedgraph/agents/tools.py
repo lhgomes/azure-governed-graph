@@ -49,6 +49,13 @@ class Trace:
     model_rounds: int = 0
     decision_evidence: list[DecisionEvidence] = field(default_factory=list)
     review_feedback: list[dict[str, str]] = field(default_factory=list)
+    turn_trace: list[dict] = field(default_factory=list)
+    rate_limit_wait: float = 0.0
+
+    def note(self, stage: str, result: str, issues: list[str] | tuple[str, ...] = ()) -> None:
+        """Content-free turn evidence: closed codes only, never member or answer text."""
+        if len(self.turn_trace) < 16:
+            self.turn_trace.append({"stage": stage, "result": result, "issues": list(issues)})
 
     @contextmanager
     def measure(self, stage: str):

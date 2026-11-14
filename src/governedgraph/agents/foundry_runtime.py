@@ -8,6 +8,7 @@ from functools import lru_cache
 from threading import Lock
 from dataclasses import asdict
 
+from governedgraph.agents.rate_limit import create_with_retry
 from governedgraph.common import domain
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import AnswerDraft
@@ -347,7 +348,7 @@ class FoundryComposer:
                     kwargs["tool_choice"] = "none"
                 with tools.trace.measure("foundry_requests"):
                     pending = True
-                    response = self.client.responses.create(**kwargs)
+                    response = create_with_retry(self.client.responses.create, tools, **kwargs)
                     pending = False
                 model_usage(response, journey_id=tools.journey.journey_id,
                             agent_name=self.agent_name, model=self.model)

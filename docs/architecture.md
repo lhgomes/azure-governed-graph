@@ -611,6 +611,17 @@ counsellor reply; it does not depend on a particular generated question wording.
 The orchestrator still assesses the answer. Only a resolved journey passes the
 teach-back gate; escalation ends the simulation, and unfinished journeys stop after four turns.
 Presenter takeover replaces only the input source with microphone capture.
+
+**Live demo personas.** The story picker plays each persona live. A dedicated, tool-free Foundry agent
+(`gg-persona-demo`, pinned version) receives the persona's behaviour card once and then only member-visible guide
+text, and speaks through the Voice Live voice named on its card (each persona has its own, distinct from the counsellor's). The opening is fixed; later turns are generated, so the persona
+answers the guide's follow-up questions up to the card's turn limit and says its own goodbye. Cards describe
+behaviour only: digits and demographic attributes are rejected, and a card never reaches the Counsellor (B7).
+Persona utterances are ordinary untrusted member text screened like any other and never feed prompts, content,
+models or learning (B4). The persona runs under its own identity (`id-gg-persona-*`) whose only grant is endpoint use
+on that one agent; delivery verifies the pinned definition, so the persona never reads definitions. A persona failure ends the simulation without escalating
+the member's journey. **Take over as the member** continues the same journey (typed for chat personas, microphone for
+voice personas). Fixed scripted replay remains only for the in-network probe proofs.
 Nearest-rank voice p95 separately measures end of captured input to approved
 acknowledgement and first checked substantive audio, as voice SLO table specifies.
 Complete output audio readiness still includes STT, HTTP orchestration and TTS

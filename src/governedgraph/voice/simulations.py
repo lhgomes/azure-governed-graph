@@ -1,6 +1,7 @@
-"""Dev-only synthetic scripts, projected without actor profiles or audit cohorts."""
-from dataclasses import asdict, dataclass, field
+"""Dev-only synthetic persona demos, projected without actor profiles, ages or audit cohorts."""
+from dataclasses import dataclass, field
 
+from governedgraph.agents.live_persona import PersonaCard
 from governedgraph.common import domain
 from governedgraph.common.config import DATA_DIR
 from governedgraph.common.contracts import ACCESSIBILITY_MODES, ContractError, _strict
@@ -12,33 +13,40 @@ WATERMARK = "ILLUSTRATIVE - synthetic data"
 
 @dataclass(frozen=True)
 class Simulation:
+    """A demo persona played live by the persona agent; no scripted lines and no audit cohorts."""
+
     simulation_id: str
     display_name: str
     member_ref: str
     channel: str
     accessibility_mode: str
-    opening: str
-    teach_back_answer: str = ""
-    follow_up_questions: list[str] = field(default_factory=list)
-    closing: str = ""
+    persona: dict = field(default_factory=dict)
 
     def __post_init__(self):
-        if any(not isinstance(value, str) or len(value) > 2000
-               for key, value in asdict(self).items() if key != "follow_up_questions"):
+        if any(not isinstance(value, str) or len(value) > 2000 for value in (
+                self.simulation_id, self.display_name, self.member_ref, self.channel, self.accessibility_mode)):
             raise ContractError("bounded synthetic simulation fields required")
-        if (not isinstance(self.follow_up_questions, list) or len(self.follow_up_questions) > 2
-                or any(not isinstance(question, str) or not question.strip() or len(question) > 2000
-                       for question in self.follow_up_questions)):
-            raise ContractError("bounded synthetic follow-up questions required")
-        if self.follow_up_questions and not self.closing.strip():
-            raise ContractError("synthetic follow-up scripts require an explicit closing")
         validate_id(self.simulation_id)
-        if not self.display_name.strip() or not self.opening.strip():
-            raise ContractError("simulation name and opening required")
+        if not self.display_name.strip():
+            raise ContractError("simulation name required")
         if self.member_ref not in domain.demo()["trace_members"]:
             raise ContractError("simulation member is outside the synthetic allowlist")
         if self.channel not in ("voice", "chat") or self.accessibility_mode not in ACCESSIBILITY_MODES:
             raise ContractError("unsupported simulation channel or accessibility mode")
+        if not isinstance(self.persona, dict) or self.card().persona_id != self.simulation_id:
+            raise ContractError("simulation requires its own closed persona card")
+        card = self.card()
+        if card.voice == (card.guide_voice or domain.demo()["persona_voices"]["counsellor"]):
+            raise ContractError("a persona must not share the guide's voice")
+        if card.language != "en" and self.channel == "voice":
+            raise ContractError("voice transcription is configured for English; use chat for other languages")
+
+    def card(self) -> PersonaCard:
+        return PersonaCard.from_dict(self.persona)
+
+    @property
+    def opening(self) -> str:
+        return self.card().opening
 
     @classmethod
     def from_dict(cls, body: dict):
@@ -47,11 +55,6 @@ class Simulation:
     def summary(self) -> dict:
         return {key: getattr(self, key) for key in (
             "simulation_id", "display_name", "channel", "accessibility_mode",
-        )}
-
-    def script(self) -> dict:
-        return {key: getattr(self, key) for key in (
-            "opening", "teach_back_answer", "follow_up_questions", "closing",
         )}
 
 

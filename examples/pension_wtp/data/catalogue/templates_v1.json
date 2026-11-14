@@ -42,8 +42,8 @@
     }
   },
   "disclosure": {
-    "approval_ref": "IMP-102-user-approval-2026-11-04",
+    "approval_ref": "IMP-102-user-approval-2026-11-14",
     "label": "ILLUSTRATIVE - synthetic data",
-    "en": "Hello, welcome! I'm your AI pension guide. We can take your pension questions one step at a time. I can help explain pension information and your official figures, but I can't give personal advice. You can ask for a person at any time. Where would you like to start?"
+    "en": "Hello, welcome! I'm your AI pension guide. We can take your pension questions one step at a time. You can ask for a person at any time. Where would you like to start?"
   }
 }

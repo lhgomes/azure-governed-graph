@@ -10,6 +10,7 @@ param publisherEmail string
 param deployDevIssuer bool = false
 param deploySyntheticContactCentre bool = false
 param deployAdminConsole bool = false
+param deployVoicePersona bool = false
 param counsellorModelName string = 'gpt-4.1'
 param counsellorModelVersion string = '2025-04-14'
 param compactModelName string = 'gpt-4.1-mini'
@@ -46,6 +47,7 @@ module security 'modules/security.bicep' = {
     deployDevIssuer: deployDevIssuer
     deploySyntheticContactCentre: deploySyntheticContactCentre
     deployAdminConsole: deployAdminConsole
+    deployVoicePersona: deployVoicePersona
     privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
     virtualNetworkId: network.outputs.virtualNetworkId
   }
@@ -198,6 +200,9 @@ output foundation object = {
     adminIdentityId: security.outputs.adminIdentityId
     adminClientId: security.outputs.adminClientId
     adminPrincipalId: security.outputs.adminPrincipalId
+    personaIdentityId: security.outputs.personaIdentityId
+    personaClientId: security.outputs.personaClientId
+    personaPrincipalId: security.outputs.personaPrincipalId
   }
   data: {
     storageId: data.outputs.storageId

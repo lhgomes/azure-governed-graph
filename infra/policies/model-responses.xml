@@ -50,7 +50,7 @@
       </when>
     </choose>
     <llm-token-limit counter-key='@("gg-conversation:" + context.Request.Headers.GetValueOrDefault("X-Journey-ID", ""))'
-      tokens-per-minute="12000" token-quota="120000" token-quota-period="Daily" estimate-prompt-tokens="true" />
+      tokens-per-minute="__CONVERSATION_TOKENS_PER_MINUTE__" token-quota="120000" token-quota-period="Daily" estimate-prompt-tokens="true" />
     <set-header name="X-Authenticated-Member" exists-action="delete" />
   </inbound>
   <!-- Do not replay a possibly accepted model request or change its pinned model on failure. -->

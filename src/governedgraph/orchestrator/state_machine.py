@@ -84,8 +84,11 @@ class Journey:
     response_language: str = "en"
     last_explanation: ExplanationContext | None = None
     test_strategy_id: str = ""
+    unanswered_streak: int = 0
 
     def __post_init__(self):
+        if type(self.unanswered_streak) is not int or not 0 <= self.unanswered_streak <= 100:
+            raise ContractError("invalid unanswered-turn counter")
         if (not isinstance(self.test_strategy_id, str) or len(self.test_strategy_id) > 100
                 or self.test_strategy_id and not self.test_strategy_id.isascii()
                 or any(not (char.isalnum() or char in "_-") for char in self.test_strategy_id)):
@@ -107,6 +110,8 @@ class Journey:
         result["_seen"] = sorted(self._seen)
         if not self.test_strategy_id:
             result.pop("test_strategy_id")
+        if not self.unanswered_streak:
+            result.pop("unanswered_streak")
         return result
 
     @classmethod

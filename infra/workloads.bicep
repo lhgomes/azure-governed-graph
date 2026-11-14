@@ -20,6 +20,8 @@ param memberTokenPublicJwk object
 param deployDevIssuer bool = false
 @description('Opt-in assigned presenter path. Effective only in gg-dev; defaults off everywhere.')
 param deployVoiceDemo bool = false
+param deployVoicePersona bool = false
+param personaAgentVersion string = ''
 param voiceDemoClientId string = ''
 param voiceDemoOperatorId string = ''
 @description('Immutable P2 image; native learning and fairness schedules are configured at the approved cadence.')
@@ -116,6 +118,16 @@ module fairnessConsumer 'modules/fairness-agent-consumer.bicep' = {
     projectName: last(split(ai.outputs.projectEndpoint, '/'))
   }
 }
+// The persona agent must already exist (created before this deployment); the grant is scoped to it alone.
+module personaConsumer 'modules/persona-agent-consumer.bicep' = if (deployVoicePersona && environmentName == 'gg-dev' && !empty(personaAgentVersion)) {
+  name: 'persona-agent-consumer'
+  scope: rg
+  params: {
+    personaPrincipalId: security.outputs.personaPrincipalId
+    aiServicesName: ai.outputs.aiServicesName
+    projectName: last(split(ai.outputs.projectEndpoint, '/'))
+  }
+}
 module alerts 'modules/alerts.bicep' = {
   name: 'operational-alerts'
   scope: rg
@@ -139,6 +151,8 @@ module compute 'modules/compute.bicep' = {
     token: token
     runtimeIdentityId: security.outputs.runtimeIdentityId
     runtimeIdentityClientId: security.outputs.runtimeIdentityClientId
+    personaIdentityId: deployVoicePersona && !empty(personaAgentVersion) ? security.outputs.personaIdentityId : ''
+    personaClientId: deployVoicePersona && !empty(personaAgentVersion) ? security.outputs.personaClientId : ''
     runtimePrincipalId: security.outputs.runtimePrincipalId
     memberValuesIdentityId: security.outputs.memberValuesIdentityId
     memberValuesClientId: security.outputs.memberValuesClientId
@@ -217,6 +231,7 @@ module compute 'modules/compute.bicep' = {
       AZURE_AI_INTENT_AGENT_VERSION: intentAgentVersion
       AZURE_AI_UNDERSTANDING_AGENT_VERSION: understandingAgentVersion
       AZURE_AI_REVIEW_AGENT_VERSION: reviewAgentVersion
+      AZURE_AI_PERSONA_VERSION: personaAgentVersion
       GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS: traceSyntheticConversations && environmentName == 'gg-dev' && deployVoiceDemo ? 'true' : 'false'
       GOVERNEDGRAPH_VOICE_DRAFT_MODEL: voiceDraftModel
       AZURE_AI_COMPACT_DEPLOYMENT: 'gpt-compact'
@@ -305,6 +320,9 @@ module modelGateway 'modules/model-gateway.bicep' = {
     understandingAgentVersion: understandingAgentVersion
     reviewAgentVersion: reviewAgentVersion
     writerApprovalJson: empty(writerApproval) ? '' : string(writerApproval)
+    // gg-dev only: a live persona answers in seconds, so a rewrite round can use ~16k tokens in under a minute.
+    // The daily token quota below stays unchanged.
+    conversationTokensPerMinute: environmentName == 'gg-dev' ? 30000 : 12000
   }
   dependsOn: [ gateway ]
 }

@@ -76,7 +76,7 @@ def environment(runner, inputs, composition) -> None:
 
 def deploy(runner, inputs, composition) -> dict:
     environment(runner, inputs, composition)
-    from scripts.bootstrap import agents, approve_search_link, release_approval, entra, initial_priors, member_public_jwk, ml_containers
+    from scripts.bootstrap import agents, approve_search_link, persona_agent, release_approval, entra, initial_priors, member_public_jwk, ml_containers
     from scripts.create_agents import provision as agent_plan
 
     plans = {role: agent_plan(None, apply=False, role=role, agent_name=AGENT_NAMES[role]) for role in AGENT_ROLES}
@@ -85,7 +85,8 @@ def deploy(runner, inputs, composition) -> dict:
             "searchLocation": inputs.search_location, "resourceGroupName": inputs.resource_group,
             "namingSeed": inputs.naming_seed, "principalId": inputs.operator_id,
             "publisherEmail": inputs.on_call_email, "deployDevIssuer": True,
-            "deploySyntheticContactCentre": True, "deployAdminConsole": True}
+            "deploySyntheticContactCentre": True, "deployAdminConsole": True,
+            "deployVoicePersona": inputs.voice_demo}
     print("Deploying foundation...", flush=True)
     foundation = provision(runner, inputs, "infra/main.bicep", base)["foundation"]
     print("Preparing immutable images...", flush=True)
@@ -94,6 +95,8 @@ def deploy(runner, inputs, composition) -> dict:
     os.environ["AZURE_AI_PROJECT_ENDPOINT"] = foundation["ai"]["projectEndpoint"]
     registrations = entra(inputs, foundation)
     pins, approval = agents(composition, foundation["ai"]["projectEndpoint"], subscription=inputs.subscription)
+    persona_version = (persona_agent(foundation["ai"]["projectEndpoint"], subscription=inputs.subscription)
+                       if inputs.voice_demo else "")
     approve_search_link(runner, inputs, foundation)
     jobs = provision(runner, inputs, "infra/bootstrap.bicep", {
         "resourceGroupName": inputs.resource_group, "location": inputs.location, "foundation": foundation,
@@ -116,6 +119,7 @@ def deploy(runner, inputs, composition) -> dict:
         "intentAgentVersion": pins["intent"]["agent_version"],
         "understandingAgentVersion": pins["understanding"]["agent_version"],
         "reviewAgentVersion": pins["answer-review"]["agent_version"], "writerApproval": approval,
+        "personaAgentVersion": persona_version,
         "memberTokenIssuer": ISSUER, "memberTokenPublicJwk": public_key, "onCallEmail": inputs.on_call_email,
         "deployVoiceDemo": inputs.voice_demo, "traceSyntheticConversations": inputs.voice_demo,
         "adminTraceLookup": inputs.voice_demo,
@@ -124,6 +128,7 @@ def deploy(runner, inputs, composition) -> dict:
     print("Deploying complete workloads...", flush=True)
     outputs = provision(runner, inputs, composition.workload_template, {"configuration": workload})["deployment"]
     environment_values = {**outputs, **{AGENT_ROLES[role]: pin["agent_version"] for role, pin in pins.items()},
+                          **({"AZURE_AI_PERSONA_VERSION": persona_version} if persona_version else {}),
                           "GOVERNEDGRAPH_WRITER_APPROVAL_JSON": json.dumps(approval),
                           "MEMBER_TOKEN_PUBLIC_JWK": json.dumps(public_key), "MEMBER_TOKEN_ISSUER": ISSUER,
                           "P2_CONTAINER_IMAGE": images["p2"]["image"], "DEV_FIXTURES_IMAGE": images["fixtures"]["image"],

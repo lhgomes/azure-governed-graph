@@ -4,6 +4,8 @@ param tags object
 param token string
 param runtimeIdentityId string
 param runtimeIdentityClientId string
+param personaIdentityId string = ''
+param personaClientId string = ''
 param runtimePrincipalId string
 param memberValuesIdentityId string
 param memberValuesClientId string
@@ -109,7 +111,9 @@ resource ca 'Microsoft.App/containerApps@2024-03-01' = [for a in apps: {
   tags: union(tags, { 'azd-service-name': a.name, 'gg-agent-role': a.name })
   identity: {
     type: 'UserAssigned'
-    userAssignedIdentities: { '${a.identityId}': {} }
+    userAssignedIdentities: a.name == 'orchestrator' && !empty(personaIdentityId)
+      ? { '${a.identityId}': {}, '${personaIdentityId}': {} }
+      : { '${a.identityId}': {} }
   }
   properties: {
     managedEnvironmentId: cae.id
@@ -130,6 +134,7 @@ resource ca 'Microsoft.App/containerApps@2024-03-01' = [for a in apps: {
           { name: 'GOVERNEDGRAPH_ORCHESTRATOR_URL', value: 'https://ca-gg-orchestrator-${take(token, 6)}.${cae.properties.defaultDomain}' }
           { name: 'CONTACT_CENTRE_URL', value: deploySyntheticContactCentre ? 'https://${contact!.properties.configuration.ingress.fqdn}' : contactCentreUrl }
           { name: 'CONTACT_CENTRE_AUDIENCE', value: contactCentreAudience }
+          { name: 'AZURE_PERSONA_CLIENT_ID', value: personaClientId }
         ] : [])
         resources: { cpu: json('0.5'), memory: '1Gi' }
         probes: [ { type: 'Liveness', httpGet: { path: '/healthz', port: 8000 } } ]

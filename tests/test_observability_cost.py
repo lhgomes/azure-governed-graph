@@ -45,7 +45,8 @@ def test_b3_b8_gateway_uses_deny_policy_until_all_pins_exist_including_on_redepl
     assert "dependsOn: [ values ]" in policy
     operation = source.split("resource operation ", 1)[1].split("var pinnedAgentPolicy", 1)[0]
     assert "dependsOn: [ policy ]" in operation
-    assert "var pinnedAgentPolicy = {\n  format: 'xml', value: loadTextContent('../policies/model-responses.xml')" in source
+    assert ("var pinnedAgentPolicy = {\n  format: 'xml', value: replace(loadTextContent('../policies/model-responses.xml'), "
+            "'__CONVERSATION_TOKENS_PER_MINUTE__', string(conversationTokensPerMinute))") in source
     assert "var unavailableAgentPolicy = {\n  format: 'xml', value: loadTextContent('../policies/model-unavailable.xml')" in source
     assert " = if (" not in policy  # an incomplete redeploy must replace a previously active policy
 
@@ -327,11 +328,13 @@ def test_b7_closed_cost_contract_and_exact_decimal_amount():
 def test_gateway_preserves_identity_pins_and_fails_closed():
     root = ET.parse(ROOT/"infra/policies/model-responses.xml").getroot()
     gateway = (ROOT/"infra/modules/model-gateway.bicep").read_text()
-    assert "format: 'xml', value: loadTextContent('../policies/model-responses.xml')" in gateway
+    assert "loadTextContent('../policies/model-responses.xml')" in gateway
     assert root.find(".//validate-azure-ad-token/client-application-ids/application-id") is not None
     limit = root.find(".//llm-token-limit")
     assert "X-Journey-ID" in limit.attrib["counter-key"] and limit.attrib["token-quota"] == "120000"
-    assert limit.attrib["tokens-per-minute"] == "12000" and limit.attrib["token-quota-period"] == "Daily"
+    assert limit.attrib["tokens-per-minute"] == "__CONVERSATION_TOKENS_PER_MINUTE__"
+    assert limit.attrib["token-quota-period"] == "Daily"
+    assert "param conversationTokensPerMinute int = 12000" in gateway
     assert root.find(".//authentication-managed-identity") is None
     assert root.find(".//retry") is None
     text = (ROOT/"infra/policies/model-responses.xml").read_text()

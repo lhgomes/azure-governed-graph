@@ -22,6 +22,7 @@ from test_voice_live import host as host  # noqa: PLC0414 - pytest fixture re-ex
 from test_voice_presenter import presenter_auth as presenter_auth  # noqa: PLC0414 - pytest fixture re-export
 
 from governedgraph.agents.counsellor import DISCLOSURE
+from governedgraph.agents.live_persona import PersonaTurn
 from governedgraph.agents.persona_simulator import ScriptedPersona
 from governedgraph.common import domain
 from governedgraph.common.config import DATA_DIR
@@ -35,6 +36,9 @@ from governedgraph.voice.voice_demo import run_simulator
 from governedgraph.voice.voice_live_bridge import VoiceBridge, VoiceError, VoiceReply
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+FAREWELL = "Thank you, that is all I needed. Goodbye."
 
 
 @pytest.mark.parametrize("simulation_id", ["annelies", "joost", "samira"])
@@ -53,8 +57,9 @@ def test_sample_goodbye_does_not_assume_the_counsellor_asked_a_question(simulati
         )
         actor = Speech()
         bridge = VoiceBridge(channel, speech, SimpleNamespace(play=AsyncMock()), spoken_acknowledgement=False)
-        result = await run_simulator(bridge, actor, script=ScriptedPersona(simulation.script()),
-                                     channel=simulation.channel)
+        script = ScriptedPersona({"opening": simulation.opening, "teach_back_answer": "I understood.",
+                                  "closing": "Thank you for explaining. Goodbye."})
+        result = await run_simulator(bridge, actor, script=script, channel=simulation.channel)
         assert actor.spoken[-1] == "Thank you for explaining. Goodbye."
         assert result.session_ended is True
         assert result.replies[-1].text == final_reply
@@ -123,16 +128,48 @@ def test_sample_script_exhaustion_never_reports_resolution_or_plays_a_successful
     asyncio.run(scenario())
 
 
+def test_honest_non_answer_ends_a_scripted_story_without_error_or_a_successful_goodbye():
+    async def scenario():
+        speech = SimpleNamespace(synthesize=AsyncMock(return_value=b"\0\0"),
+                                 transcribe=AsyncMock(return_value="unused"))
+        channel = SimpleNamespace(
+            start=AsyncMock(return_value=SimpleNamespace(journey_id="J-honest-stop", text=DISCLOSURE)),
+            turn=AsyncMock(side_effect=[
+                VoiceReply(text="Your rights are converted.", state="explaining"),
+                VoiceReply(text="What would you like me to explain?", state="explaining",
+                           composition_source="unanswered"),
+            ]),
+        )
+        actor = Speech()
+        script = ScriptedPersona({"opening": "Explain the transition.",
+                                  "follow_up_questions": ["What does it mean for me?"],
+                                  "teach_back_answer": "Rights are converted.",
+                                  "closing": "Thank you for explaining. Goodbye."})
+        bridge = VoiceBridge(channel, speech, SimpleNamespace(play=AsyncMock()), spoken_acknowledgement=False)
+        result = await run_simulator(bridge, actor, script=script, channel="chat")
+        assert channel.turn.await_count == 2
+        assert result.session_ended is False and script.persona["closing"] not in actor.spoken
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("changes", [
-    {"follow_up_questions": "not a list"}, {"follow_up_questions": None},
-    {"follow_up_questions": [1]}, {"follow_up_questions": [""]},
-    {"follow_up_questions": ["x" * 2001]}, {"follow_up_questions": ["One?", "Two?", "Three?"]},
-    {"closing": ""}, {"closing": None}, {"closing": "x" * 2001},
+    {"manner": ""}, {"manner": None}, {"goal": "x" * 601}, {"language": "fr"},
+    {"max_turns": 1}, {"max_turns": 9}, {"behaviours": "not a list"}, {"behaviours": ["a"] * 6},
+    {"manner": "Aged 45 and polite."}, {"concern": "Has 3 questions."},
     {"age": 45},
 ])
-def test_b7_extended_synthetic_scripts_are_closed_and_bounded(changes):
+def test_b7_persona_cards_are_closed_bounded_and_carry_no_demographics(changes):
+    simulation = asdict(select_simulation("samira"))
     with pytest.raises(ContractError):
-        Simulation.from_dict({**asdict(select_simulation("samira")), **changes})
+        Simulation.from_dict({**simulation, "persona": {**simulation["persona"], **changes}})
+
+
+def test_b7_simulation_rejects_scripted_fields_and_a_foreign_card():
+    simulation = asdict(select_simulation("samira"))
+    with pytest.raises(ContractError):
+        Simulation.from_dict({**simulation, "closing": "Goodbye."})
+    with pytest.raises(ContractError):
+        Simulation.from_dict({**simulation, "persona": {**simulation["persona"], "persona_id": "joost"}})
 
 
 def test_real_microphone_transcription_still_emits_one_member_caption():
@@ -190,10 +227,10 @@ def test_b7_build_projection_contains_all_personas_but_no_profiles_or_cohorts(tm
         assert not (set(row) & DEMOGRAPHIC_FIELD_NAMES)
         assert "profile" not in row and "goal" not in row and "tests" not in row
         assert row["simulation_id"] == profile["persona_id"]
-        assert row["opening"] == profile["opening"]
+        assert row["persona"]["opening"] == profile["opening"]
+        assert row["persona"]["goal"] == profile["goal"]
         assert row["member_ref"] == profile["member_ref"]
-        assert row["follow_up_questions"] == profile.get("follow_up_questions", [])
-        assert row["closing"] == profile.get("closing", "")
+        assert not (set(row["persona"]) & DEMOGRAPHIC_FIELD_NAMES)
     (tmp_path / "demo").mkdir()
     output.rename(tmp_path / "demo/simulations.json")
     monkeypatch.setattr(simulations, "DATA_DIR", tmp_path)
@@ -358,13 +395,22 @@ def test_live_simulation_binds_member_channel_accessibility_and_protective_outco
                     pytest.fail("narrated chat was incorrectly sent through speech recognition")
                 return await super().transcribe(pcm)
 
-        yield ActorSpeech([simulation.opening, simulation.teach_back_answer])
+        yield ActorSpeech([simulation.opening])
 
     original_client = httpx.AsyncClient
 
     async def record(request):
         requests.append(request)
 
+    class FakeLive:
+        def __init__(self, card):
+            self.card, self.turns = card, 0
+
+        async def next_turn(self, guide_text):
+            self.turns += 1
+            return PersonaTurn(self.card.opening) if self.turns == 1 else PersonaTurn(FAREWELL, True)
+
+    monkeypatch.setattr(presenter, "connect_live_persona", FakeLive)
     monkeypatch.setattr(presenter, "member_bearer", bearer)
     monkeypatch.setattr(azure.identity.aio, "ManagedIdentityCredential", lambda **kwargs: Credential())
     monkeypatch.setattr(presenter, "open_speech", speech)
@@ -412,13 +458,7 @@ def test_live_simulation_binds_member_channel_accessibility_and_protective_outco
         assert frames[-1]["session_ended"] is False
         assert all(agent.tools.values_client.get.call_count == 0 for agent in host.created)
     else:
-        assert frames[-1]["state"] == "resolved"
-        assert audio_frames[-1]["role"] == "persona" and audio_frames[-1]["text"] == simulation.closing
+        assert audio_frames[-1]["role"] == "persona" and audio_frames[-1]["text"] == FAREWELL
         assert frames[-2] == {"kind": "session_ended"} and frames[-1]["session_ended"] is True
-        assert any(agent.tools.values_client.get.call_count for agent in host.created)
-        if simulation_id == "samira":
-            progress = [frame for frame in frames if frame["kind"] == "progress"]
-            expected = [simulation.opening, *simulation.follow_up_questions]
-            if progress[len(simulation.follow_up_questions)]["state"] == "comprehension_check":
-                expected.append(simulation.teach_back_answer)
-            assert [json.loads(request.content)["utterance"] for request in requests[1:-1]] == expected
+        assert frames[-1]["ended_by"] == "persona"
+        assert [json.loads(request.content)["utterance"] for request in requests[1:-1]] == [simulation.opening]

@@ -85,6 +85,14 @@ def provision(project, *, apply: bool, role: str = "counsellor", agent_name: str
         definition = decision_definition(role)
         model_deployment = deployment_for(role)
         name, decision = AGENT_NAMES[role], "IMP-57"
+    elif role == "persona":
+        from governedgraph.agents.live_persona import (
+            LIVE_PERSONA_AGENT_NAME, live_persona_definition, persona_deployment,
+        )
+
+        model_deployment = persona_deployment()
+        definition = live_persona_definition(model_deployment)
+        name, decision = LIVE_PERSONA_AGENT_NAME, "IMP-persona-demo"
     elif role == "evaluation":
         model_deployment = "gpt-modern"
         definition = agent_definition(INSTRUCTIONS, model=model_deployment, reasoning_effort="none")
@@ -135,7 +143,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--role", choices=("counsellor", "fairness", "voice-compact", "intent", "understanding",
-                                        "answer-review", "evaluation"),
+                                        "answer-review", "evaluation", "persona"),
                         default="counsellor")
     args = parser.parse_args()
     if args.apply:

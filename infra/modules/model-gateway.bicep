@@ -9,6 +9,8 @@ param understandingAgentVersion string
 param reviewAgentVersion string
 @maxLength(3000)
 param writerApprovalJson string = ''
+@minValue(1000)
+param conversationTokensPerMinute int = 12000
 
 resource apim 'Microsoft.ApiManagement/service@2024-05-01' existing = { name: apimName }
 var writerApproval = empty(writerApprovalJson) ? {} : json(writerApprovalJson)
@@ -47,7 +49,7 @@ resource operation 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' 
   dependsOn: [ policy ]
 }
 var pinnedAgentPolicy = {
-  format: 'xml', value: loadTextContent('../policies/model-responses.xml')
+  format: 'xml', value: replace(loadTextContent('../policies/model-responses.xml'), '__CONVERSATION_TOKENS_PER_MINUTE__', string(conversationTokensPerMinute))
 }
 var unavailableAgentPolicy = {
   format: 'xml', value: loadTextContent('../policies/model-unavailable.xml')

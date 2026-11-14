@@ -22,7 +22,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from governedgraph.common import domain
 from governedgraph.common.config import DATA_DIR
 from governedgraph.common.contracts import ContractError, OutcomeSubmission, ResponseReference, _strict
-from governedgraph.voice.voice_demo import run_simulator
+from governedgraph.voice.voice_demo import run_live_simulator, run_simulator
+from governedgraph.agents.live_persona import connect_live_persona
 from governedgraph.agents.persona_simulator import ScriptedPersona
 from governedgraph.agents.counsellor import DISCLOSURE, TEMPLATES
 from governedgraph.voice.access import COOKIE, enabled, verify
@@ -82,7 +83,7 @@ class ChatMessage:
         from governedgraph.orchestrator.store import validate_id
 
         validate_id(self.request_id)
-        if self.kind not in ("chat", "handover", "end", "feedback", "related"):
+        if self.kind not in ("chat", "handover", "end", "feedback", "related", "takeover"):
             raise ContractError("unknown chat action")
         if isinstance(self.outcome, dict):
             object.__setattr__(self, "outcome", OutcomeSubmission.from_dict(self.outcome))
@@ -112,6 +113,8 @@ def reply_metadata(reply) -> dict:
             "suspended": reply.suspended, "ranked": reply.ranked, "snapshot_id": reply.snapshot_id,
             "audit_status": reply.audit_status, "request_id": reply.request_id, "arm": reply.arm,
             "journey_id": reply.journey_id, "workflow_steps": reply.workflow_steps,
+            "composition_source": reply.composition_source, "turn_trace": reply.turn_trace,
+            "escalated": reply.escalated,
             **({"response_id": reply.response_id} if reply.response_id is not None else {}),
             **({"outcome_offer": reply.outcome_offer} if reply.outcome_offer is not None else {}),
             **({"learning_feedback": reply.learning_feedback} if reply.learning_feedback is not None else {})}
@@ -246,6 +249,7 @@ class SocketAudio:
         self.queued = False
         self.pending_playback = []
         self.handover_requested = False
+        self.takeover_requested = False
         self.pending_related: ResponseReference | None = None
 
     async def playback_ack(self, timeout: float):
@@ -255,6 +259,10 @@ class SocketAudio:
                 if isinstance(ack, dict) and ack.get("kind") == "handover":
                     ChatMessage.from_dict(ack)
                     self.handover_requested = True
+                    continue
+                if isinstance(ack, dict) and ack.get("kind") == "takeover":
+                    ChatMessage.from_dict(ack)
+                    self.takeover_requested = True
                     continue
                 return ack
 
@@ -394,6 +402,75 @@ async def _final_report(client: httpx.AsyncClient, member_ref: str, token: str, 
     return response
 
 
+async def run_voice_turns(bridge: VoiceBridge, audio: SocketAudio, replies: list) -> None:
+    for _ in range(8):
+        try:
+            pcm = await audio.capture()
+        except HandoverRequested:
+            reply = await bridge.channel.turn(bridge.journey_id, "I want a human advisor", uuid4().hex)
+            if not reply.escalated:
+                raise VoiceError("human handover was not confirmed")
+            replies.append(reply)
+            await audio.response_metadata(reply)
+            await bridge._speak(reply.text)
+            break
+        except SessionEnded:
+            break
+        except OutcomeSelected as selection:
+            await bridge.submit_outcome(selection.submission, selection.request_id)
+            continue
+        related = audio.pending_related
+        audio.pending_related = None
+        reply = await bridge.turn(pcm, related_answer=related)
+        if reply.feedback_recorded:
+            audio.pending_related = related
+            continue
+        replies.append(reply)
+        if not audio.handover_requested and replies[-1].escalated:
+            break
+
+
+async def run_chat_turns(socket: WebSocket, bridge: VoiceBridge, audio: SocketAudio, replies: list) -> bool:
+    """The presenter takes over a chat simulation as the member; returns whether the member ended it."""
+    await socket.send_json({"kind": "chat_ready", "journey_id": bridge.journey_id})
+    for _ in range(16):
+        message = ChatMessage.from_dict(await asyncio.wait_for(socket.receive_json(), 300))
+        if message.kind == "takeover":
+            continue
+        if message.kind == "end":
+            return True
+        if message.kind == "feedback":
+            if not isinstance(message.outcome, OutcomeSubmission):
+                raise ContractError("feedback requires an outcome")
+            await bridge.submit_outcome(message.outcome, message.request_id)
+            await socket.send_json({"kind": "chat_ready", "journey_id": bridge.journey_id})
+            continue
+        if message.kind == "related":
+            raise ContractError("chat references accompany the next question")
+        await socket.send_json({"kind": "thinking"})
+        if message.kind == "handover":
+            reply = await bridge.channel.turn(bridge.journey_id, "I want a human advisor", message.request_id)
+            if not reply.escalated:
+                raise VoiceError("human handover was not confirmed")
+            replies.append(reply)
+            await audio.response_metadata(reply)
+            await bridge._speak(reply.text)
+            return False
+        reply = await bridge.turn_text(
+            message.text, request_id=message.request_id,
+            **({"related_answer": message.related_answer}
+               if isinstance(message.related_answer, ResponseReference) else {}))
+        if reply.feedback_recorded:
+            await socket.send_json({"kind": "chat_ready", "journey_id": bridge.journey_id})
+            continue
+        replies.append(reply)
+        if reply.escalated:
+            await socket.send_json({"kind": "chat_complete", "state": reply.state})
+            return False
+        await socket.send_json({"kind": "chat_ready", "journey_id": bridge.journey_id})
+    return False
+
+
 async def serve(socket: WebSocket, claims: dict, *, request: SessionRequest | None = None,
                 channel_factory: Callable[[httpx.AsyncClient, Callable[[], str]], OrchestratorChannel] | None = None):
     from azure.identity.aio import ManagedIdentityCredential
@@ -422,11 +499,15 @@ async def serve(socket: WebSocket, claims: dict, *, request: SessionRequest | No
                                             os.environ["AZURE_VOICE_LIVE_ENDPOINT"],
                                             runtime=socket.app.state.runtime, model=request.benchmark_model)
                     return
+                live = (await asyncio.to_thread(connect_live_persona, simulation.card())
+                        if request.mode == "simulator" and simulation else None)
                 from governedgraph.voice.warmup import warm_runtime
 
                 await asyncio.to_thread(warm_runtime)
+                guide_voice = ((simulation.card().guide_voice if simulation else None)
+                               or PERSONA_VOICES["counsellor"])
                 async with open_speech(os.environ["AZURE_VOICE_LIVE_ENDPOINT"],
-                                       PERSONA_VOICES["counsellor"], credential=credential) as speech:
+                                       guide_voice, credential=credential) as speech:
                     audio = SocketAudio(socket)
                     async with httpx.AsyncClient(base_url=os.environ["GOVERNEDGRAPH_ORCHESTRATOR_URL"].rstrip("/") + "/",
                                                  timeout=120, follow_redirects=False) as channel:
@@ -436,51 +517,40 @@ async def serve(socket: WebSocket, claims: dict, *, request: SessionRequest | No
                                              spoken_acknowledgement=False)
                         try:
                             session_ended = False
+                            ended_by = "presenter"
                             if request.mode == "simulator":
-                                script = simulation.script() if simulation else request.script
-                                if script is None:
-                                    raise ContractError("simulator utterances required")
                                 actor_id = simulation.simulation_id if simulation else domain.demo()["persona"]
-                                actor_voice = PERSONA_VOICES.get(actor_id, PERSONA_VOICES[domain.demo()["persona"]])
+                                actor_voice = (simulation.card().voice if simulation else
+                                               PERSONA_VOICES.get(actor_id, PERSONA_VOICES[domain.demo()["persona"]]))
                                 async with open_speech(os.environ["AZURE_VOICE_LIVE_ENDPOINT"],
                                                        actor_voice, credential=credential) as actor:
-                                    result = await run_simulator(
-                                        bridge, CaptionedSpeech(actor, audio, "persona"),
-                                        script=ScriptedPersona(script),
-                                        channel=simulation.channel if simulation else "voice",
-                                        accessibility_mode=simulation.accessibility_mode if simulation else "standard",
-                                    )
+                                    if simulation is not None and live is not None:
+                                        result = await run_live_simulator(
+                                            bridge, CaptionedSpeech(actor, audio, "persona"), live,
+                                            channel=simulation.channel,
+                                            accessibility_mode=simulation.accessibility_mode,
+                                            takeover=lambda: audio.takeover_requested,
+                                        )
+                                    else:
+                                        if request.script is None:
+                                            raise ContractError("simulator utterances required")
+                                        result = await run_simulator(
+                                            bridge, CaptionedSpeech(actor, audio, "persona"),
+                                            script=ScriptedPersona(request.script), channel="voice",
+                                        )
                                     replies = result.replies
                                     session_ended = result.session_ended
+                                    ended_by = result.ended_by
+                                if ended_by == "takeover" and simulation is not None:
+                                    await socket.send_json({"kind": "takeover_ready", "channel": simulation.channel})
+                                    if simulation.channel == "chat":
+                                        session_ended = await run_chat_turns(socket, bridge, audio, replies)
+                                    else:
+                                        await run_voice_turns(bridge, audio, replies)
                             else:
                                 replies = []
                                 await bridge.start()
-                                for _ in range(8):
-                                    try:
-                                        pcm = await audio.capture()
-                                    except HandoverRequested:
-                                        reply = await bridge.channel.turn(bridge.journey_id, "I want a human advisor",
-                                                                          uuid4().hex)
-                                        if not reply.escalated:
-                                            raise VoiceError("human handover was not confirmed")
-                                        replies.append(reply)
-                                        await audio.response_metadata(reply)
-                                        await bridge._speak(reply.text)
-                                        break
-                                    except SessionEnded:
-                                        break
-                                    except OutcomeSelected as selection:
-                                        await bridge.submit_outcome(selection.submission, selection.request_id)
-                                        continue
-                                    related = audio.pending_related
-                                    audio.pending_related = None
-                                    reply = await bridge.turn(pcm, related_answer=related)
-                                    if reply.feedback_recorded:
-                                        audio.pending_related = related
-                                        continue
-                                    replies.append(reply)
-                                    if not audio.handover_requested and replies[-1].escalated:
-                                        break
+                                await run_voice_turns(bridge, audio, replies)
                             if audio.handover_requested and not any(reply.escalated for reply in replies):
                                 reply = await bridge.channel.turn(bridge.journey_id, "I want a human advisor",
                                                                   uuid4().hex)
@@ -496,7 +566,7 @@ async def serve(socket: WebSocket, claims: dict, *, request: SessionRequest | No
                                 await socket.send_json({"kind": "session_ended"})
                             await socket.send_json({
                                 "kind": "complete", "journey_id": bridge.journey_id, "metrics": bridge.metrics(),
-                                "session_ended": session_ended,
+                                "session_ended": session_ended, "ended_by": ended_by,
                                 "state": replies[-1].state if replies else "",
                                 "strategy": replies[0].strategy_id if replies else None,
                                 "suspended": replies[0].suspended if replies else [],

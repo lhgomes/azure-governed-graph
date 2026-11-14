@@ -244,9 +244,16 @@ The demo opens with a single conversation surface. Sign in, then use **Voice**,
 **Chat**, or the story selector and **Play** on one toolbar. Start controls stay
 visible but disabled during a conversation; recording controls appear when needed.
 **Talk to a person** stays available after sign-in. Conversation captions scroll without
-moving the question composer. Stories play in that same conversation log, without a
-duplicate video panel. Video export is an optional download under the closed
-**Behind the conversation** section, not an automatic download. Latency diagnostics
+moving the question composer. Personas play live in that same conversation log: an AI actor with its own voice and identity
+plays each persona over voice or chat, and **Take over as the member** continues the same journey. With the voice
+demo enabled the delivery process creates the pinned persona agent and then grants the dedicated persona identity
+access to that one agent only; no recorded story is replayed. Video export is an optional download under the closed
+**Behind the conversation** section, not an automatic download. Every guide reply carries an **i** badge: select it to
+see how that reply was produced (what the guide did, the draft checks and the outcome), built from closed codes only
+and never carrying conversation text (B4/B7). When a conversation ends, **How this conversation went** consolidates
+every reply into one list. When no
+safe, relevant answer exists the guide asks one follow-up question before offering an advisor; an
+advisor is always reachable (B9). Latency diagnostics
 and aggregate-provenance displays are omitted; delivery measurements and provenance
 contracts remain unchanged. Errors appear once in the conversation area; sanitized
 failure type and location remain in the browser console. The final audit report retries

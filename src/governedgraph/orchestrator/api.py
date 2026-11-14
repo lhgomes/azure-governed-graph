@@ -65,7 +65,10 @@ async def recover(runtime: OrchestratorService, stopped: asyncio.Event) -> None:
         try:
             await asyncio.to_thread(runtime.recover)
         except Exception as error:
-            log.error("journey_outbox_recovery_failed", extra={"error_type": type(error).__name__})
+            frame = traceback.extract_tb(error.__traceback__)[-1]
+            log.error("journey_outbox_recovery_failed", extra={
+                "error_type": type(error).__name__,
+                "failure_domain": f"{frame.filename.rsplit('/', 1)[-1].removesuffix('.py')}.{frame.name}.L{frame.lineno}"})
         try:
             await asyncio.wait_for(stopped.wait(), timeout=5)
         except TimeoutError:

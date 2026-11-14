@@ -8,6 +8,7 @@ param token string
 param deployDevIssuer bool = false
 param deploySyntheticContactCentre bool = false
 param deployAdminConsole bool = false
+param deployVoicePersona bool = false
 param privateEndpointSubnetId string
 param virtualNetworkId string
 
@@ -65,6 +66,13 @@ resource adminId 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' =
   name: 'id-gg-admin-${token}'
   location: location
   tags: union(tags, { purpose: 'administration-console' })
+}
+
+// Demo persona actor: invokes only its own pinned, tool-free Foundry agent; no runtime, values or record access.
+resource personaId 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (deployVoicePersona) {
+  name: 'id-gg-persona-${token}'
+  location: location
+  tags: union(tags, { purpose: 'dev-only-demo-persona-actor' })
 }
 
 resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
@@ -168,3 +176,6 @@ output contactCentrePrincipalId string = deploySyntheticContactCentre ? contactC
 output adminIdentityId string = deployAdminConsole ? adminId!.id : ''
 output adminClientId string = deployAdminConsole ? adminId!.properties.clientId : ''
 output adminPrincipalId string = deployAdminConsole ? adminId!.properties.principalId : ''
+output personaIdentityId string = deployVoicePersona ? personaId!.id : ''
+output personaClientId string = deployVoicePersona ? personaId!.properties.clientId : ''
+output personaPrincipalId string = deployVoicePersona ? personaId!.properties.principalId : ''

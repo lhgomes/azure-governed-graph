@@ -158,8 +158,8 @@ verified synthetic demo member.
 Do not read a developer token file or mint a synthetic token on your machine. Missing audio, a speech error or a timeout fails
 explicitly and requests a human if the journey has started; a failed audio session cannot resume. If the orchestrator is also
 unavailable, direct advisor contact is required; never claim a queued handover without confirmation. The synthetic persona and
-the counsellor use separate speech sessions with voices defined by the domain pack (`demo.persona_voices`); only the scripted
-utterance enters Speech or the orchestrator, never the persona profile.
+the counsellor use separate speech sessions with voices defined by the domain pack (`demo.persona_voices`); only the persona's spoken
+utterance enters Speech or the orchestrator, never the persona card.
 
 **Launch** the proof as an execution-only run of the existing dev-issuer job, from the deployment's own values:
 
@@ -247,11 +247,6 @@ two assignments in bounded delivery bootstrap. Setting `voice_demo: false` in de
 service principal without deleting data. The SPA and Azure CLI are preauthorized delegated clients, not extra assigned users;
 no tenant-wide consent or client secret is needed. Physical laptop microphone and speaker behaviour still needs an on-stage
 rehearsal.
-
-**Fallback.** `PYTHONPATH=src:examples python -m pension_wtp.demo.run_demo` is offline text, and
-`python -m governedgraph.voice.voice_live_bridge --text` selects it too. Without an authenticated host the standalone voice
-module prints an explicit failure and runs that fallback, exiting nonzero even if the text succeeds. Neither path is voice
-acceptance.
 
 ## Explainability acceptance
 

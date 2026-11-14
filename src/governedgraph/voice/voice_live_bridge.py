@@ -6,7 +6,7 @@ import asyncio
 import re
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Callable, Protocol, runtime_checkable
+from typing import AsyncIterator, Callable, Protocol, runtime_checkable
 from uuid import uuid4
 
 import httpx
@@ -81,6 +81,7 @@ class VoiceReply:
     numeric_fidelity_passed: bool = True
     no_option_recommendation: bool = True
     workflow_steps: list[str] = field(default_factory=list)
+    turn_trace: list[dict] = field(default_factory=list)
     learning_feedback: dict | None = None
     outcome_offer: dict | None = None
     response_id: str | None = None
@@ -117,6 +118,7 @@ class VoiceReply:
                                     "service-failure-handoff", "commit-checked-evidence")
                        for step in self.workflow_steps)):
             raise ContractError("invalid closed workflow evidence")
+        self._validate_turn_trace()
         allowed_stages = {"screening", "intent_routing", "understanding_assessment", "values_lookup", "strategy_lookup",
                           "content_lookup", "document_screening", "foundry_draft", "foundry_requests",
                           "foundry_tools", "foundry_review", "post_processing", "audit_commit", "durable_load", "durable_commit"}
@@ -150,6 +152,18 @@ class VoiceReply:
             raise ContractError("voice requires final bound orchestrator text")
         if self.audit_status not in (None, "committed", "queued"):
             raise ContractError("an unaudited response must not be spoken")
+
+    def _validate_turn_trace(self) -> None:
+        code = re.compile(r"[a-z][a-z_]{0,39}")
+        stages = {"intent", "answer_review", "answer_repair", "output_gate", "outcome", "rate_limit"}
+        if (not isinstance(self.turn_trace, list) or len(self.turn_trace) > 16
+                or any(not isinstance(item, dict) or set(item) != {"stage", "result", "issues"}
+                       or item["stage"] not in stages
+                       or not isinstance(item["result"], str) or not code.fullmatch(item["result"])
+                       or not isinstance(item["issues"], list) or len(item["issues"]) > 6
+                       or any(not isinstance(issue, str) or not code.fullmatch(issue) for issue in item["issues"])
+                       for item in self.turn_trace)):
+            raise ContractError("invalid closed turn evidence")
 
     @classmethod
     def from_dict(cls, body: dict) -> VoiceReply:
@@ -253,6 +267,27 @@ class OutcomeAwareAudioDevice(Protocol):
     async def outcome_recorded(self, response_id: str, duplicate: bool) -> None: ...
 
 
+@runtime_checkable
+class CaptionedAudioDevice(Protocol):
+    async def play_text(self, text: str, pcm: bytes, *, final_sentence: bool = True) -> None: ...
+
+
+@runtime_checkable
+class QueuedAudioDevice(Protocol):
+    def begin_reply(self) -> None: ...
+    async def finish_reply(self) -> None: ...
+
+
+@runtime_checkable
+class MetadataAudioDevice(Protocol):
+    async def response_metadata(self, reply: VoiceReply) -> None: ...
+
+
+@runtime_checkable
+class SentenceSpeech(Protocol):
+    def synthesize_sentences(self, sentences: list[str]) -> AsyncIterator[tuple[str, bytes]]: ...
+
+
 def validate_pcm(pcm: bytes) -> None:
     if not isinstance(pcm, bytes) or not pcm or len(pcm) % 2 or len(pcm) > MAX_AUDIO_BYTES:
         raise AudioFailure("bounded nonempty PCM16 mono audio is required")
@@ -314,7 +349,7 @@ class VoiceBridge:
             raise
 
     async def _play(self, text: str, pcm: bytes, *, final_sentence: bool = True) -> None:
-        if hasattr(self.device, "play_text"):
+        if isinstance(self.device, CaptionedAudioDevice):
             await self.device.play_text(text, pcm, final_sentence=final_sentence)
         else:
             await self.device.play(pcm)
@@ -331,7 +366,7 @@ class VoiceBridge:
             sentences = checked_sentences(text)
 
             async def chunks():
-                if hasattr(self.speech, "synthesize_sentences"):
+                if isinstance(self.speech, SentenceSpeech):
                     async for item in self.speech.synthesize_sentences(sentences):
                         yield item
                 else:
@@ -357,7 +392,7 @@ class VoiceBridge:
         try:
             if acknowledgement is not None:
                 await acknowledgement
-            if hasattr(self.device, "begin_reply"):
+            if isinstance(self.device, QueuedAudioDevice):
                 self.device.begin_reply()
             while (item := await queue.get()) is not None:
                 sentence, pcm, final_sentence = item
@@ -365,7 +400,7 @@ class VoiceBridge:
                     first = self.clock()
                 await self._play(sentence, pcm, final_sentence=final_sentence)
             await producer
-            if hasattr(self.device, "finish_reply"):
+            if isinstance(self.device, QueuedAudioDevice):
                 await self.device.finish_reply()
             if first is None:
                 raise AudioFailure("no checked response audio")
@@ -419,7 +454,8 @@ class VoiceBridge:
         async def acknowledge():
             nonlocal acknowledged
             acknowledged = self.clock()
-            await self._play(ACKNOWLEDGEMENT, self.acknowledgement_audio)
+            if self.acknowledgement_audio is not None:
+                await self._play(ACKNOWLEDGEMENT, self.acknowledgement_audio)
 
         try:
             if pcm is None and text is None:
@@ -456,11 +492,11 @@ class VoiceBridge:
                 raise VoiceError("turn was already committed; do not replay or invent its audio")
             self.pending_outcome = (OutcomeOffer.from_dict(reply.outcome_offer)
                                     if reply.outcome_offer is not None else None)
-            if hasattr(self.device, "response_metadata"):
+            if isinstance(self.device, MetadataAudioDevice):
                 await self.device.response_metadata(reply)
             if getattr(self.speech, "checked_sentence_audio", False):
                 ready, substantive_first, synthesis_seconds = await self._checked_reply(reply.text, acknowledgement)
-                first_audio = acknowledged if acknowledgement is not None else substantive_first
+                first_audio = acknowledged if acknowledged is not None else substantive_first
             else:
                 audio = await self.speech.synthesize(reply.text)
                 synthesized = time.monotonic()
@@ -494,10 +530,10 @@ class VoiceBridge:
              journey_id=self.journey_id, agent_name="gg-voice-bridge",
              substantive_ms=(substantive_first - started) * 1000,
              complete_audio_ms=(ready - started) * 1000,
-             **({"acknowledgement_ms": (acknowledged - started) * 1000} if acknowledgement is not None else {}))
+             **({"acknowledgement_ms": (acknowledged - started) * 1000} if acknowledged is not None else {}))
         self.first_audio_seconds.append(first_audio - started)
         self.substantive_first_seconds.append(substantive_first - started)
-        if acknowledgement is not None:
+        if acknowledged is not None:
             self.acknowledgement_seconds.append(acknowledged - started)
         self.stage_samples.append({**reply.stage_ms,
                                    "transcription": (transcribed - stage_started) * 1000 if pcm is not None else 0.0,
@@ -535,12 +571,3 @@ class VoiceBridge:
                 if self.substantive_first_seconds else None),
         }
 
-
-def run() -> None:
-    from governedgraph.voice.voice_demo import main
-
-    raise SystemExit(main())
-
-
-if __name__ == "__main__":
-    run()

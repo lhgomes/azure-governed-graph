@@ -55,10 +55,12 @@ class JourneyStep(Executor):
                     decision = c.decide("intent", turn.utterance)
                     if not isinstance(decision, IntentDecision):
                         raise DependencyFailure("invalid intent-agent contract")
-                    if decision.route == "comprehension" and j.state != State.COMPREHENSION_CHECK:
-                        raise DependencyFailure("understanding handoff outside comprehension state")
                     j.response_language = decision.response_language
+                    c.tools.trace.note("intent", decision.reason)
                     turn.decision, turn.route = decision, decision.route
+                    if decision.route == "comprehension" and j.state != State.COMPREHENSION_CHECK:
+                        # Thanks or agreement after an answer with no meaning check pending is not a service failure.
+                        turn.route = "clarification"
                 elif self.id == "understanding-agent":
                     decision = c.decide("understanding", turn.utterance)
                     if not isinstance(decision, UnderstandingDecision):
@@ -67,6 +69,7 @@ class JourneyStep(Executor):
                         strategy = c.catalogue.get(c._current_strategy) if c._current_strategy else None
                         j.fire(Event.TEACH_BACK_PASSED, outcome="comprehension_check",
                                strategy=(strategy.strategy_id, strategy.version) if strategy else None)
+                        c.tools.trace.note("outcome", "comprehension_confirmed")
                         turn.result = TurnResult(
                             "Thank you, that is exactly right. Is there anything else I can explain?",
                             j.state.value, c._current_strategy,
@@ -88,6 +91,7 @@ class JourneyStep(Executor):
                         j.fire(Event.INTENT_IN_SCOPE)
                     turn.result = c._explain(turn.utterance, exclude=c._turn_exclusions)
                 elif self.id == "clarify-question":
+                    c.tools.trace.note("outcome", "follow_up_question", ["clarification_route"])
                     turn.result = TurnResult(
                         message("clarify_question"),
                         j.state.value,

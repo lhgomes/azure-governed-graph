@@ -825,11 +825,16 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
         return images
     monkeypatch.setattr(deploy, "image_artifacts", scoped_images)
     monkeypatch.setattr(bootstrap, "entra", lambda *_: {key: "synthetic" for key in (
-        "voiceDemoClientId", "adminClientId", "adminReaderGroupId", "adminOperatorGroupId", "contactCentreApiClientId")})
+        "voiceDemoClientId", "adminClientId", "adminReaderGroupId", "adminOperatorGroupId", "adminOwnerGroupId",
+        "contactCentreApiClientId")})
     def scoped_agents(*_, subscription):
         assert subscription == inputs.subscription
         return results, bootstrap.approved_writers(COMPOSITION, results, foundation["ai"]["projectEndpoint"])
     monkeypatch.setattr(bootstrap, "agents", scoped_agents)
+    def scoped_persona(endpoint, *, subscription):
+        assert subscription == inputs.subscription and endpoint == foundation["ai"]["projectEndpoint"]
+        return "7"
+    monkeypatch.setattr(bootstrap, "persona_agent", scoped_persona)
     monkeypatch.setattr(bootstrap, "approve_search_link", lambda *_: None)
     monkeypatch.setattr(bootstrap, "member_public_jwk", lambda *_: {"kty": "RSA", "n": "AQAB", "e": "AQAB"})
     monkeypatch.setattr(bootstrap, "initial_priors", lambda *_: {"initialize": {"initialized": False}})
@@ -845,6 +850,8 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
     workload = calls[-1][1]["configuration"]
     assert workload["orchestratorImage"] == workload["strategyServiceImage"] == workload["memberValuesImage"]
     assert workload["p2MlArtifactContainers"] == ["verified-ml-owned"]
+    assert workload["personaAgentVersion"] == "7" and workload["deployVoicePersona"] is True
+    assert calls[0][1]["deployVoicePersona"] is True
     assert receipt["readiness"] == "passed" and receipt["evaluation"] == "not_run"
     assert capsys.readouterr().out.splitlines() == [
         "Deploying foundation...", "Preparing immutable images...", "Running bounded bootstrap...",

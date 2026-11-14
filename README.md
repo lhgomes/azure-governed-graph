@@ -117,7 +117,7 @@ integration or production acceptance. See the [limits to state with any result](
 
 | The sample | |
 |---|---|
-| [Demo runbook](examples/pension_wtp/docs/demo-runbook.md) | Authorized Azure synthetic presenter, channel probes and recovery |
+| [Demo runbook](examples/pension_wtp/docs/demo-runbook.md) | Authorized Azure synthetic presenter with live AI persona role play and presenter take-over, channel probes and recovery |
 | [Member authentication](examples/pension_wtp/docs/api/member-authentication.md), [handover integration](examples/pension_wtp/docs/api/contact-centre.md) | Sample integration contracts |
 
 ## Licence

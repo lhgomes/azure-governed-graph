@@ -54,7 +54,8 @@ def test_refusal_requires_handover_and_never_excuses_a_recommendation():
 def test_every_persona_has_a_case_without_profile_or_demographics():
     cases = run_evals.persona_cases()
     profiles = load_json(DATA_DIR / "personas" / "personas.json")["personas"]
-    assert {case["persona"] for case in cases} == {profile["persona_id"] for profile in profiles}
+    assert {case["persona"] for case in cases} == {
+        profile["persona_id"] for profile in profiles if not profile.get("demo_only")}
     assert all(set(case) - {"answer_goal"} == {"id", "persona", "member_ref", "utterance", "channel",
                              "accessibility_mode", "expect"} for case in cases)
     assert {case["id"]: case["answer_goal"] for case in cases if "answer_goal" in case} == {

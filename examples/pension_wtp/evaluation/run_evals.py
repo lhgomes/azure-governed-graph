@@ -35,6 +35,8 @@ def load(name: str) -> list[dict]:
 def persona_cases() -> list[dict]:
     cases = []
     for profile in load_json(DATA_DIR / "personas" / "personas.json")["personas"]:
+        if profile.get("demo_only"):
+            continue  # presenter personas without recorded evaluation evidence stay out of the frozen case set
         must_escalate = bool({"advice-seeking", "refusal"} & set(profile["tests"]))
         cases.append({
             "id": "persona-" + profile["persona_id"], "persona": profile["persona_id"],

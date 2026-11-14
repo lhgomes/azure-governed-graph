@@ -105,6 +105,7 @@ class TurnResult:
     numeric_fidelity_passed: bool = True
     no_option_recommendation: bool = True
     workflow_steps: list[str] = field(default_factory=list)
+    turn_trace: list[dict] = field(default_factory=list)
 
 
 class Counsellor:
@@ -228,6 +229,8 @@ class Counsellor:
         self.tools.response_id = self.tools.response_id or uuid.uuid4().hex
         self.tools.trace.audit_record = None
         self.tools.trace.decision_evidence = []
+        self.tools.trace.turn_trace = []
+        self.tools.trace.rate_limit_wait = 0.0
         self._turn_exclusions: set[str] = set()
         self._prefetched = False
         try:
@@ -272,6 +275,7 @@ class Counsellor:
             context_strategy = current if current is not None and current in served else ESCALATION_STRATEGY
             self.tools.write_explainability_record(context_strategy, response_kind="acknowledgment")
         self.journey.record_response(self.tools.response_id, previous_count)
+        result.turn_trace = list(self.tools.trace.turn_trace)
         result.audit_status = getattr(self.tools.store, "last_status", "committed")
         result.stage_ms = dict(self.tools.trace.stage_ms)
         result.model_rounds = self.tools.trace.model_rounds
@@ -293,6 +297,7 @@ class Counsellor:
                         if numeric_fidelity.check(text, None, []).passed and not response_steers_choice(text)]
             text = " ".join(passages)
             text += " Please complete step-up verification to see your personal figures, or ask for a human advisor."
+            t.trace.note("outcome", "step_up_required")
             return TurnResult(text.strip(), self.journey.state.value)
         if self.journey.channel == "voice":
             self._parallel_explanation_sources(utterance)
@@ -368,6 +373,8 @@ class Counsellor:
             )
 
         self._current_strategy = strategy.strategy_id
+        self.journey.unanswered_streak = 0
+        t.trace.note("outcome", "answered")
         self.journey.strategies_tried.append(strategy.strategy_id)
         with t.trace.measure("audit_commit"):
             t.write_explainability_record(strategy.strategy_id, numeric_fidelity_passed=fid.passed)
@@ -388,6 +395,7 @@ class Counsellor:
         )
         draft = AnswerDraft.from_dict(json.loads(raw_draft))
         review = dependency("answer_review_agent", judge.judge, self.tools, utterance, strategy, draft)
+        self.tools.trace.note("answer_review", review.verdict, review.issues)
         if review.verdict != "pass" and "advice" not in review.issues:
             log.warning("answer_review_repair", extra={
                 "journey_id": self.journey.journey_id, "verdict": review.verdict, "issues": review.issues,
@@ -396,10 +404,13 @@ class Counsellor:
                                  self.tools, utterance, strategy, draft, review.issues)
             _, _, reason = self._post_process(revised, strategy)
             if reason or self.tools.trace.composition_source != "foundry":
+                self.tools.trace.note("answer_repair", "unusable")
                 return "", review
+            self.tools.trace.note("answer_repair", "revised")
             draft = AnswerDraft.from_dict(json.loads(revised))
             raw_draft = revised
             review = dependency("answer_review_agent", judge.judge, self.tools, utterance, strategy, draft)
+            self.tools.trace.note("answer_review", review.verdict, review.issues)
         if review.verdict != "pass":
             log.warning("answer_review_nonpass", extra={
                 "journey_id": self.journey.journey_id, "verdict": review.verdict, "issues": review.issues,
@@ -454,6 +465,7 @@ class Counsellor:
                 log.warning("model_grounding_contract_blocked", extra={
                     "journey_id": self.journey.journey_id, "error_type": type(error).__name__,
                 })
+                self.tools.trace.note("output_gate", "blocked", ["grounding_contract"])
                 draft = ""
         for index, candidate in enumerate((draft, template)):
             if not candidate:
@@ -462,10 +474,12 @@ class Counsellor:
                 unbound = re.sub(r"\{\{(?:value|asof):[^{}]+\}\}", "", candidate)
                 if re.search(r"\d", numeric_fidelity.ORDINAL.sub("", unbound)):
                     log.warning("model_placeholder_contract_blocked", extra={"journey_id": self.journey.journey_id})
+                    self.tools.trace.note("output_gate", "blocked", ["placeholder_contract"])
                     numeric_block()
                     continue
             if not numeric_fidelity.check(candidate, None, []).passed:
                 log.warning("unbound_figure_blocked", extra={"journey_id": self.journey.journey_id})
+                self.tools.trace.note("output_gate", "blocked", ["unbound_figure"])
                 numeric_block()
                 continue
             try:
@@ -478,22 +492,35 @@ class Counsellor:
                 continue
             fid = numeric_fidelity.check(text, self.tools.trace.values, approved)
             if not fid.passed:
+                self.tools.trace.note("output_gate", "blocked", ["numeric_fidelity"])
                 numeric_block()
             if fid.passed and not response_steers_choice(text):
                 if index:
                     self.tools.trace.composition_source = "template_fallback"
+                    self.tools.trace.note("output_gate", "template_fallback")
                     log.warning("output_gate_template_fallback", extra={"journey_id": self.journey.journey_id})
                 return text, fid, None
+            if fid.passed:
+                self.tools.trace.note("output_gate", "blocked", ["steers_choice"])
+        if not template:
+            self.tools.trace.note("output_gate", "no_approved_fallback")
         return "", numeric_fidelity.FidelityResult(False, [], ["<blocked>"]), "numeric-fidelity or steering gate failed"
 
     def _unanswered(self, reason: str) -> TurnResult:
+        """No safe, relevant answer: ask the member to rephrase once, then offer an advisor (B9 stays reachable)."""
         log.warning("answer_unavailable_without_relevant_fallback",
                     extra={"journey_id": self.journey.journey_id, "failure_domain": reason})
-        offer = self._template_for(self.catalogue.get(ESCALATION_STRATEGY))
-        text = message("safety_declined") + offer
+        streak = self.journey.unanswered_streak
+        if streak == 0:
+            offer, text = "", message("clarify_question")
+        else:
+            offer = self._template_for(self.catalogue.get(ESCALATION_STRATEGY))
+            text = message("safety_declined") + offer
         fidelity = numeric_fidelity.check(text, None, [])
-        if not offer or not fidelity.passed or response_steers_choice(text) or "{{" in text or "}}" in text:
+        if (streak and not offer) or not fidelity.passed or response_steers_choice(text) or "{{" in text or "}}" in text:
             return self._escalate("no safe answer or advisor offer available", "safety")
+        self.journey.unanswered_streak = min(streak + 1, 100)
+        self.tools.trace.note("outcome", "follow_up_question" if streak == 0 else "advisor_offer")
         self.tools.trace.composition_source = "unanswered"
         self.tools.write_explainability_record(ESCALATION_STRATEGY, response_kind="acknowledgment")
         self.journey.last_explanation = None
@@ -504,6 +531,7 @@ class Counsellor:
             self.journey.fire(Event.ESCALATE, event_id=f"esc-{uuid.uuid4().hex[:6]}")
         self.tools.escalate_to_advisor(reason_code, summary)
         self.tools.write_explainability_record(ESCALATION_STRATEGY, response_kind="escalation")
+        self.tools.trace.note("outcome", "escalated", [reason_code])
         msg = message("advice_declined") if reason_code == "advice_intent" else ""
         if reason_code == "safety":
             msg = message("safety_declined")

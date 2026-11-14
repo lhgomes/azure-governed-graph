@@ -8,6 +8,7 @@ from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 
+from governedgraph.agents.rate_limit import create_with_retry
 from governedgraph.common import domain
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import (
@@ -230,7 +231,8 @@ class FoundryDecisionAgent:
                 measurement = (tools.trace.measure("foundry_requests") if self.role == "answer-review"
                                else nullcontext())
                 with measurement:
-                    response = self.client.responses.create(
+                    response = create_with_retry(
+                        self.client.responses.create, tools,
                         input=[{"type": "message", "role": "user", "content": json.dumps(payload)}],
                         store=False, timeout=REQUEST_TIMEOUT,
                         max_output_tokens=600 if self.role == "answer-review" else 300,
