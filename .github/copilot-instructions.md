@@ -2,7 +2,7 @@
 
 You are working on **GovernedGraph**, a framework for governed, member-facing AI guidance built around a Learning Member Journey Graph.
 The framework lives in `src/governedgraph`; the bundled sample domain (pension-transition guidance for a synthetic Dutch sector fund) lives in `examples/pension_wtp`.
-Framework code must never import the sample (`tests/test_layering.py`); the sample plugs in through `GOVERNEDGRAPH_DATA_DIR` and `GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER`.
+Framework code must never import the sample (`tests/test_layering.py`); the sample plugs in through explicit domain composition, `GOVERNEDGRAPH_DATA_DIR`, and its Azure-backed member-values API.
 The design is summarised in `docs/framework.md` and `docs/architecture.md`.
 Delivery is **one release with all features and learning live from day one** - there are no phases; never add phase or calendar logic.
 

@@ -128,7 +128,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Evaluation configuration failed: {error}", file=sys.stderr)
         return 1
     os.environ.update(values)
-    os.environ["GOVERNEDGRAPH_MODE"] = "local"
     sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
     from azure.ai.projects import AIProjectClient
     from azure.identity import DefaultAzureCredential
