@@ -1,5 +1,5 @@
 # GovernedGraph
-### A framework for governed journey graphs. AI that improves with use and stays safe: bounded, auditable, fair.
+### A framework for governed journey graphs: deterministic facts, bounded learning, auditable controls, and human oversight.
 
 > **Efficiency is learned. Fairness is enforced.**
 
@@ -90,9 +90,15 @@ These are the framework's contract. Each has a code enforcement point and a regr
 | B7 | No runtime demographics; demographics exist only in a segregated cohort zone for aggregate audit |
 | B8 | Human approval for material change, not for bounded ranking adjustments |
 | B9 | Human escalation is always available |
-| B10 | The graph must continuously beat governed RAG with static expert ranking (control arm and kill switch) |
+| B10 | Compare against governed RAG with static expert ranking (control arm and kill switch); improvements require measured evidence, not assumption |
 
 Also: guidance, not advice (option-level questions escalate), and an AI disclosure at the start of every session.
+
+## Validation status
+
+**Not production-validated.** GovernedGraph is an Azure Public reference implementation with a synthetic example, not a certified or supported production service. The repository contains regression and evaluation source, but has no mandatory GitHub CI workflow; their presence is not evidence of execution or a pass. The checked-in simulated model-comparison report from 30 October 2026 records a **failed deterministic acceptance gate**, and no subsequent passing end-to-end evidence for the latest `main` was verified during this publication review. Model quality, effectiveness, fairness, latency and operational cost must be measured for a specific deployed workload.
+
+Read [validation status and evidence limitations](docs/validation-status.md) before interpreting test claims or publishing results. Public release itself remains subject to the [publication checklist](docs/public-release-checklist.md), including ownership and security review.
 
 ## What this is not
 
@@ -113,6 +119,8 @@ integration or production acceptance. See the [limits to state with any result](
 | [Administration console](docs/administration.md) | Rankings, vetoes, suspensions, decisions, conversations; protective actions and access control |
 | [Deploying](docs/deploying.md) | Governed Azure delivery and teardown |
 | [Evaluation method](docs/evaluation.md) | Hard gates, model comparison and what a result can claim |
+| [Validation status](docs/validation-status.md) | What has and has not been verified; how to record current evidence |
+| [Public-release checklist](docs/public-release-checklist.md) | Required ownership, security, asset and evidence reviews |
 | [Agent workflow diagram](docs/diagrams/agent-workflow.md) | The detailed agents-and-gates diagram, step-by-step explanation and editable Mermaid sources |
 
 | The sample | |
@@ -122,4 +130,4 @@ integration or production acceptance. See the [limits to state with any result](
 
 ## Licence
 
-[Apache-2.0](LICENSE); see [NOTICE](NOTICE). Synthetic sample data and content are illustrative only.
+[Apache-2.0](LICENSE); see [NOTICE](NOTICE). Synthetic sample data and content are illustrative only. See [contributing](CONTRIBUTING.md) and [security](SECURITY.md) for collaboration and reporting guidance. Copyright ownership and publication authority must be independently confirmed before changing repository visibility.
