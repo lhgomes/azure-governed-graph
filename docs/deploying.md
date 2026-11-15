@@ -5,6 +5,23 @@ Content Safety in francecentral. All domain data is **ILLUSTRATIVE - synthetic
 data**. Deployment readiness is not evaluation, conversational acceptance,
 production approval or human recovery.
 
+## Public adopter prerequisites and cost considerations
+
+This is a reference topology for **Azure Public**, not a one-command hosted demo. Before running the delivery driver:
+
+| Area | Review before provisioning |
+|---|---|
+| Tenant and identity | An authorized deploying human able to resolve their identity with Microsoft Graph `/me`; permission or assisted approval to register Entra applications and security groups, and to grant the scoped RBAC assignments declared in Bicep. The repository does not include reusable Azure credentials. |
+| Subscription and authorization | An approved subscription and permissions for subscription-scope/resource-group deployments, resource creation, managed identities, custom roles and role assignments; the exact role grants must be reviewed under local policy. |
+| Regions and quotas | The bundled `gg-dev` composition references `swedencentral` for the primary deployment and `francecentral` for Content Safety. Verify allowed data movement, each model's regional availability, quota and service limits before deploying or changing the template. |
+| Toolchain | Python **3.14** and pinned `requirements-azure.txt` in an **approved Azure-hosted delivery environment**, plus Azure CLI, Azure Developer CLI and Bicep. `pyproject.toml`'s broader Python metadata is not a guarantee that earlier Python versions are supported by this Azure delivery path. |
+| Private input | Create `.azure/private-delivery.json` from the placeholder example below; provide subscription, operator ID, on-call destination and composition. Keep actual identities and all receipts outside Git. The script selects/generates resource-group and naming-seed information as described below. |
+| Budget and cleanup | Estimate recurring charges and set a budget. The sample can provision Foundry model deployments, AI Search, Container Apps, ACR, APIM, Key Vault, Storage, Service Bus, Azure ML, networking, Content Safety and monitoring. Live inference, voice, evaluations, retained telemetry and idle SKUs may all cost money. Read the teardown section before provisioning. |
+
+Prices are deployment-dependent: **no cost or latency figure in the repository should be treated as an Azure quote**. Use the [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) and your subscription's actual regional quotas/SKUs. The default reference example and its sample member data are synthetic; do not substitute real members or production records without a separate security, privacy and governance assessment.
+
+For an externally visible release, also complete the [publication checklist](public-release-checklist.md). Deployment readiness alone never authorizes production use.
+
 ## Commands and explicit inputs
 
 Use Python 3.14, Azure CLI, Azure Developer CLI, Bicep and the existing verified

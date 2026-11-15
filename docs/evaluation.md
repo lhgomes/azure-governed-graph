@@ -38,6 +38,12 @@ release binding. Evaluation records the actual project, agent/model versions,
 dataset digest and evaluator versions. Readiness or an approval record alone
 does not certify semantic, channel or performance acceptance.
 
+## Welcoming letter help release
+
+The pension reference's [`release-approval.json`](../examples/pension_wtp/release-approval.json) currently references this heading as its `evidence_ref` and carries `approved: true` for a specific example writer definition. **The checked-in approval record and this cross-reference are not, by themselves, independently verified evidence of a human decision, a successful Azure deployment, or current model acceptance.** They describe a synthetic sample's governance contract; they do not grant rights to release Microsoft-owned material or approve a production workload.
+
+Before an operator relies on that record for anything beyond the illustrative reference, they must independently verify an actual authorized human decision, its supporting evidence, exact writer definition hashes and versions, and successful Azure-hosted acceptance in their own environment. The publication review did not establish such sign-off or re-run these checks. Do not treat an `evidence_ref` pointer as an attestation.
+
 ## Azure-hosted curated and adversarial journey proof
 
 The managed-identity dev-issuer Container Apps job executes synthetic cases

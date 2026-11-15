@@ -6,6 +6,8 @@ facts while enforcing ten governance boundaries (B1–B10). The pension example 
 
 ## Prerequisites
 
+This is an **Azure deployment guide**, not a local quickstart. It does not provide a local application runtime or a zero-cost simulation. Before provisioning, review [deployment prerequisites, permissions, regions and charges](deploying.md#public-adopter-prerequisites-and-cost-considerations) and the [validation status](validation-status.md).
+
 - An approved Azure Public subscription, resource group, region and managed-identity
   permissions for the selected `gg-dev` reference deployment.
 - Azure CLI, Azure Developer CLI and Bicep on the **approved Azure-hosted delivery environment**.
@@ -13,6 +15,8 @@ facts while enforcing ten governance boundaries (B1–B10). The pension example 
   delivery inputs (see [deployment](deploying.md)).
 - Separately authorized Azure-hosted validation jobs. The repository does not
   require a deployment-dependent GitHub test workflow.
+- Permission to provision subscription/resource-group resources, configure Entra applications and groups, and assign scoped roles (or an administrator who can perform those actions).
+- Reviewed service and model availability, quotas, budget and network requirements for the selected Azure regions. The example reference uses Sweden Central and France Central.
 
 ## Deploy the reference environment
 
@@ -55,6 +59,8 @@ The control arm remains on static expert rankings. Tier 2 changes require human
 governance. See [architecture](architecture.md) and [evaluation](evaluation.md).
 
 ## Verify after deployment
+
+Budget for Foundry model inference and evaluation, Speech, Azure ML, Container Apps, APIM, Search, storage, networking and observability as applicable; a successful deployment incurs real Azure charges. There is no fixed cost estimate in the repository because usage, SKU and regional prices vary. Use the [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) for a scoped estimate and perform a controlled teardown when finished.
 
 - Inspect readiness, identity boundaries, the admin console and the synthetic
   member journey in Azure.

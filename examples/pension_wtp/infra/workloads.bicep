@@ -14,8 +14,6 @@ module graph '../../../infra/workloads.bicep' = {
     memberValuesModule: 'pension_wtp.member_values_api.app:app'
     domainEnv: {
       GOVERNEDGRAPH_DATA_DIR: '/app/examples/pension_wtp/data'
-      GOVERNEDGRAPH_LOCAL_VALUES_PROVIDER: 'pension_wtp.member_values_api.data:get_member_values'
-      GOVERNEDGRAPH_TEXT_DEMO_MODULE: 'pension_wtp.demo.run_demo'
     }
     orchestratorImage: configuration.orchestratorImage
     strategyServiceImage: configuration.strategyServiceImage
