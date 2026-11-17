@@ -1,8 +1,6 @@
 # GovernedGraph
 ### A framework for governed journey graphs: deterministic facts, bounded learning, auditable controls, and human oversight.
 
-> **Efficiency is learned. Fairness is enforced.**
-
 Organisations want AI to help people understand official information (a balance, a status, a rule), but cannot let a model
 *decide*, *calculate* or *advise*. GovernedGraph is a reference framework for exactly that: a generative model **explains**,
 your deterministic systems **decide**, and a learning loop improves **how** things are explained, inside hard, auditable limits.
@@ -17,7 +15,7 @@ your deterministic systems **decide**, and a learning loop improves **how** thin
    `{{value:<id>}}`; the host fills in the real value and checks it.
 2. **Only approved strategies run, and learning only reorders them.** Azure-hosted learning ranks a catalogue of approved
    explanation styles within hard limits. It never writes content and never reads raw conversations.
-3. **Fairness can veto, and humans approve anything that widens.** A cohort audit can remove a strategy for every member.
+3. **Quality gates can veto, and humans approve anything that widens.** A cohort audit can remove a strategy for every member.
    Protective actions (suspend, freeze, escalate) are autonomous; anything that widens what the system may say, use or decide
    needs a human.
 
