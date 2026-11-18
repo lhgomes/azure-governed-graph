@@ -148,7 +148,14 @@ def member_public_jwk(runner, inputs, job: str, execution: str) -> dict:
     raise DeliveryError("issuer public verification key unavailable; no member token is requested")
 
 
-def initial_priors(runner, inputs, composition, foundation: dict, images: dict) -> dict:
+def initial_priors(runner, inputs, composition, foundation: dict, images: dict, *, catalogue_upgrade: bool = False) -> dict:
+    if catalogue_upgrade:
+        from governedgraph.strategy_service.source_upgrade import load_upgrade
+
+        upgrade = load_upgrade(composition.data_directory)
+        if upgrade is None:
+            raise DeliveryError("explicit catalogue upgrade requires a reviewed source upgrade plan")
+        upgrade.validate_approval(json.loads(composition.release_approval.read_text()))
     security = foundation["security"]
     env = {**composition.domain_environment,
            "AZURE_KEY_VAULT_URL": security["keyVaultUri"], "SNAPSHOT_SIGNING_KEY_NAME": security["signingKeyName"],
@@ -157,6 +164,8 @@ def initial_priors(runner, inputs, composition, foundation: dict, images: dict) 
     for role in ("sign", "initialize"):
         identity = "pipeline" if role == "sign" else "strategy"
         job_env = dict(env)
+        if role == "sign" and catalogue_upgrade:
+            job_env["GOVERNEDGRAPH_SOURCE_UPGRADE_APPROVAL"] = composition.release_approval.read_text()
         if role == "initialize":
             job_env.update({
                 "APPLICATIONINSIGHTS_CONNECTION_STRING": foundation["monitoring"]["appInsightsRouting"],
@@ -167,18 +176,22 @@ def initial_priors(runner, inputs, composition, foundation: dict, images: dict) 
         registry = (foundation["learning"]["mlRegistryId"].rsplit("/", 1)[1] if role == "sign"
                     else foundation["compute"]["registryName"])
         name = "job-gg-bootstrap-" + role
+        command_role = ({"sign": "sign-upgrade", "initialize": "upgrade"}[role]
+                        if catalogue_upgrade else role)
         provision(runner, inputs, "infra/bootstrap-job.bicep", {
             "location": inputs.location, "jobName": name, "environmentId": foundation["compute"]["environmentId"],
             "image": images["p2" if role == "sign" else "runtime"]["image"],
             "identityId": security[identity + "IdentityId"], "identityClientId": security[identity + "ClientId"],
             "identityPrincipalId": security[identity + "PrincipalId"], "registryName": registry,
-            "command": ["python", "-m", "governedgraph.strategy_service.bootstrap", role], "env": job_env,
+            "command": ["python", "-m", "governedgraph.strategy_service.bootstrap", command_role], "env": job_env,
         }, group=True)
         execution = run_job(runner, inputs, name)
         result = public_result(runner, inputs, name, execution)
         results[role] = {"execution_id": execution, **result}
         if role == "sign":
             env["GOVERNEDGRAPH_INITIAL_SNAPSHOT"] = json.dumps(result["snapshot"])
+            if catalogue_upgrade:
+                env["GOVERNEDGRAPH_SOURCE_UPGRADE_SIGNATURE"] = json.dumps(result["upgrade"])
     if not isinstance(results["initialize"].get("initialized"), bool) or not results["initialize"].get("snapshot_id"):
         raise DeliveryError("initial-prior job returned an invalid acknowledgement")
     return results

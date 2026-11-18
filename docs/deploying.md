@@ -45,10 +45,128 @@ build/reuse, without exposing private inputs. The evaluation command is separate
 judge usage; it never provisions, starts channel probes or issues member tokens.
 An output file must be new, preserving previous evidence.
 
+The foundation provisions Microsoft-Decision-1.1 (version `1`,
+`DataZoneStandard`, capacity `10`) in the workload's Sweden Central Foundry
+account and passes its deployment name to the orchestrator. The default name
+is `decision-v1`; set `decision_deployment` in the private delivery inputs only
+to provision it under a different name. Check subscription quota before
+delivery. The orchestrator calls that account's Decision API with Entra
+authentication and does not fall back to another model or the benchmark
+account. Verify runtime access with the synthetic in-network acceptance probe.
+
+Image builds upload a source archive before ACR queues a run. Keep `.azure` and
+`.run` excluded in `.dockerignore`: they hold private delivery inputs, tool
+environments and local evidence, not image sources. Use directory patterns
+without trailing slashes so Azure CLI's archive packer honors them as well as
+Docker. A large context upload is distinct from a failed cloud build; inspect
+the recorded run ID with `az acr task logs --subscription <subscription>
+--registry <registry> --run-id <run-id>`. The pinned OpenTelemetry API and SDK
+must use the same version because the SDK requires its exact API counterpart.
+
 After successful readiness checks, the final JSON result is followed by
 `Demo URL: https://<gateway>/demo/` and `Admin URL: https://<gateway>/admin/`
 for convenient access. When `voice_demo` is false, the summary prints
 `Demo URL: disabled` instead.
+
+### Delivery evidence and failure diagnosis
+
+Every applied attempt, including the explicitly selected catalogue upgrade,
+creates an owner-only `.run/deliveries/<run-id>/receipt.json` **before the first
+Azure command**. It records stage timestamps, deployment-script/Bicep file
+hashes, the Git commit when available, the selected subscription/group and
+exact naming seed, immutable image references, agent pins and native job
+execution IDs. A failure prints the stage and receipt path; it does not depend
+on reaching the final readiness check. `--plan` remains cloud-free and writes
+nothing.
+
+Each ARM submission uses a unique attempt/operation deployment name. Its
+compiled JSON template and exact private parameters are saved separately in
+that attempt's directory before submission; their SHA-256 hashes, Azure
+template hash and correlation ID bind the evidence to what was sent. Repeated
+bootstrap-job submissions no longer overwrite each other's parameter files.
+The deployment name identifies an operation, not a resource: existing resource
+names, naming seeds, bootstrap ordering and release-approval gates are unchanged.
+Failed or timed-out submissions collect read-only Azure deployment state and
+operation/resource IDs when available. Ctrl+C records an unconfirmed outcome
+without launching further commands.
+
+Network observations after foundation and workload provisioning capture the
+environment's reported address and VNet configuration, private DNS records and
+links, gateway subnet and private-endpoint/NIC state. These are control-plane
+observations, **not an in-network DNS or TCP test**. Unavailable observations
+are explicitly recorded and warned about; they never become an empty-list
+success or trigger automatic remediation. Readiness separately records app
+revision/image/state, native schedules, HTTP status and allowlisted gateway
+request/activity IDs. It does not retain HTTP bodies, cookies, tokens, command
+arguments, raw command output or environment values in the receipt.
+
+The private parameter snapshots can contain operator/contact configuration and
+approved application settings: do not publish the attempt directory or commit
+it. The receipt is also operational metadata, not a public report. Files are
+written atomically with owner-only permissions and remain excluded from image
+build contexts by `.dockerignore`. The existing `.run/delivery.json` remains a
+**successful** delivery receipt and points to its attempt evidence; an earlier
+success must not be interpreted as the outcome of a later failed attempt.
+These records do not resume/skip steps, authorize changes, evaluate a model or
+prove live conversational acceptance.
+
+### Gateway readiness times out before reaching a healthy app
+
+An APIM HTTP 500 is not by itself evidence that an application crashed. Inspect
+the gateway request trace and app logs. A TCP connection timeout with no matching
+application request is a connectivity failure; rebuilding the same image does
+not repair it.
+
+The foundation now provisions an explicit Container Apps environment private
+endpoint and points the existing private DNS apex/wildcard at its allocated
+address. Public network access stays disabled. This adds Private Link and
+Container Apps private-endpoint charges, but no identities or role assignments.
+Do not substitute a guessed private IP or enable public access.
+
+For an existing environment, the standalone
+[`container-apps-ingress.bicep`](../infra/modules/container-apps-ingress.bicep)
+module permits a separately authorized, scoped repair. Preview it with the
+existing location, tags, token, private-endpoints subnet and VNet IDs. The only
+intended changes are the environment private endpoint and its managed NIC,
+plus the existing environment DNS records. Do not apply a preview that replaces
+the environment, changes access grants or touches data stores.
+
+Verify the private endpoint is approved, DNS uses its allocated private address,
+and the public `/admin/` route returns 200. Also inspect learning/fairness job
+failures: a healthy container does not establish that its gateway dependencies
+are reachable. Ordinary delivery can then be rerun with the same `--reuse`
+target; no teardown, source-catalogue migration or special deployment mode is
+part of this network repair. Readiness is still not live conversational
+acceptance or an evaluation pass.
+
+The authorized 2026-11-17 recovery passed the existing delivery readiness
+function after applying the private endpoint and DNS correction. The admin
+and demo pages returned 200; an unauthenticated admin API request still returned
+403. Both existing native fairness and pipeline jobs completed successfully.
+Full foundation compilation and Azure validation of the scoped recovery module
+passed. No images, identities, access grants or data stores were replaced.
+This evidence does not establish live conversation quality or Foundry continuity
+acceptance.
+
+The subsequent baseline comparison compiled committed revision
+`82e57757486bdceb2f48258410541bbdb80057c9` and compared its generated template
+hashes with Azure's retained records from the failed attempt. Both the entire
+foundation and workload templates matched exactly, including their network,
+Container Apps, DNS and APIM modules. Azure's DNS deployment parameters confirm
+that the original records were supplied `172.130.156.57`, and the retained
+bootstrap execution preceded workload provisioning. This is stronger evidence
+than merely observing no infrastructure diff, but does not reconstruct the
+overwritten initial creation request or establish the original cause. That
+address is a valid public IP, not an invalid allocation. The private endpoint
+is a verified recovery path, not proof of an Azure allocation defect or a
+required correction to the committed internal-ingress design.
+
+Resource Graph history for the initial creation window also returned the
+expected subnet and `internal=true` with that same reported address. The retained
+change records showed provisioning/platform-version changes, not a later change
+to the internal flag or subnet. No historical deployment-template snapshots
+were returned. These observations narrow the diagnosis but still do not recover
+the initial ARM request or prove why its native ingress path was unreachable.
 
 ### Demo startup
 
@@ -80,6 +198,94 @@ implement revocable ranking or reinstatement overrides.
 
 ### Choose an existing or new deployment
 
+Reusing infrastructure is not the same as migrating governed application state.
+The second-contact release changes the source catalogue and strategy versions.
+Its writer approval is recorded under
+`HR-PENSION-WTP-SECOND-CONTACT-2026-11-17`, with human-supplied reference
+`MB-2026-11-17-001`; see [evaluation](evaluation.md#second-contact-release-approval).
+Ordinary initialization validates and preserves existing state rather than
+overwriting it. Normal `scripts.deploy` signs and initializes expert priors
+before complete workload provisioning, as usual. It never loads, validates or
+signs a source-upgrade plan and never migrates an older catalogue implicitly.
+Fresh and unchanged deployments do not depend on migration approvals or target
+hashes; future fresh catalogue versions do not require updating an old upgrade
+plan.
+
+### Explicit source-catalogue upgrade
+
+The existing 1.1.0 deployment requires a separate, explicitly selected operation,
+not the normal deployment command:
+
+Replace `rg-gg-dev-existing` below with your actual resource-group name; it is
+only a placeholder. `--plan` prints the supplied name without checking Azure.
+
+```bash
+.venv/bin/python -m scripts.upgrade_catalogue \
+  --inputs .azure/private-delivery.json --reuse rg-gg-dev-existing --plan
+.venv/bin/python -m scripts.upgrade_catalogue \
+  --inputs .azure/private-delivery.json --reuse rg-gg-dev-existing
+```
+
+The command requires an existing target; it has no `--new` option. Its `--plan`
+prints the local sequence only, not an Azure preview or acceptance result. The
+explicit upgrade shares delivery primitives but alone defers strategy
+initialization until compatible workloads have rolled out. Subsequent ordinary
+deployments use `scripts.deploy` again.
+
+Foundry delivery uses a dedicated, certificate-verified P-256 TLS transport
+(`IMP-FOUNDRY-DELIVERY-TLS`). This avoids an observed connection reset when
+OpenSSL 3.5 offers hybrid key shares, without disabling TLS 1.3, changing the
+endpoint, bypassing certificates or changing machine-wide OpenSSL settings.
+Explicit CA bundles, client certificates and proxy settings remain supported.
+Foundry request/response transport failures stop delivery and finalize the
+per-attempt receipt as failed at the current stage. If bounded bootstrap fails,
+foundation/image work may already have completed, but catalogue migration has
+not yet run; inspect the receipt before retrying against the same target.
+Azure ACR `dtu` reproduced eight missing-transport/error-handling regressions;
+`dtv` passed 23 focused TLS, failed-receipt, tenant and writer/upgrade regressions.
+Read-only Azure SDK version listings then succeeded for all six delivery agents
+using the corrected client. This validation did not run a deployment or catalogue
+migration and is not live channel acceptance.
+
+The reviewed `catalogue/source_upgrade_v1.json` explicitly
+describes the source 1.1.0 catalogue, its 1.2 expert priors and the exact
+target 1.1.1 catalogue/1.3 priors hashes. Approval
+`HR-PENSION-WTP-RANKING-COVERAGE-2026-11-18` covers all 200 supported explanation
+contexts and the existing `approved_priors` upgrade policy. Strategy definitions
+and versions are unchanged. The upgrade archives the old state and resets live
+ordering to the approved expert baseline; it does not preserve learned ordering
+in the active snapshot. Suspensions and protective pauses are retained.
+The reviewed predecessor is exact: an older or owner-managed catalogue is not
+silently treated as 1.1.0.
+
+Only this explicit upgrade first rolls out compatible workloads. During that rollout, the Strategy
+Service may serve the exact approved predecessor catalogue only after verifying
+its existing snapshots and expert baseline; unknown or mixed versions still fail
+closed. The predecessor lookup is lazy and only used for mismatched stored
+versions, not empty state or snapshots matching the running source catalogue.
+Then the existing P2 bootstrap identity signs both the target expert
+snapshot and the exact upgrade plan, after checking the matching release
+approval. The separate Strategy Service bootstrap identity verifies them,
+archives the complete predecessor state and signed upgrade as an immutable
+`catalogue-upgrades/<digest>.json` blob in the existing ranking container, then
+conditionally replaces the state manifest using its observed ETag.
+
+The new current and static snapshots are the approved target expert baseline.
+The old last-good snapshot remains in the archived state and immutable blobs,
+not an incompatible live rollback slot. Suspensions and protective owner pauses
+remain unchanged. A freeze, static override, owner catalogue, pending catalogue
+decision, widening owner override, invalid signature, archive failure or
+concurrent update blocks migration. No unfreeze, reinstatement, deletion,
+identity or permission grant is part of the upgrade.
+
+A prepared archive alone is not activation evidence: the conditional write may
+still lose a race. Successful upgrade delivery records `migrated`, the snapshot ID,
+decision reference and predecessor archive in its existing receipt. Rerunning
+after a completed upgrade preserves subsequent learning rather than resetting
+it again. Do not delete snapshots, clear suspensions or use `--new` to bypass a
+blocked upgrade. Writer approval and source changes alone are not proof that
+the migration or its Azure validation has completed.
+
 Without target flags, an interactive terminal queries resource groups in the
 configured subscription and offers existing GovernedGraph deployments or a new
 deployment. Enter accepts the previously selected group when it is still
@@ -105,9 +311,11 @@ the file is restricted to its owner. No seed or group needs to be supplied by ha
 When switching targets, the previous local azd environment is moved intact to
 `.azure/archived/<unique-id>/gg-dev/`. Its Azure resources and data are untouched.
 Selecting an older target restores its scope into a fresh active environment;
-the archive remains available. Subscription deployment names include a stable
-group-derived suffix so new deployments do not overwrite another target's
-seed-bearing deployment record. This is target identity, not a per-step ledger.
+the archive remains available. Subscription deployment names include a
+group-derived suffix plus the unique delivery attempt/operation suffix, retaining
+seed-bearing records across targets and attempts. Discovery reads successful
+deployment parameters, never parses resource identity from deployment names.
+This is target identity and diagnostic evidence, not a resumable execution ledger.
 
 For automation, use `--reuse RESOURCE_GROUP` or `--new`; they are mutually
 exclusive and do not prompt. Non-interactive delivery without either flag fails
@@ -127,6 +335,16 @@ and keep it in process memory, never command arguments or files. Merely adding
 registration helpers share this transport; Strategy identities are resolved
 before any application or assignment changes. Standalone registration tools
 require `PYTHONPATH=src:.`; export `AZURE_SUBSCRIPTION_ID` to select their tenant.
+
+If bounded bootstrap reports `AADSTS53003`, Microsoft Entra Conditional Access
+denied the operation. Successful ARM deployment or Foundry access does not prove
+the Graph operation is allowed. Do not retry on a timer: have an authorized
+tenant operator find the event in **Entra ID > Monitoring & health > Sign-in
+logs** using the reported UTC timestamp and correlation ID, and check its
+**Conditional Access** tab for the failed policy. Once an approved sign-in
+context is available, rerun with the same inputs and `--reuse RESOURCE_GROUP`.
+The printed registration plan does not confirm that an app or its assignments
+were created.
 
 Foundry agent bootstrap, standalone agent provisioning and writer verification
 resolve that subscription's tenant explicitly and bind every
@@ -152,8 +370,15 @@ Each command attempt has a wall-clock limit: 120 seconds normally, 60 minutes
 for an ACR build and 120 minutes for an ARM deployment. Only explicitly listed
 read-only operations (account/group/deployment discovery, registry metadata, application/job status/logs and private-link
 listing) retry timeouts: at most three attempts, with 2/4-second backoff. Nonzero
-command exits are not retried by this policy. The existing bounded
-managed-identity image-pull propagation retry remains separate.
+command exits are not retried by this policy. Separately, ARM delivery retries
+the known managed-identity image-pull propagation error and, in the foundation
+only, a `RequestConflict` reporting another operation on a Foundry account.
+These retries wait 30, 60, and 120 seconds. Unclassified private endpoint
+failures are not retried automatically.
+
+**Decision `IMP-FOUNDRY-WRITE-ORDER`:** finish the Foundry model deployments
+before creating or updating the project under the same account. This avoids
+competing parent-account writes without a fixed delay on successful deployments.
 
 A timeout or Ctrl+C kills and reaps the local command process group, not Azure
 operations already submitted. Writes, builds, job starts and unknown commands

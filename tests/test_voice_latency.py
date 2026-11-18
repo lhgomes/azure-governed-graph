@@ -1,5 +1,6 @@
 """ILLUSTRATIVE - synthetic data. Gates precede every substantive audio sentence."""
 import asyncio
+from contextlib import nullcontext
 from threading import Barrier, Event
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -32,7 +33,7 @@ def test_acknowledgement_is_approved_figure_free_and_versioned():
     from governedgraph.guardrails.advice_intent import response_steers_choice
 
     assert ACKNOWLEDGEMENT == "Thank you. I'm checking your official figures now."
-    assert TEMPLATES["template_set_version"] == "1.4"
+    assert TEMPLATES["template_set_version"] == "1.5"
     assert TEMPLATES["acknowledgements"]["approval_ref"] == "IMP-35-user-approval-2026-10-27"
     assert check(ACKNOWLEDGEMENT, None, []).passed and not response_steers_choice(ACKNOWLEDGEMENT)
 
@@ -201,6 +202,7 @@ def test_warmup_refuses_pinned_agent_failure_and_never_opens_member_values(monke
 
     def unavailable(*_):
         raise FoundryUnavailable("synthetic pin mismatch")
+    monkeypatch.setattr(warmup, "operation", lambda *args, **kwargs: nullcontext())
     monkeypatch.setattr(warmup.FoundryComposer, "shared", unavailable)
     with pytest.raises(VoiceError, match="pinned agent"):
         warmup.warm_runtime()
@@ -209,24 +211,28 @@ def test_warmup_refuses_pinned_agent_failure_and_never_opens_member_values(monke
 def test_warmup_uses_valid_shared_correlation_without_creating_a_member_journey(monkeypatch):
     import re
     from unittest.mock import Mock
+    from governedgraph.agents import decision_model
     from governedgraph.voice import warmup
 
-    from governedgraph.common.contracts import IntentDecision
-
-    screen, router, understanding = Mock(), Mock(), Mock()
+    screen, understanding = Mock(), Mock()
     screen.screen.return_value.allowed = True
-    router.run.return_value = IntentDecision(
-        "explanation", "transition_impact_question", "official_transition_information",
+    choose = Mock(
+        return_value={"reason": "transition_information_gap", "response_language": "en"},
     )
+    monkeypatch.setattr(warmup, "operation", lambda *args, **kwargs: nullcontext())
+    monkeypatch.setattr(decision_model, "choose", choose)
     monkeypatch.setattr(warmup.FoundryComposer, "shared", Mock())
     monkeypatch.setattr(warmup, "AzurePromptShields", lambda endpoint: screen)
-    monkeypatch.setattr(warmup.FoundryDecisionAgent, "shared",
-                        lambda role: router if role == "intent" else understanding)
+    shared = Mock(return_value=understanding)
+    monkeypatch.setattr(warmup.FoundryDecisionAgent, "shared", shared)
     warmup.warm_runtime()
     assert re.fullmatch(r"J-[a-f0-9]{32}", screen.journey_id)
-    assert router.run.call_args.args[0].journey.journey_id == screen.journey_id
     screen.screen.assert_called_once()
-    router.run.assert_called_once()
+    shared.assert_called_once_with("understanding")
+    choose.assert_called_once()
+    tools, state, _ = choose.call_args.args
+    assert tools.journey.journey_id == screen.journey_id
+    assert state["conversation_context"] == []
 
 
 def test_checked_sentences_are_transmitted_before_playback_finishes_but_all_acks_are_required():

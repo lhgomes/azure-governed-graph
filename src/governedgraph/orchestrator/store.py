@@ -166,10 +166,15 @@ class FileJourneyStore(FileRecordStore[JourneyRecord]):
 class BlobRecordStore(Generic[T]):
     """One blob per journey; renewable leases serialize requests across replicas."""
 
-    def __init__(self, account_url: str, container: str, decoder: Callable[[str], T]):
+    prefix = ""
+
+    def __init__(self, account_url: str, container: str, decoder: Callable[[str], T], *, prefix: str = ""):
         from azure.identity import DefaultAzureCredential
         from azure.storage.blob import BlobServiceClient
 
+        if prefix and not re.fullmatch(r"[a-z][a-z-]*/", prefix):
+            raise ValueError("invalid record prefix")
+        self.prefix = prefix
         self.credential = DefaultAzureCredential()
         self.client = BlobServiceClient(account_url, credential=self.credential,
                                        connection_timeout=10, read_timeout=20, retry_total=0)
@@ -181,7 +186,7 @@ class BlobRecordStore(Generic[T]):
         from azure.core.exceptions import AzureError, HttpResponseError, ResourceExistsError
 
         validate_id(journey_id)
-        blob = self.container.get_blob_client(f"{journey_id}.json")
+        blob = self.container.get_blob_client(f"{self.prefix}{journey_id}.json")
         if not blob.exists():
             try:
                 blob.upload_blob("null", overwrite=False)
@@ -231,8 +236,9 @@ class BlobRecordStore(Generic[T]):
             lease.release()
 
     def ids(self) -> Iterator[str]:
-        return (blob.name.removesuffix(".json") for blob in self.container.list_blobs()
-                if blob.name.endswith(".json"))
+        return (blob.name[len(self.prefix):].removesuffix(".json")
+                for blob in self.container.list_blobs(name_starts_with=self.prefix)
+                if blob.name.endswith(".json") and "/" not in blob.name[len(self.prefix):])
 
 
 class BlobJourneyStore(BlobRecordStore[JourneyRecord]):

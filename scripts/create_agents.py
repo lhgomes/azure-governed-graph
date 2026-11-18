@@ -19,6 +19,35 @@ from scripts.delivery import AGENT_NAMES, DeliveryError, Runner
 if TYPE_CHECKING:
     from azure.ai.projects import AIProjectClient
     from azure.core.credentials import AccessToken, TokenCredential
+    from azure.core.pipeline.transport import RequestsTransport
+
+
+def _project_transport() -> RequestsTransport:
+    import ssl
+
+    from azure.core.pipeline.transport import RequestsTransport
+    from requests import PreparedRequest, Session
+    from requests.adapters import HTTPAdapter
+
+    # This delivery path rejects OpenSSL 3.5's hybrid key-share offer.
+    # P-256 retains TLS 1.3; Requests still supplies the selected CA bundle.
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.set_ecdh_curve("prime256v1")
+
+    class VerifiedAdapter(HTTPAdapter):
+        def build_connection_pool_key_attributes(
+            self, request: PreparedRequest, verify: bool | str | None,
+            cert: tuple[str, str] | str | None = None,
+        ) -> tuple[dict[str, Any], dict[str, Any]]:
+            if verify is False:
+                raise DeliveryError("Foundry delivery requires certificate verification")
+            host, pool = super().build_connection_pool_key_attributes(request, verify, cert)
+            pool["ssl_context"] = context
+            return host, pool
+
+    session = Session()
+    session.mount("https://", VerifiedAdapter())
+    return RequestsTransport(session=session, session_owner=True)
 
 
 class _TenantCredential:
@@ -36,6 +65,7 @@ class _TenantCredential:
 @contextmanager
 def project_client(endpoint: str, *, subscription: str) -> Generator[AIProjectClient]:
     from azure.ai.projects import AIProjectClient
+    from azure.core.exceptions import ServiceRequestError, ServiceResponseError
     from azure.identity import DefaultAzureCredential
 
     if not subscription:
@@ -46,9 +76,15 @@ def project_client(endpoint: str, *, subscription: str) -> Generator[AIProjectCl
         UUID(tenant_id)
     except ValueError as error:
         raise DeliveryError("selected subscription returned an invalid Foundry tenant") from error
-    with DefaultAzureCredential(process_timeout=120) as credential:
-        with AIProjectClient(endpoint=endpoint, credential=_TenantCredential(credential, tenant_id)) as project:
-            yield project
+    try:
+        with DefaultAzureCredential(process_timeout=120) as credential, _project_transport() as transport:
+            with AIProjectClient(endpoint=endpoint, credential=_TenantCredential(credential, tenant_id),
+                                 transport=transport) as project:
+                yield project
+    except (ServiceRequestError, ServiceResponseError) as error:
+        raise DeliveryError(
+            f"Foundry transport failed for {endpoint} ({type(error).__name__}): {error}"
+        ) from error
 
 
 def definition_sha256(definition: dict[str, object]) -> str:

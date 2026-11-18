@@ -26,6 +26,7 @@ from governedgraph.contact_centre.client import ContactCentreClient
 from governedgraph.contact_centre.service import advisor_queue_html
 from governedgraph.explainability.store import AuditUnavailable
 from governedgraph.orchestrator.consumer import InboxRecord, JourneyConsumer
+from governedgraph.orchestrator.continuity import CustomerConversations
 from governedgraph.orchestrator.messaging import ServiceBusJourneyPublisher
 from governedgraph.orchestrator.service import (
     DeliveryPending, InvalidAnswerReference, MemberScopeViolation, OrchestratorService, OutcomeConflict,
@@ -58,6 +59,7 @@ def create_runtime() -> OrchestratorService:
         ServiceBusJourneyPublisher(settings.service_bus_namespace), contact_centre=centre,
         worker=ServiceBusJourneyWorker(settings.service_bus_namespace, consumer),
         feedback_store=default_feedback_store(),
+        continuity=CustomerConversations.azure(settings.journey_storage_url, settings.project_endpoint),
     )
 
 async def recover(runtime: OrchestratorService, stopped: asyncio.Event) -> None:
@@ -98,6 +100,7 @@ class StartJourney(BaseModel):
     model_config = {"extra": "forbid"}
     channel: Literal["voice", "chat", "portal", "letter_follow_up"] = "chat"
     accessibility_mode: Literal["standard", "plain_language", "english", "slower_pace", "large_text"] = "standard"
+    contact_type: Literal["first_contact", "second_contact"] = "first_contact"
 
 
 class OutcomeBody(BaseModel):
@@ -135,7 +138,8 @@ def authenticate(authorization: str) -> tuple[str, MemberIdentity]:
 def start(body: StartJourney, request: Request, authorization: str = Header("")):
     _, identity = authenticate(authorization)
     try:
-        return request.app.state.runtime.start(identity, body.channel, body.accessibility_mode)
+        return request.app.state.runtime.start(
+            identity, body.channel, body.accessibility_mode, contact_type=body.contact_type)
     except Exception as error:
         log.error("journey_start_failed", extra={"error_type": type(error).__name__})
         raise HTTPException(503, domain.message("journey_unavailable")) from None

@@ -668,6 +668,19 @@ def test_b6_blob_cas_conflict_is_explicit(blob_store):
         store.write(state, etag)
 
 
+def test_b3_b8_upgrade_archive_is_content_addressed_and_never_overwritten(blob_store):
+    store, data, calls = blob_store
+    document = {"watermark": "ILLUSTRATIVE - synthetic data", "previous_state": {"frozen": True}}
+    reference = store.archive_upgrade(document)
+    original = data[reference]
+    assert reference.startswith("catalogue-upgrades/") and reference.endswith(".json")
+    assert store.archive_upgrade(document) == reference and data[reference] == original
+    assert all(options == {"overwrite": False} for kind, _, options in calls if kind == "write")
+    data[reference] = b"modified history", "2"
+    with pytest.raises(StateUnavailable, match="immutable"):
+        store.archive_upgrade(document)
+
+
 @pytest.mark.parametrize("status", [304, 412])
 def test_blob_read_does_not_treat_unrequested_304_or_412_as_a_cache_hit(blob_store, status):
     from azure.core.exceptions import ResourceModifiedError

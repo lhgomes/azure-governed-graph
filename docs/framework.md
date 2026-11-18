@@ -21,7 +21,14 @@ fairness audit may veto for everyone.
 | **P1 runtime** | Serve a member journey: orchestrator state machine, counsellor agent, values facade, approved retrieval, strategy service, explainability store | No |
 | **P2 isolated learning** | Re-rank approved strategies from immutable aggregate counts, audit cohorts for fairness, apply tiered approval, publish a signed snapshot | Yes, bounded |
 
-There is no path from raw conversations or telemetry to prompts, templates, models or the catalogue (B4). P2 reads aggregates only.
+Raw conversations and telemetry cannot modify approved prompts, templates, models
+or the catalogue, or retrain a model (B4). P2 reads aggregates only.
+This does not prohibit operational conversation memory: authenticated customers
+can continue across contacts using their own screened, accepted Foundry dialogue.
+Only the most recent 20 completed turns are retained as conversation context;
+historical figures never replace fresh authoritative reads. Administrator test
+journeys are isolated from customer history. See
+[customer continuity](architecture.md#customer-scoped-conversation-continuity).
 
 ## Roles
 
@@ -73,7 +80,8 @@ application runtime. See [architecture](architecture.md) for the Azure design.
 - Production cost and service-level targets require workload-specific validation.
 - The synthetic handover demonstrates the integration contract, not a real callback; the contact-centre and member-token issuer are
   development stand-ins for real adapters.
-- The console shows conversation text only for synthetic `gg-dev` members, from existing traces; raw conversations are never retained
-  or fed back into behaviour (B4). Entra group authorization is required; production
+- The console shows conversation text only for synthetic `gg-dev` members, from existing traces.
+  Separate customer-scoped Foundry context supports operational continuity, not
+  model training or changes to approved behavior (B4). Entra group authorization is required; production
   administrator access needs operator review.
 - The bundled sample is a synthetic reference, **not a production service**.

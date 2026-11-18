@@ -29,6 +29,7 @@ DEMOGRAPHIC_FIELD_NAMES = frozenset(
 )
 
 CHANNELS = frozenset({"voice", "chat", "portal", "letter_follow_up"})
+CONTACT_TYPES = frozenset({"first_contact", "second_contact"})
 ACCESSIBILITY_MODES = frozenset(
     {"standard", "plain_language", "english", "slower_pace", "large_text"}
 )
@@ -210,14 +211,19 @@ class DecisionEvidence:
     def __post_init__(self):
         if not isinstance(self.role, str) or self.role not in {"intent", "understanding", "answer-review"}:
             raise ContractError("unknown decision-agent role")
-        if not isinstance(self.agent_name, str) or self.agent_name not in {
+        identities = {
             f"gg-{self.role}-agent", f"offline-fixture-{self.role}",
-        }:
+        }
+        if self.role in {"intent", "answer-review"}:
+            identities.add("microsoft-decision-1.1")
+        if not isinstance(self.agent_name, str) or self.agent_name not in identities:
             raise ContractError("unknown decision-agent identity")
         if not isinstance(self.agent_version, str) or not (
             self.agent_version.isdecimal() or self.agent_version == "fixture-1"
         ):
             raise ContractError("decision evidence requires an immutable agent version")
+        if self.agent_name == "microsoft-decision-1.1" and self.agent_version != "1":
+            raise ContractError("unexpected Decision model version")
         parser = {"intent": IntentDecision, "understanding": UnderstandingDecision,
                   "answer-review": AnswerReview}[self.role]
         parser.from_dict(self.decision)
@@ -307,7 +313,8 @@ class StrategyResponse:
 class MemberValue:
     """One official value from the deterministic system of record (B1).
 
-    The AI side never stores, computes or rounds these; it binds them by value_id (B2).
+    The AI side never owns, computes or rounds these; it binds them by value_id (B2).
+    Retained dialogue is historical quotation, not an authoritative value cache.
     """
 
     value_id: str

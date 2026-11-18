@@ -16,6 +16,7 @@ class Settings:
     project_endpoint: str = os.getenv("AZURE_AI_PROJECT_ENDPOINT", "")
     project_resource_id: str = os.getenv("AZURE_AI_PROJECT_RESOURCE_ID", "")
     ai_gateway_url: str = os.getenv("AZURE_AI_GATEWAY_URL", "")
+    decision_deployment: str = os.getenv("AZURE_AI_DECISION_DEPLOYMENT", "decision-v1")
     model_deployment: str = os.getenv("AZURE_AI_MODEL_DEPLOYMENT", "gpt-counsellor")
     agent_name: str = os.getenv("AZURE_AI_AGENT_NAME", "gg-counsellor")
     agent_version: str = os.getenv("AZURE_AI_AGENT_VERSION", "")

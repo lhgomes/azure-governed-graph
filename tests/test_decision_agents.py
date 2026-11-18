@@ -42,6 +42,77 @@ def tools():
                            trace=SimpleNamespace(decision_evidence=[]))
 
 
+@pytest.mark.parametrize("reason,language,route", [
+    ("transition_overview", "en", "explanation"),
+    ("personal_choice_or_comparison", "nl", "advice"),
+    ("explicit_human_request", "en", "human"),
+    (None, "en", None),
+])
+def test_decision_model_is_sole_intent_router(monkeypatch, reason, language, route):
+    from governedgraph.agents import decision_model
+
+    monkeypatch.setattr(FoundryDecisionAgent, "shared", lambda _: pytest.fail("legacy router called"))
+    turn = tools()
+    turn.conversation_context = lambda: []
+    turn.trace.note = lambda *_: None
+
+    def choose(_tools, _state, _questions):
+        if reason is None:
+            raise decision_model.DecisionModelUnavailable("synthetic transport failure")
+        return {"reason": reason, "response_language": language}
+
+    monkeypatch.setattr(decision_model, "choose", choose)
+    if route:
+        decision = decision_agents.run_decision("intent", turn, "Synthetic request.", CONTEXT)
+        assert (decision.route, decision.reason, decision.response_language) == (route, reason, language)
+        assert turn.trace.decision_evidence == [
+            DecisionEvidence("intent", "microsoft-decision-1.1", "1", asdict(decision)),
+        ]
+    else:
+        with pytest.raises(DecisionUnavailable):
+            decision_agents.run_decision("intent", turn, "Synthetic request.", CONTEXT)
+        assert not turn.trace.decision_evidence
+
+
+@pytest.mark.parametrize("verdict,expected", [("pass_draft", "pass"), ("advice", "fail"),
+                                              ("cannot_tell", "unassessable"), (None, None)])
+def test_decision_model_is_sole_draft_reviewer(monkeypatch, verdict, expected):
+    from governedgraph.agents import counsellor, decision_model
+
+    turn = tools()
+    turn.trace.note = lambda *_: None
+    turn.trace.model_rounds = 0
+    turn.trace.composition_source = "foundry"
+    turn.conversation_context = lambda: []
+    session = SimpleNamespace(tools=turn, decision_agents={})
+    monkeypatch.setattr(FoundryDecisionAgent, "shared", lambda _: pytest.fail("legacy reviewer called"))
+    monkeypatch.setattr(decision_agents, "review_payload", lambda *_: {})
+    def choose(_tools, _state, questions):
+        if verdict is None:
+            raise decision_model.DecisionModelUnavailable("synthetic transport failure")
+        return {
+            key: verdict if key == "verdict" else "checked" if key == "concept_rights_transfer" else "absent"
+            for key in questions
+        }
+
+    monkeypatch.setattr(decision_model, "choose", choose)
+    draft = json.dumps({"text": "The arrangement changes.", "content_ids": []})
+    if expected is None:
+        with pytest.raises(counsellor.DependencyFailure, match="answer_review_agent"):
+            counsellor.Counsellor._review_answer(session, "What changes?", None, draft)
+        assert not turn.trace.decision_evidence
+        return
+    actual, review = counsellor.Counsellor._review_answer(
+        session, "What changes?", SimpleNamespace(teach_back=True), draft,
+    )
+    assert review.verdict == expected
+    assert review.teach_back_concepts == (["rights_transfer"] if expected == "pass" else [])
+    assert actual == (draft if expected == "pass" else "")
+    assert turn.trace.decision_evidence == [
+        DecisionEvidence("answer-review", "microsoft-decision-1.1", "1", asdict(review)),
+    ]
+
+
 @pytest.mark.parametrize("role,body", [
     ("intent", NATIVE_EXPLAIN),
     ("understanding", {"outcome": "understood", "reason": "meaning_correct"}),

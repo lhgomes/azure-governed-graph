@@ -18,15 +18,20 @@ def main() -> None:
         raise ValueError("only watermarked synthetic persona fixtures may be projected")
     rows = []
     for profile in source["personas"]:
-        item = Simulation.from_dict({
-            "simulation_id": profile["persona_id"],
-            **{key: profile[key] for key in (
-                "display_name", "member_ref", "channel", "accessibility_mode",
-            )},
-            "persona": {"persona_id": profile["persona_id"], "goal": profile["goal"],
-                        "opening": profile["opening"], **profile["live"]},
-        })
-        rows.append(asdict(item))
+        for contact_type in ("first_contact", "second_contact"):
+            scenario = profile if contact_type == "first_contact" else profile["second_contact"]
+            simulation_id = profile["persona_id"] + ("-return" if contact_type == "second_contact" else "")
+            item = Simulation.from_dict({
+                "simulation_id": simulation_id,
+                "contact_type": contact_type,
+                **{key: profile[key] for key in (
+                    "display_name", "member_ref", "channel", "accessibility_mode",
+                )},
+                "persona": {"persona_id": simulation_id, "goal": scenario["goal"],
+                            "opening": scenario["opening"], **profile["live"],
+                            **(scenario["live"] if contact_type == "second_contact" else {})},
+            })
+            rows.append(asdict(item))
     if not rows or len({row["simulation_id"] for row in rows}) != len(rows):
         raise ValueError("synthetic simulations must be nonempty and unique")
     args.output.write_text(json.dumps({"watermark": WATERMARK, "simulations": rows}, indent=2) + "\n",

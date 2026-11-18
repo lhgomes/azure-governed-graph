@@ -1,6 +1,6 @@
 {
-  "vocabulary_version": "1.2",
-  "approval_ref": "IMP-102-user-approval-2026-11-04",
+  "vocabulary_version": "1.3",
+  "approval_ref": "HR-PENSION-WTP-CONTEXTUAL-FAILURE-2026-11-18",
   "watermark": "ILLUSTRATIVE - synthetic data. Closed domain vocabulary; changing it is a Tier 2 material change (B8).",
   "response_languages": ["en", "nl"],
   "default_language": "nl",
@@ -112,6 +112,7 @@
     "conversation_limit": "This conversation has reached today's limit for automated assistance, so I can't continue the explanation here. ",
     "handover_arranged": "I'm arranging for one of the fund's advisors to contact you, and I've passed on a short summary so you don't have to repeat yourself.",
     "clarify_question": "What would you like me to explain about your transition letter or official figures?",
+    "answer_unavailable": "I couldn't complete a reliable answer to your question. You don't need to repeat it. ",
     "advice_escalation_summary": "personal pension choice or option comparison",
     "journey_closed": "Your journey is with the fund's advisors. Please contact them for further help.",
     "journey_unavailable": "Journey service unavailable; please contact a fund advisor.",

@@ -111,9 +111,12 @@ def collect_candidate(candidate: str, composer, actor_factory, directory: Path, 
         def _foundry_composer(self):
             return composer
 
+    from governedgraph.orchestrator.continuity import CustomerConversations
+
     runtime = OrchestratorService(
         FileJourneyStore(directory / "journeys"), FileJourneyPublisher(directory / "queues"),
         counsellor_factory=ObservedCounsellor, audit_store=LocalExplainabilityStore(directory / "audit.jsonl"),
+        continuity=CustomerConversations.azure(settings.journey_storage_url, settings.project_endpoint),
     )
     rows = []
     for case in load("curated.jsonl") + load("adversarial.jsonl") + persona_cases():

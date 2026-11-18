@@ -66,7 +66,7 @@ class Device:
 
 
 @pytest.fixture
-def host(tmp_path, monkeypatch):
+def host(tmp_path, monkeypatch, isolated_conversations):
     monkeypatch.setattr(settings.__class__, "run_dir", property(lambda self: tmp_path))
     strategies = StrategyService(state_dir=tmp_path / "strategy", control_share=0)
     run_cycle(strategies)
@@ -79,7 +79,8 @@ def host(tmp_path, monkeypatch):
         return counsellor
 
     runtime = OrchestratorService(FileJourneyStore(tmp_path / "journeys"),
-                                  FileJourneyPublisher(tmp_path / "queues"), factory)
+                                  FileJourneyPublisher(tmp_path / "queues"), factory,
+                                  continuity=isolated_conversations)
     monkeypatch.setattr(api.app.state, "runtime", runtime, raising=False)
 
     class Authenticator:

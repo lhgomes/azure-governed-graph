@@ -17,12 +17,12 @@ import pytest
 from fastapi.testclient import TestClient
 from scripts import deploy
 from test_deploy import COMPOSITION
-from test_voice_live import Speech
+from test_voice_live import Device, Speech
 from test_voice_live import host as host  # noqa: PLC0414 - pytest fixture re-export
 from test_voice_presenter import presenter_auth as presenter_auth  # noqa: PLC0414 - pytest fixture re-export
 
 from governedgraph.agents.counsellor import DISCLOSURE
-from governedgraph.agents.live_persona import PersonaTurn
+from governedgraph.agents.live_persona import LivePersona, PersonaTurn
 from governedgraph.agents.persona_simulator import ScriptedPersona
 from governedgraph.common import domain
 from governedgraph.common.config import DATA_DIR
@@ -32,8 +32,8 @@ from governedgraph.dev import member_issuer_api
 from governedgraph.orchestrator import api
 from governedgraph.voice import presenter, simulations
 from governedgraph.voice.simulations import Simulation, load_simulations, select_simulation
-from governedgraph.voice.voice_demo import run_simulator
-from governedgraph.voice.voice_live_bridge import VoiceBridge, VoiceError, VoiceReply
+from governedgraph.voice.voice_demo import run_live_simulator, run_simulator
+from governedgraph.voice.voice_live_bridge import OrchestratorChannel, VoiceBridge, VoiceError, VoiceReply
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -221,14 +221,16 @@ def test_b7_build_projection_contains_all_personas_but_no_profiles_or_cohorts(tm
     body = json.loads(output.read_text())
     personas = json.loads((DATA_DIR / "personas/personas.json").read_text())["personas"]
     assert body["watermark"] == simulations.WATERMARK
-    assert len(body["simulations"]) == len(personas)
-    for row, profile in zip(body["simulations"], personas):
+    assert len(body["simulations"]) == len(personas) * 2
+    for row, profile in zip(body["simulations"], [profile for profile in personas for _ in range(2)]):
+        returning = row["contact_type"] == "second_contact"
+        scenario = profile["second_contact"] if returning else profile
         assert set(row) == set(Simulation.__dataclass_fields__)
         assert not (set(row) & DEMOGRAPHIC_FIELD_NAMES)
         assert "profile" not in row and "goal" not in row and "tests" not in row
-        assert row["simulation_id"] == profile["persona_id"]
-        assert row["persona"]["opening"] == profile["opening"]
-        assert row["persona"]["goal"] == profile["goal"]
+        assert row["simulation_id"] == profile["persona_id"] + ("-return" if returning else "")
+        assert row["persona"]["opening"] == scenario["opening"]
+        assert row["persona"]["goal"] == scenario["goal"]
         assert row["member_ref"] == profile["member_ref"]
         assert not (set(row["persona"]) & DEMOGRAPHIC_FIELD_NAMES)
     (tmp_path / "demo").mkdir()
@@ -277,10 +279,13 @@ def test_presenter_config_lists_every_sample_without_member_refs_or_profiles(mon
     for key in ("VOICE_DEMO_CLIENT_ID", "STRATEGY_TENANT_ID", "VOICE_DEMO_ORIGIN"):
         monkeypatch.setenv(key, "synthetic")
     rows = json.loads(presenter.config().body)["simulations"]
+    personas = json.loads((DATA_DIR / "personas/personas.json").read_text())["personas"]
     assert {row["simulation_id"] for row in rows} == {
-        "annelies", "joost", "samira", "kees", "adversarial",
+        profile["persona_id"] + suffix for profile in personas for suffix in ("", "-return")
     }
-    assert all(set(row) == {"simulation_id", "display_name", "channel", "accessibility_mode"} for row in rows)
+    assert all(set(row) == {
+        "simulation_id", "display_name", "channel", "accessibility_mode", "contact_type",
+    } for row in rows)
 
 
 @pytest.mark.parametrize("body", [
@@ -296,10 +301,63 @@ def test_presenter_config_lists_every_sample_without_member_refs_or_profiles(mon
     {"mode": "chat", "simulation_id": "samira"},
     {"mode": "presenter", "simulation_id": "samira"},
     {"mode": "benchmark", "simulation_id": "samira"},
+    {"mode": "simulator", "simulation_id": "samira-return"},
+    {"mode": "simulator", "simulation_id": "samira", "contact_type": "second_contact"},
+    {"mode": "chat", "contact_type": "third_contact"},
+    {"mode": "chat", "contact_type": {"age": 45}},
 ])
 def test_b7_browser_cannot_override_server_side_simulation_mapping(body):
     with pytest.raises((ContractError, ValueError)):
         presenter.SessionRequest.from_dict(body)
+
+
+def test_second_contact_uses_a_distinct_actor_but_the_same_authorized_member():
+    for initial in (item for item in load_simulations() if item.contact_type == "first_contact"):
+        returning = select_simulation(initial.simulation_id + "-return")
+        request = presenter.SessionRequest.from_dict({
+            "mode": "simulator", "simulation_id": returning.simulation_id, "contact_type": "second_contact",
+        })
+        assert request.contact_type == returning.contact_type == "second_contact"
+        assert returning.member_ref == initial.member_ref
+        assert returning.channel == initial.channel
+        assert returning.card().opening != initial.card().opening
+        assert returning.card().goal != initial.card().goal
+        assert returning.card().behaviours != initial.card().behaviours
+
+
+def test_b4_b7_second_contact_demo_sends_only_closed_context_and_still_delivers_disclosure():
+    async def scenario():
+        simulation = select_simulation("samira-return")
+        requests = []
+
+        def handle(request):
+            requests.append(request)
+            if request.url.path == "/journeys":
+                return httpx.Response(200, json={
+                    "journey_id": "J-returning", "text": DISCLOSURE, "state": "identified",
+                })
+            return httpx.Response(200, json={"text": "An approved explanation.", "state": "resolved"})
+
+        speech = Speech()
+        live = MagicMock(spec=LivePersona)
+        live.card = simulation.card()
+        live.next_turn = AsyncMock(side_effect=[
+            PersonaTurn(simulation.opening), PersonaTurn(FAREWELL, True),
+        ])
+        async with httpx.AsyncClient(base_url="https://synthetic/", transport=httpx.MockTransport(handle)) as client:
+            bridge = VoiceBridge(OrchestratorChannel(client, lambda: "memory-only-synthetic-bearer"),
+                                 speech, Device(), spoken_acknowledgement=False)
+            result = await run_live_simulator(bridge, Speech(), live, channel=simulation.channel,
+                                              accessibility_mode=simulation.accessibility_mode,
+                                              contact_type=simulation.contact_type)
+        assert json.loads(requests[0].content) == {
+            "channel": "chat", "accessibility_mode": "english", "contact_type": "second_contact",
+        }
+        assert json.loads(requests[1].content) == {"utterance": simulation.opening}
+        assert speech.spoken[0] == DISCLOSURE
+        assert all(request.headers["authorization"] == "Bearer memory-only-synthetic-bearer" for request in requests)
+        assert result.session_ended and len(result.replies) == 1
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("member_ref", domain.demo()["trace_members"])

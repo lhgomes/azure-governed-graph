@@ -5,6 +5,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from agent_framework import Executor, WorkflowBuilder, WorkflowContext, handler
+from governedgraph.agents.conversation_context import screening_batches
 from governedgraph.common.contracts import IntentDecision, UnderstandingDecision
 from governedgraph.common.domain import message
 from governedgraph.common.workflow import run_sync
@@ -34,7 +35,7 @@ class JourneyStep(Executor):
     @handler
     async def process(self, turn: MemberTurn, ctx: WorkflowContext[MemberTurn, object]) -> None:
         from governedgraph.agents.counsellor import (
-            ConversationQuotaExceeded, DependencyFailure, TurnResult, dependency,
+            TEMPLATES, ConversationQuotaExceeded, DependencyFailure, TurnResult, dependency,
         )
         from governedgraph.guardrails.prompt_safety import ContentSafetyError
 
@@ -47,7 +48,14 @@ class JourneyStep(Executor):
                 if self.id == "screen-input":
                     with c.tools.trace.measure("screening"):
                         screen = dependency("content_safety", c.screen.screen, turn.utterance, c.tools.auth_ref)
+                        if screen.allowed and c.tools.conversation_history:
+                            for documents in screening_batches(c.tools.conversation_history):
+                                screen = dependency("content_safety", c.screen.screen, "",
+                                                    c.tools.auth_ref, documents)
+                                if not screen.allowed:
+                                    break
                     if screen.allowed:
+                        c.tools.conversation_screened = True
                         turn.route = "intent"
                     else:
                         turn.result = c._escalate(f"input blocked: {screen.reason}", "safety")
@@ -58,9 +66,11 @@ class JourneyStep(Executor):
                     j.response_language = decision.response_language
                     c.tools.trace.note("intent", decision.reason)
                     turn.decision, turn.route = decision, decision.route
-                    if decision.route == "comprehension" and j.state != State.COMPREHENSION_CHECK:
-                        # Thanks or agreement after an answer with no meaning check pending is not a service failure.
-                        turn.route = "clarification"
+                    if decision.route == "comprehension":
+                        if j.state == State.RESOLVED:
+                            turn.route = "acknowledgment"
+                        elif j.state != State.COMPREHENSION_CHECK:
+                            turn.route = "clarification"
                 elif self.id == "understanding-agent":
                     decision = c.decide("understanding", turn.utterance)
                     if not isinstance(decision, UnderstandingDecision):
@@ -71,7 +81,7 @@ class JourneyStep(Executor):
                                strategy=(strategy.strategy_id, strategy.version) if strategy else None)
                         c.tools.trace.note("outcome", "comprehension_confirmed")
                         turn.result = TurnResult(
-                            "Thank you, that is exactly right. Is there anything else I can explain?",
+                            TEMPLATES["acknowledgements"]["conversation_complete"][j.response_language],
                             j.state.value, c._current_strategy,
                         )
                     elif decision.outcome == "uncertain":
@@ -90,6 +100,12 @@ class JourneyStep(Executor):
                     if j.state in (State.IDENTIFIED, State.RESOLVED, State.COMPREHENSION_CHECK):
                         j.fire(Event.INTENT_IN_SCOPE)
                     turn.result = c._explain(turn.utterance, exclude=c._turn_exclusions)
+                elif self.id == "acknowledge-explanation":
+                    c.tools.trace.note("outcome", "conversation_acknowledged")
+                    turn.result = TurnResult(
+                        TEMPLATES["acknowledgements"]["conversation_complete"][j.response_language],
+                        j.state.value,
+                    )
                 elif self.id == "clarify-question":
                     c.tools.trace.note("outcome", "follow_up_question", ["clarification_route"])
                     turn.result = TurnResult(
@@ -137,11 +153,11 @@ async def member_turn(counsellor: Counsellor, utterance: str) -> TurnResult:
     previous_count = len(counsellor.journey.events)
     names = (
         "screen-input", "intent-agent", "understanding-agent", "explain-with-approved-tools",
-        "clarify-question", "requested-human-handoff", "personal-advice-handoff",
+        "acknowledge-explanation", "clarify-question", "requested-human-handoff", "personal-advice-handoff",
         "service-failure-handoff", "commit-checked-evidence",
     )
     steps = {name: JourneyStep(name, counsellor, previous_count) for name in names}
-    screen, intent, understanding, explain, clarify, human, advice, failure, commit = steps.values()
+    screen, intent, understanding, explain, acknowledge, clarify, human, advice, failure, commit = steps.values()
     builder = WorkflowBuilder(start_executor=screen, name="governed-member-journey")
     builder.add_edge(screen, intent, condition=lambda turn: turn.result is None and turn.route == "intent")
     for source in (screen, intent, understanding, explain):
@@ -149,13 +165,14 @@ async def member_turn(counsellor: Counsellor, utterance: str) -> TurnResult:
                          condition=lambda turn: turn.result is None and turn.route == "technical_failure")
         builder.add_edge(source, commit, condition=lambda turn: turn.result is not None)
     for route, target in (("explanation", explain), ("comprehension", understanding),
-                          ("clarification", clarify), ("human", human), ("advice", advice)):
+                          ("acknowledgment", acknowledge), ("clarification", clarify),
+                          ("human", human), ("advice", advice)):
         builder.add_edge(intent, target, condition=lambda turn, route=route: turn.route == route)
     builder.add_edge(understanding, explain,
                      condition=lambda turn: turn.result is None and turn.route == "explanation")
     builder.add_edge(understanding, clarify,
                      condition=lambda turn: turn.result is None and turn.route == "clarification")
-    for source in (clarify, human, advice, failure):
+    for source in (acknowledge, clarify, human, advice, failure):
         builder.add_edge(source, commit)
     result = await builder.build().run(MemberTurn(utterance))
     outputs = result.get_outputs()

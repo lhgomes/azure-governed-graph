@@ -9,8 +9,23 @@ import pytest
 
 from scripts import bootstrap, delivery, deploy
 from scripts.azd_env import EnvError
+from scripts.delivery_evidence import Evidence
 
 COMPOSITION = delivery.Composition.load(delivery.ROOT / "examples/pension_wtp/deployment.json")
+
+
+@pytest.fixture
+def synthetic_upgrade_composition(tmp_path):
+    from dataclasses import replace
+    from governedgraph.strategy_service.source_upgrade import load_upgrade
+
+    upgrade = load_upgrade(COMPOSITION.data_directory)
+    assert upgrade is not None
+    approval = json.loads(COMPOSITION.release_approval.read_text())
+    approval.update(decision_ref=upgrade.decision_ref, evidence_ref=upgrade.evidence_ref)
+    path = tmp_path / "synthetic-upgrade-approval.json"
+    path.write_text(json.dumps(approval))
+    return replace(COMPOSITION, release_approval=path)
 
 
 @pytest.fixture
@@ -143,6 +158,23 @@ def test_interrupt_cleans_up_local_command_without_retry(command_processes):
     assert command_processes.delays == []
 
 
+def test_timed_out_write_retains_only_safe_command_metadata(command_processes, tmp_path, monkeypatch):
+    monkeypatch.setattr(delivery.subprocess, "run", lambda *_, **__: SimpleNamespace(returncode=1, stdout=""))
+    evidence = Evidence(tmp_path)
+    command_processes.outcomes.append("hang")
+    with pytest.raises(delivery.CommandTimeout):
+        delivery.Runner(evidence=evidence).run(
+            ["azd", "env", "set", "PRIVATE_SETTING", "DO_NOT_RECORD"], env={"TOKEN": "DO_NOT_RECORD"})
+    evidence.finish("failed")
+    text = evidence.path.read_text()
+    result = json.loads(text)
+    assert result["status"] == "failed"
+    assert result["commands"][0]["status"] == "timed_out"
+    assert result["commands"][0]["operation"] == "azd env set"
+    assert len(command_processes.calls) == 1
+    assert "DO_NOT_RECORD" not in text and "private partial" not in text and "PRIVATE_SETTING" not in text
+
+
 @pytest.mark.parametrize("failure,exit_code,message", [
     (KeyboardInterrupt(), 130, "Delivery interrupted"),
     (delivery.CommandTimeout("az acr build", 3600), 1, "Delivery failed: az acr build timed out after 3600s"),
@@ -186,11 +218,23 @@ def test_command_failure_includes_bounded_operator_diagnostics():
     assert "invalid command" in str(error)
 
 
-@pytest.mark.parametrize("diagnostic,retries", [
-    ("InvalidParameterValueInContainerTemplate: unable to pull image using Managed identity", 3),
-    ("AuthorizationFailed", 0),
+FOUNDRY_PARENT_CONFLICT = (
+    '{"code":"RequestConflict","message":"Another operation is being performed on the parent resource '
+    "'/subscriptions/synthetic/resourceGroups/rg-gg-dev/providers/Microsoft.CognitiveServices/accounts/ais-gg'. "
+    'Please try again later."}'
+)
+
+
+@pytest.mark.parametrize("template,diagnostic,retries", [
+    ("infra/bootstrap.bicep", "InvalidParameterValueInContainerTemplate: unable to pull image using Managed identity", 3),
+    ("infra/main.bicep", FOUNDRY_PARENT_CONFLICT, 3),
+    ("infra/bootstrap.bicep", FOUNDRY_PARENT_CONFLICT, 0),
+    ("infra/main.bicep", FOUNDRY_PARENT_CONFLICT.replace("Microsoft.CognitiveServices/accounts",
+                                                        "Microsoft.Network/privateEndpoints"), 0),
+    ("infra/main.bicep", "InternalServerError", 0),
+    ("infra/main.bicep", "AuthorizationFailed", 0),
 ])
-def test_provision_retries_only_bounded_identity_image_pull_propagation(tmp_path, monkeypatch, diagnostic, retries):
+def test_provision_retries_only_known_transient_errors(tmp_path, monkeypatch, template, diagnostic, retries):
     monkeypatch.setattr(delivery, "ROOT", tmp_path)
     delays, calls = [], []
     monkeypatch.setattr(delivery.time, "sleep", delays.append)
@@ -200,7 +244,7 @@ def test_provision_retries_only_bounded_identity_image_pull_propagation(tmp_path
             raise delivery.CommandError(args, 1, diagnostic)
     inputs = SimpleNamespace(subscription="synthetic", resource_group="rg-gg-dev", location="swedencentral")
     with pytest.raises(delivery.CommandError):
-        delivery.provision(Runner(), inputs, "infra/bootstrap.bicep", {})
+        delivery.provision(Runner(), inputs, template, {})
     assert len(calls) == retries + 1
     assert all(call == calls[0] for call in calls)
     assert delays == ([30, 60, 120] if retries else [])
@@ -227,7 +271,10 @@ def test_each_registry_build_uses_only_its_own_dependency_family(monkeypatch):
             assert "p2-registry" not in " ".join(args.values())
 
 
-def test_initializer_receives_existing_keyless_telemetry_without_widening_signer_authority(monkeypatch):
+@pytest.mark.parametrize("catalogue_upgrade", [False, True])
+def test_initializer_receives_existing_keyless_telemetry_without_widening_signer_authority(
+        monkeypatch, catalogue_upgrade, synthetic_upgrade_composition):
+    composition = synthetic_upgrade_composition if catalogue_upgrade else COMPOSITION
     calls = []
     foundation = {
         "security": {key: "synthetic-" + key for key in (
@@ -250,15 +297,31 @@ def test_initializer_receives_existing_keyless_telemetry_without_widening_signer
     monkeypatch.setattr(bootstrap, "provision", provision)
     monkeypatch.setattr(bootstrap, "run_job", lambda runner, inputs, name: name + "-execution")
     monkeypatch.setattr(bootstrap, "public_result", lambda runner, inputs, name, execution: (
-        {"snapshot": {"snapshot_id": "signed-expert-priors"}} if name.endswith("-sign")
+        {"snapshot": {"snapshot_id": "signed-expert-priors"},
+         **({"upgrade": {"plan_sha256": "a" * 64, "signature": "synthetic", "signer": "synthetic"}}
+            if catalogue_upgrade else {})} if name.endswith("-sign")
         else {"initialized": False, "snapshot_id": "preserved-learned-snapshot"}))
-    result = bootstrap.initial_priors(None, inputs, COMPOSITION, foundation, images)
+    if not catalogue_upgrade:
+        from governedgraph.strategy_service import source_upgrade
+        monkeypatch.setattr(source_upgrade, "load_upgrade", lambda *_: pytest.fail("ordinary bootstrap loaded an upgrade plan"))
+    result = bootstrap.initial_priors(None, inputs, composition, foundation, images, catalogue_upgrade=catalogue_upgrade)
     sign, initialize = calls
     assert sign["identityId"] == foundation["security"]["pipelineIdentityId"]
     assert initialize["identityId"] == foundation["security"]["strategyIdentityId"]
     assert "APPLICATIONINSIGHTS_CONNECTION_STRING" not in sign["env"]
     assert "AZURE_AI_PROJECT_RESOURCE_ID" not in sign["env"]
     assert "GOVERNEDGRAPH_INITIAL_SNAPSHOT" not in sign["env"]
+    if catalogue_upgrade:
+        assert json.loads(sign["env"]["GOVERNEDGRAPH_SOURCE_UPGRADE_APPROVAL"]) == json.loads(
+            composition.release_approval.read_text())
+        assert "GOVERNEDGRAPH_SOURCE_UPGRADE_APPROVAL" not in initialize["env"]
+        assert json.loads(initialize["env"]["GOVERNEDGRAPH_SOURCE_UPGRADE_SIGNATURE"]) == {
+            "plan_sha256": "a" * 64, "signature": "synthetic", "signer": "synthetic",
+        }
+    else:
+        assert not any(key.startswith("GOVERNEDGRAPH_SOURCE_UPGRADE") for job in calls for key in job["env"])
+    assert sign["command"][-1] == ("sign-upgrade" if catalogue_upgrade else "sign")
+    assert initialize["command"][-1] == ("upgrade" if catalogue_upgrade else "initialize")
     assert initialize["env"]["APPLICATIONINSIGHTS_CONNECTION_STRING"] == foundation["monitoring"]["appInsightsRouting"]
     assert initialize["env"]["AZURE_AI_PROJECT_RESOURCE_ID"] == foundation["ai"]["projectResourceId"]
     assert initialize["env"]["GOVERNEDGRAPH_SERVICE_NAME"] == "gg-bootstrap-initialize"
@@ -286,7 +349,8 @@ def test_entra_bootstrap_imports_modules_and_binds_exact_recovery_scope(monkeypa
     monkeypatch.setattr(configure_contact_centre, "configure",
                         lambda *args, **kwargs: {"client_id": "contact", "audience": "contact"})
     monkeypatch.setattr(configure_admin_console, "configure", lambda *args, **kwargs: {
-        "client_id": "admin", "reader_group_id": "reader", "operator_group_id": "operator"})
+        "client_id": "admin", "reader_group_id": "reader", "operator_group_id": "operator", "owner_group_id": "owner"})
+    monkeypatch.setattr(configure_admin_console, "signed_in_user", lambda: "synthetic-owner")
     monkeypatch.setattr(configure_voice_demo, "configure", lambda *args, **kwargs: {"client_id": "voice"})
     inputs = SimpleNamespace(subscription="selected-subscription", operator_id="approved-operator", environment="gg-dev",
                              naming_seed="synthetic", voice_demo=True)
@@ -338,12 +402,226 @@ def test_each_member_facing_role_has_its_own_identity_and_values_have_only_regis
 @pytest.fixture
 def private_delivery(tmp_path, monkeypatch):
     monkeypatch.setattr(delivery, "ROOT", tmp_path)
+    monkeypatch.setattr(deploy, "ROOT", tmp_path)
     path = tmp_path / "inputs.json"
     raw = {"subscription": "00000000-0000-0000-0000-000000000001",
         "naming_seed": "00000000-0000-0000-0000-000000000002",
         "operator_id": "00000000-0000-0000-0000-000000000003", "on_call_email": "synthetic@example.invalid",
         "composition": "examples/pension_wtp/deployment.json"}
     return path, raw
+
+
+@pytest.fixture
+def delivery_flow(private_delivery, monkeypatch):
+    from scripts import create_agents
+    from governedgraph.strategy_service import source_upgrade
+
+    path, raw = private_delivery
+    raw["voice_demo"] = False
+    path.write_text(json.dumps(raw))
+    calls = []
+    foundation = {"compute": {"environmentId": "/synthetic/environment"},
+                  "ai": {"projectEndpoint": "https://synthetic.services.ai.azure.com/api/projects/test"}}
+    images = {role: {"image": "synthetic.azurecr.io/" + role + "@sha256:" + "a" * 64}
+              for role in ("runtime", "p2", "fixtures", "probe")}
+    pins = {role: {"agent_name": name, "agent_version": "17"} for role, name in delivery.AGENT_NAMES.items()}
+    outputs = {"ADMIN_CONSOLE_URL": "https://synthetic.azure-api.net/admin/", "FAIRNESS_CLIENT_ID": "synthetic"}
+    registrations = dict.fromkeys(("voiceDemoClientId", "adminClientId", "adminReaderGroupId",
+                                  "adminOperatorGroupId", "adminOwnerGroupId", "contactCentreApiClientId"), "synthetic")
+
+    def note(name, result=None):
+        def action(*args, **kwargs):
+            calls.append(name)
+            return result
+        return action
+
+    def provision(_runner, _inputs, template, values):
+        if template == "infra/main.bicep":
+            calls.append("foundation")
+            return {"foundation": foundation}
+        if template == "infra/bootstrap.bicep":
+            calls.append("bootstrap")
+            return {"issuerJob": "issuer", "contentJob": "content", "fixturesJob": "fixtures"}
+        assert template == COMPOSITION.workload_template
+        calls.append("workloads")
+        assert values["configuration"]["orchestratorImage"] == images["runtime"]["image"]
+        return {"deployment": outputs}
+
+    monkeypatch.setattr(delivery.Composition, "load", lambda _: COMPOSITION)
+    monkeypatch.setattr(deploy, "environment", note("environment"))
+    monkeypatch.setattr(create_agents, "provision", lambda *_, **__: {})
+    monkeypatch.setattr(bootstrap, "release_approval", note("release approval", {}))
+    monkeypatch.setattr(deploy, "provision", provision)
+    monkeypatch.setattr(deploy, "image_artifacts", note("images", images))
+    monkeypatch.setattr(bootstrap, "entra", note("entra", registrations))
+    monkeypatch.setattr(bootstrap, "agents", note("agents", (pins, {})))
+    monkeypatch.setattr(bootstrap, "approve_search_link", note("search link"))
+    monkeypatch.setattr(bootstrap, "initial_priors", note("initial priors", {"initialize": {"initialized": True}}))
+    monkeypatch.setattr(bootstrap, "member_public_jwk", note("public key", {}))
+    monkeypatch.setattr(bootstrap, "ml_containers", lambda *_: [])
+    monkeypatch.setattr(deploy, "network_snapshot", lambda *_: None)
+    monkeypatch.setattr(deploy, "run_job", lambda _runner, _inputs, name: calls.append(name) or name + "-execution")
+    monkeypatch.setattr(source_upgrade, "load_upgrade", lambda *_: pytest.fail("ordinary delivery loaded an upgrade"))
+    return SimpleNamespace(path=path, raw=raw, calls=calls, outputs=outputs, foundation=foundation)
+
+
+def test_normal_delivery_preserves_baseline_order_and_never_loads_catalogue_migration(delivery_flow, monkeypatch):
+    inputs = delivery.Inputs.load(delivery_flow.path)
+    runner = SimpleNamespace(run=lambda *_: "")
+    monkeypatch.setattr(deploy, "readiness", lambda *_: delivery_flow.calls.append("readiness"))
+    assert deploy.deploy(runner, inputs, COMPOSITION)["readiness"] == "passed"
+    assert delivery_flow.calls == [
+        "environment", "release approval", "foundation", "images", "entra", "agents", "search link",
+        "bootstrap", "issuer", "public key", "initial priors", "content", "fixtures", "workloads", "readiness",
+    ]
+
+
+def test_conditional_access_denial_finishes_bootstrap_receipt_without_retry(delivery_flow, monkeypatch, capsys):
+    from governedgraph.strategy_service.provision_auth import GraphError
+
+    def deny(*args):
+        delivery_flow.calls.append("entra denied")
+        raise GraphError("POST", "applications", 400, "AADSTS53003; correlation ID: synthetic-correlation")
+
+    monkeypatch.setattr(bootstrap, "entra", deny)
+    monkeypatch.setattr(deploy, "select_target", lambda _runner, _path, _raw, inputs, **_: inputs)
+    assert deploy.main(["--inputs", str(delivery_flow.path), "--reuse", "rg-gg-dev-existing"]) == 1
+    receipt_path, = (delivery.ROOT / ".run/deliveries").glob("*/receipt.json")
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] == "failed" and receipt["stage"] == "bounded bootstrap"
+    assert receipt["stages"][-1]["status"] == "failed"
+    assert delivery_flow.calls == ["environment", "release approval", "foundation", "images", "entra denied"]
+    stderr = capsys.readouterr().err
+    assert "Entra Conditional Access blocked" in stderr
+    assert "synthetic-correlation" in stderr and str(receipt_path) in stderr
+
+
+def test_readiness_failure_keeps_staged_evidence_without_private_arguments_or_http_body(
+        delivery_flow, monkeypatch, capsys):
+    from email.message import Message
+    from io import BytesIO
+    from urllib.error import HTTPError
+
+    request_id = "00000000-0000-0000-0000-000000000004"
+    apps = [{"name": "ca-" + role, "tags": {"azd-service-name": role}, "properties": {
+        "provisioningState": "Succeeded", "runningStatus": "Running", "latestReadyRevisionName": role + "--ready",
+        "template": {"containers": [{"image": "synthetic@sha256:" + "a" * 64,
+                                     "env": [{"name": "DO_NOT_RECORD", "value": "DO_NOT_RECORD"}]}]},
+    }} for role in ("orchestrator", "strategy-service", "member-values", "contact-centre", "admin")]
+    jobs = [{"name": name, "properties": {"configuration": {"triggerType": "Schedule"}}}
+            for name in ("job-gg-p2-fairness", "job-gg-p2-pipeline")]
+
+    def run(_runner, args):
+        if args[:3] == ["az", "containerapp", "list"]:
+            return json.dumps(apps)
+        if args[:4] == ["az", "containerapp", "job", "list"]:
+            return json.dumps(jobs)
+        assert args[:3] == ["azd", "env", "set"]
+        return ""
+
+    def unavailable(url, *, timeout):
+        assert timeout == 30
+        headers = Message()
+        headers["apim-request-id"] = request_id
+        headers["Set-Cookie"] = "DO_NOT_RECORD"
+        headers["Content-Type"] = "application/json"
+        raise HTTPError(url, 500, "DO_NOT_RECORD", headers,
+                        BytesIO(json.dumps({"activityId": request_id, "message": "DO_NOT_RECORD"}).encode()))
+
+    monkeypatch.setattr(delivery.Runner, "run", run)
+    monkeypatch.setattr(deploy, "select_target", lambda _runner, _path, _raw, inputs, **_: inputs)
+    monkeypatch.setattr(deploy, "urlopen", unavailable)
+    assert deploy.main(["--inputs", str(delivery_flow.path), "--new"]) == 1
+    evidence_path, = (delivery.ROOT / ".run/deliveries").glob("*/receipt.json")
+    text = evidence_path.read_text()
+    evidence = json.loads(text)
+    assert evidence["status"] == "failed" and evidence["stage"] == "readiness"
+    assert evidence["http"][0]["http_status"] == 500
+    assert evidence["http"][0]["request_ids"] == {"apim-request-id": request_id, "activityId": request_id}
+    assert len(evidence["readiness"]["apps"]) == 5 and len(evidence["readiness"]["jobs"]) == 2
+    assert evidence["images"]["runtime"]["image"].startswith("synthetic.azurecr.io/")
+    assert evidence["stages"][-2]["name"] == "complete workloads"
+    assert evidence["stages"][-2]["status"] == "succeeded"
+    assert not (delivery.ROOT / ".run/delivery.json").exists()
+    captured = capsys.readouterr()
+    assert "HTTP 500 at https://synthetic.azure-api.net/admin/" in captured.err
+    assert str(evidence_path) in captured.err and request_id in captured.err
+    for private in ("DO_NOT_RECORD", delivery_flow.raw["operator_id"], delivery_flow.raw["on_call_email"]):
+        assert private not in text and private not in captured.err
+
+
+def test_each_submission_preserves_exact_templates_parameters_and_azure_correlation(private_delivery):
+    path, raw = private_delivery
+    evidence = Evidence(path.parent)
+    compiled = {"metadata": {"_generator": {"templateHash": "123"}}, "resources": []}
+    calls = []
+
+    class Runner:
+        evidence: Evidence
+
+        def run(self, args):
+            calls.append(args)
+            if args[:3] == ["az", "bicep", "build"]:
+                return json.dumps(compiled)
+            assert args[:4] == ["az", "deployment", "group", "create"]
+            return json.dumps({"id": "/synthetic/deployment", "properties": {
+                "provisioningState": "Succeeded", "correlationId": "synthetic-correlation", "templateHash": "123",
+                "outputs": {"result": {"value": "ok"}},
+            }})
+    runner = Runner()
+    runner.evidence = evidence
+    inputs = delivery.Inputs.from_dict({**raw, "resource_group": "rg-gg-dev"})
+    for value in ("sign", "initialize"):
+        assert delivery.provision(runner, inputs, "infra/bootstrap-job.bicep",
+                                  {"role": value}, group=True) == {"result": "ok"}
+    first, second = json.loads(evidence.path.read_text())["deployments"]
+    assert first["name"] != second["name"] and len(second["name"]) <= 64
+    for record, value in ((first, "sign"), (second, "initialize")):
+        template = Path(record["template_file"])
+        parameters = Path(record["parameters_file"])
+        assert json.loads(template.read_text()) == compiled
+        assert json.loads(parameters.read_text())["parameters"]["role"]["value"] == value
+        assert record["template_sha256"] == hashlib.sha256(template.read_bytes()).hexdigest()
+        assert record["parameters_sha256"] == hashlib.sha256(parameters.read_bytes()).hexdigest()
+        assert record["correlation_id"] == "synthetic-correlation" and record["template_hash"] == "123"
+        assert parameters.stat().st_mode & 0o777 == 0o600
+        assert template.stat().st_mode & 0o777 == 0o600
+    submissions = [args for args in calls if args[:4] == ["az", "deployment", "group", "create"]]
+    assert len(submissions) == 2
+    assert submissions[0][submissions[0].index("--template-file") + 1] == first["template_file"]
+
+
+def test_failed_submission_collects_read_only_azure_state_without_resubmitting(private_delivery):
+    path, raw = private_delivery
+    evidence = Evidence(path.parent)
+    calls = []
+
+    class Runner:
+        evidence: Evidence
+
+        def run(self, args):
+            calls.append(args)
+            if args[:3] == ["az", "bicep", "build"]:
+                return '{"resources":[]}'
+            if args[:4] == ["az", "deployment", "group", "create"]:
+                raise delivery.CommandError(args, 1, "DO_NOT_RECORD")
+            if args[:4] == ["az", "deployment", "group", "show"]:
+                return '{"state":"Failed","correlation_id":"synthetic-correlation","error_code":"DeploymentFailed"}'
+            assert args[:5] == ["az", "deployment", "operation", "group", "list"]
+            return '[{"state":"Failed","resource":"/synthetic/backend"}]'
+    runner = Runner()
+    runner.evidence = evidence
+    inputs = delivery.Inputs.from_dict({**raw, "resource_group": "rg-gg-dev"})
+    with pytest.raises(delivery.CommandError):
+        delivery.provision(runner, inputs, "infra/bootstrap-job.bicep", {}, group=True)
+    result = json.loads(evidence.path.read_text())
+    assert result["deployments"][0]["status"] == "failed"
+    observed = [item["result"] for item in result["observations"].values()]
+    assert any(isinstance(item, dict) and item.get("correlation_id") == "synthetic-correlation" for item in observed)
+    assert "DO_NOT_RECORD" not in evidence.path.read_text()
+    assert sum(args[:4] == ["az", "deployment", "group", "create"] for args in calls) == 1
+    assert all(args[args.index("--subscription") + 1] == inputs.subscription
+               for args in calls if args[:2] == ["az", "deployment"])
 
 
 @pytest.mark.parametrize("resource_group", [None, "rg-gg-dev-test"])
@@ -495,6 +773,14 @@ def test_b8_the_sample_authorization_covers_only_its_exact_shipped_writer_defini
     approval = json.loads(COMPOSITION.release_approval.read_text())
     assert approval["writers"]["gg-counsellor"]["definition_sha256"] == results["counsellor"]["definition_sha256"]
     assert approval["writers"]["gg-counsellor-voice-compact"]["definition_sha256"] == results["voice-compact"]["definition_sha256"]
+
+
+def test_normal_release_approval_does_not_depend_on_upgrade_artifacts(tmp_path):
+    directory = tmp_path / "catalogue"
+    directory.mkdir()
+    (directory / "source_upgrade_v1.json").write_text("deliberately invalid obsolete migration metadata")
+    composition = SimpleNamespace(release_approval=COMPOSITION.release_approval, data_directory=tmp_path)
+    assert bootstrap.release_approval(composition, writer_plans()) == json.loads(COMPOSITION.release_approval.read_text())
 
 
 @pytest.mark.parametrize("change", [
@@ -699,6 +985,7 @@ def test_foundry_tokens_and_refreshes_stay_in_the_selected_tenant(monkeypatch, f
     @contextmanager
     def project_factory(**kwargs):
         assert kwargs["endpoint"] == endpoint
+        assert kwargs["transport"].session is not None
         credentials.append(kwargs["credential"])
         try:
             yield project
@@ -722,6 +1009,71 @@ def test_foundry_tokens_and_refreshes_stay_in_the_selected_tenant(monkeypatch, f
                         (("https://ai.azure.com/.default",),
                          {"claims": "synthetic-claims", "enable_cae": True, "tenant_id": tenant})]
     assert closed == ["project", "credential"]
+
+
+@pytest.mark.parametrize("verify, cert", [(True, None), ("synthetic-ca.pem", ("synthetic-cert.pem", "synthetic-key.pem"))])
+def test_foundry_transport_preserves_verified_tls_and_explicit_trust(verify, cert):
+    import ssl
+    from requests import Request
+    from scripts import create_agents
+
+    url = "https://approved.services.ai.azure.com/api/projects/test"
+    request = Request("GET", url).prepare()
+    with create_agents._project_transport() as transport:
+        adapter = transport.session.get_adapter(url)
+        host, pool = adapter.build_connection_pool_key_attributes(request, verify, cert)
+        context = pool["ssl_context"]
+        assert host["host"] == "approved.services.ai.azure.com"
+        assert context.check_hostname and context.verify_mode == ssl.CERT_REQUIRED
+        assert context.minimum_version >= ssl.TLSVersion.TLSv1_2
+        assert context.maximum_version == ssl.TLSVersion.MAXIMUM_SUPPORTED
+        assert pool["cert_reqs"] == "CERT_REQUIRED"
+        if isinstance(verify, str):
+            assert pool["ca_certs"] == verify
+            assert (pool["cert_file"], pool["key_file"]) == cert
+        with pytest.raises(delivery.DeliveryError, match="certificate verification"):
+            adapter.build_connection_pool_key_attributes(request, False, None)
+
+
+@pytest.mark.parametrize("upgrade", [False, True])
+@pytest.mark.parametrize("failure", ["ServiceRequestError", "ServiceResponseError"])
+def test_foundry_transport_failure_finishes_delivery_evidence(private_delivery, monkeypatch, capsys, upgrade, failure):
+    from contextlib import nullcontext
+    import azure.ai.projects
+    import azure.core.exceptions
+    import azure.identity
+    from scripts import create_agents, upgrade_catalogue
+    from scripts.delivery_evidence import stage
+
+    path, raw = private_delivery
+    path.write_text(json.dumps(raw))
+    entrypoint = upgrade_catalogue if upgrade else deploy
+    endpoint = "https://approved.services.ai.azure.com/api/projects/test"
+    error = getattr(azure.core.exceptions, failure)("ILLUSTRATIVE - synthetic TLS failure")
+    monkeypatch.setattr(entrypoint, "ROOT", delivery.ROOT)
+    monkeypatch.setattr(delivery.Composition, "load", lambda _: COMPOSITION)
+    monkeypatch.setattr(entrypoint, "select_target", lambda _runner, _path, _raw, inputs, **_: inputs)
+    monkeypatch.setattr(delivery.Runner, "run", lambda *_: "00000000-0000-0000-0000-000000000004")
+    monkeypatch.setattr(azure.identity, "DefaultAzureCredential", lambda **_: nullcontext(object()))
+    monkeypatch.setattr(azure.ai.projects, "AIProjectClient", lambda **_: nullcontext(object()))
+
+    def perform(runner, inputs, composition, **kwargs):
+        stage(runner, "bounded bootstrap")
+        with create_agents.project_client(endpoint, subscription=inputs.subscription):
+            raise error
+        pytest.fail("transport failure continued delivery")
+
+    monkeypatch.setattr(deploy, "deploy", perform)
+    assert entrypoint.main(["--inputs", str(path), "--reuse", "rg-gg-dev-existing"]) == 1
+    receipt_path, = (delivery.ROOT / ".run/deliveries").glob("*/receipt.json")
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["status"] == "failed" and receipt["stage"] == "bounded bootstrap"
+    assert receipt["stages"][-1]["status"] == "failed"
+    assert receipt["error_type"] == "DeliveryError"
+    assert not receipt["jobs"]
+    stderr = capsys.readouterr().err
+    assert failure in stderr and endpoint in stderr and str(receipt_path) in stderr
+    assert "synthetic TLS failure" in stderr
 
 
 @pytest.mark.parametrize("subscription, response", [
@@ -798,9 +1150,12 @@ def test_bootstrap_reuses_a_single_active_execution_and_rejects_ambiguous_metada
             delivery.run_job(Runner(), inputs, "bootstrap", sleep=lambda _: None)
 
 
-def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(monkeypatch, capsys):
+@pytest.mark.parametrize("catalogue_upgrade", [False, True])
+def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
+        monkeypatch, capsys, catalogue_upgrade, synthetic_upgrade_composition):
     from dataclasses import replace
     from scripts import create_agents
+    composition = synthetic_upgrade_composition if catalogue_upgrade else COMPOSITION
     monkeypatch.setattr(create_agents, "settings", replace(
         create_agents.settings, agent_name="legacy-synthetic-counsellor", fairness_agent_name="legacy-synthetic-fairness"))
     calls = []
@@ -829,7 +1184,7 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
         "contactCentreApiClientId")})
     def scoped_agents(*_, subscription):
         assert subscription == inputs.subscription
-        return results, bootstrap.approved_writers(COMPOSITION, results, foundation["ai"]["projectEndpoint"])
+        return results, bootstrap.approved_writers(composition, results, foundation["ai"]["projectEndpoint"])
     monkeypatch.setattr(bootstrap, "agents", scoped_agents)
     def scoped_persona(endpoint, *, subscription):
         assert subscription == inputs.subscription and endpoint == foundation["ai"]["projectEndpoint"]
@@ -837,7 +1192,11 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
     monkeypatch.setattr(bootstrap, "persona_agent", scoped_persona)
     monkeypatch.setattr(bootstrap, "approve_search_link", lambda *_: None)
     monkeypatch.setattr(bootstrap, "member_public_jwk", lambda *_: {"kty": "RSA", "n": "AQAB", "e": "AQAB"})
-    monkeypatch.setattr(bootstrap, "initial_priors", lambda *_: {"initialize": {"initialized": False}})
+    def initialize_in_selected_order(*_, **kwargs):
+        assert kwargs.get("catalogue_upgrade", False) is catalogue_upgrade
+        assert calls[-1][0] == (COMPOSITION.workload_template if catalogue_upgrade else "infra/bootstrap.bicep")
+        return {"initialize": {"initialized": False}}
+    monkeypatch.setattr(bootstrap, "initial_priors", initialize_in_selected_order)
     monkeypatch.setattr(bootstrap, "ml_containers", lambda *_: ["verified-ml-owned"])
     monkeypatch.setattr(deploy, "run_job", lambda *_: "execution")
     monkeypatch.setattr(deploy, "readiness", lambda *_: None)
@@ -845,7 +1204,7 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
     class Runner:
         def run(self, _args):
             return ""
-    receipt = deploy.deploy(Runner(), inputs, COMPOSITION)
+    receipt = deploy.deploy(Runner(), inputs, composition, catalogue_upgrade=catalogue_upgrade)
     assert [name for name, _ in calls] == ["infra/main.bicep", "infra/bootstrap.bicep", COMPOSITION.workload_template]
     workload = calls[-1][1]["configuration"]
     assert workload["orchestratorImage"] == workload["strategyServiceImage"] == workload["memberValuesImage"]
@@ -855,5 +1214,64 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
     assert receipt["readiness"] == "passed" and receipt["evaluation"] == "not_run"
     assert capsys.readouterr().out.splitlines() == [
         "Deploying foundation...", "Preparing immutable images...", "Running bounded bootstrap...",
-        "Deploying complete workloads...", "Checking deployment readiness...",
+        "Deploying complete workloads...",
+        *(["Upgrading governed catalogue state..."] if catalogue_upgrade else []),
+        "Checking deployment readiness...",
     ]
+
+
+def test_b8_unrelated_writer_approval_cannot_start_a_catalogue_upgrade(
+        private_delivery, synthetic_upgrade_composition, monkeypatch):
+    from governedgraph.common.contracts import ContractError
+
+    path, raw = private_delivery
+    approval_path = synthetic_upgrade_composition.release_approval
+    approval = json.loads(approval_path.read_text())
+    approval.update(decision_ref="HR-SYNTHETIC-UNRELATED", evidence_ref="ILLUSTRATIVE - unrelated synthetic approval")
+    approval_path.write_text(json.dumps(approval))
+    inputs = delivery.Inputs.from_dict({**raw, "resource_group": "rg-gg-dev"})
+    monkeypatch.setattr(deploy, "environment", lambda *_: None)
+    monkeypatch.setattr(deploy, "provision", lambda *_: pytest.fail("unapproved upgrade must not provision"))
+    with pytest.raises(ContractError, match="matching explicit human release approval"):
+        deploy.deploy(None, inputs, synthetic_upgrade_composition, catalogue_upgrade=True)
+
+
+def test_explicit_catalogue_upgrade_command_requires_an_existing_target(private_delivery, monkeypatch, capsys):
+    from scripts import upgrade_catalogue
+
+    path, raw = private_delivery
+    path.write_text(json.dumps(raw))
+    with pytest.raises(SystemExit) as missing:
+        upgrade_catalogue.main(["--inputs", str(path)])
+    assert missing.value.code == 2
+    calls = []
+    monkeypatch.setattr(delivery.Composition, "load", lambda _: COMPOSITION)
+    def select(runner, source, values, inputs, *, reuse, create_new):
+        assert source == path and values == raw and reuse == "rg-gg-dev-existing" and create_new is False
+        return inputs
+    monkeypatch.setattr(upgrade_catalogue, "select_target", select)
+    def perform(runner, inputs, composition, *, catalogue_upgrade):
+        assert catalogue_upgrade is True and composition is COMPOSITION
+        calls.append(inputs)
+        return {"readiness": "passed", "bootstrap": {"priors": {"initialize": {"migrated": True}}}}
+    monkeypatch.setattr(deploy, "deploy", perform)
+    assert upgrade_catalogue.main(["--inputs", str(path), "--reuse", "rg-gg-dev-existing"]) == 0
+    assert len(calls) == 1
+    assert json.loads(capsys.readouterr().out)["strategy_initialization"] == {"migrated": True}
+
+
+def test_explicit_catalogue_upgrade_plan_runs_nothing(private_delivery, monkeypatch, capsys):
+    from scripts import upgrade_catalogue
+
+    path, raw = private_delivery
+    content = json.dumps(raw)
+    path.write_text(content)
+    monkeypatch.setattr(delivery.Composition, "load", lambda _: COMPOSITION)
+    monkeypatch.setattr(upgrade_catalogue, "select_target", lambda *_, **__: pytest.fail("plan selected a live target"))
+    monkeypatch.setattr(deploy, "deploy", lambda *_, **__: pytest.fail("plan started deployment"))
+    assert upgrade_catalogue.main([
+        "--inputs", str(path), "--reuse", "rg-gg-dev-existing", "--plan",
+    ]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["target"] == "rg-gg-dev-existing" and result["sequence"] == list(upgrade_catalogue.SEQUENCE)
+    assert path.read_text() == content

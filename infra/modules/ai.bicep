@@ -10,6 +10,9 @@ param compactModelName string
 param compactModelVersion string
 param embeddingModelName string
 param embeddingModelVersion string
+@minLength(1)
+@maxLength(64)
+param decisionDeployment string
 param appInsightsId string
 @secure()
 param appInsightsRouting string
@@ -48,7 +51,7 @@ resource project 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-previ
   location: location
   identity: { type: 'SystemAssigned' }
   properties: { displayName: 'GovernedGraph Counsellor', description: 'Synthetic sample fund - GovernedGraph reference agent' }
-  dependsOn: [ embedding ]
+  dependsOn: [ decision ]
 }
 
 resource insightsConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview' = {
@@ -126,6 +129,17 @@ resource embedding 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01'
   dependsOn: [ compact ]
 }
 
+resource decision 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
+  parent: aiServices
+  name: decisionDeployment
+  sku: { name: 'DataZoneStandard', capacity: 10 }
+  properties: {
+    model: { format: 'Microsoft', name: 'Microsoft-Decision-1.1', version: '1' }
+    versionUpgradeOption: 'NoAutoUpgrade'
+  }
+  dependsOn: [ embedding ]
+}
+
 output aiServicesName string = aiServices.name
 output contentSafetyName string = contentSafety.name
 output contentSafetyEndpoint string = 'https://${contentSafety.properties.customSubDomainName}.cognitiveservices.azure.com'
@@ -133,4 +147,5 @@ output aiServicesEndpoint string = aiServices.properties.endpoint
 output embeddingEndpoint string = 'https://${aiServices.properties.customSubDomainName}.openai.azure.com'
 output projectEndpoint string = 'https://${aiServices.properties.customSubDomainName}.services.ai.azure.com/api/projects/${project.name}'
 output projectResourceId string = project.id
+output decisionDeployment string = decision.name
 output appInsightsLinked string = appInsightsId

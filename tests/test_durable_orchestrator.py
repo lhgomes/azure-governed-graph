@@ -26,7 +26,7 @@ IDENTITY = MemberIdentity("MBR-7Q2K", True)
 
 
 @pytest.fixture
-def setup(tmp_path, monkeypatch):
+def setup(tmp_path, monkeypatch, isolated_conversations):
     monkeypatch.setattr(settings.__class__, "run_dir", property(lambda self: tmp_path))
     strategies = StrategyService(state_dir=tmp_path / "strategy", control_share=0)
     run_cycle(strategies)
@@ -39,6 +39,7 @@ def setup(tmp_path, monkeypatch):
             FileJourneyStore(tmp_path / "journeys"),
             publisher or FileJourneyPublisher(tmp_path / "queues"),
             factory_override or factory,
+            continuity=isolated_conversations,
         )
 
     centre = SyntheticContactCentre(FileRecordStore(tmp_path / "handovers", Handover.decode))

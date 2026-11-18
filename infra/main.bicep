@@ -17,6 +17,7 @@ param compactModelName string = 'gpt-4.1-mini'
 param compactModelVersion string = '2025-04-14'
 param embeddingModelName string = 'text-embedding-3-large'
 param embeddingModelVersion string = '1'
+param decisionDeployment string = 'decision-v1'
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: resourceGroupName
@@ -79,6 +80,7 @@ module ai 'modules/ai.bicep' = {
     compactModelVersion: compactModelVersion
     embeddingModelName: embeddingModelName
     embeddingModelVersion: embeddingModelVersion
+    decisionDeployment: decisionDeployment
     appInsightsId: monitoring.outputs.appInsightsId
     appInsightsRouting: monitoring.outputs.appInsightsRouting
   }
@@ -92,6 +94,7 @@ module compute 'modules/compute-foundation.bicep' = {
     token: token
     logAnalyticsId: monitoring.outputs.logAnalyticsId
     infrastructureSubnetId: network.outputs.infrastructureSubnetId
+    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
     virtualNetworkId: network.outputs.virtualNetworkId
   }
 }
@@ -224,6 +227,7 @@ output foundation object = {
     embeddingEndpoint: ai.outputs.embeddingEndpoint
     projectEndpoint: ai.outputs.projectEndpoint
     projectResourceId: ai.outputs.projectResourceId
+    decisionDeployment: ai.outputs.decisionDeployment
   }
   learning: {
     mlWorkspaceName: learning.outputs.mlWorkspaceName

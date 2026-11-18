@@ -387,13 +387,47 @@ activeTest.request = async () => ({authorized: true});
   await run("activeTest.start()");
   run("activeTest.socket.onopen()");
   assert.equal(run("activeTest.socket.url.pathname"), "/admin-test-stream");
-  assert.deepEqual(plain(run("activeTest.socket.sent[0]")), {strategy_id: "S2", mode: "chat"});
+  assert.deepEqual(plain(run("activeTest.socket.sent[0]")), {strategy_id: "S2", mode: "chat", contact_type: "first_contact"});
   run('activeTest.message(JSON.stringify({kind: "progress", strategy: "S6"}))');
   assert.match(run("activeTest.result.textContent"), /S6, not S2.*Pauses, eligibility/);
   run('activeTest.message(JSON.stringify({kind: "progress", strategy: "S2"}))');
   assert.match(run("activeTest.result.textContent"), /The selected style was used/);
   run("activeTest.end()");
   assert.equal(run("activeTest.socket"), null);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+""")
+
+
+def test_second_contact_style_test_filters_personas_and_sends_the_selected_contact(admin_browser):
+    admin_browser(r"""
+run(`
+class WebSocket {
+  static OPEN = 1;
+  constructor(url) { this.url = url; this.readyState = 1; this.sent = []; }
+  send(message) { this.sent.push(JSON.parse(message)); }
+  close() { this.readyState = 3; }
+}
+data.strategies[1].eligible_journey_states.push("second_contact");
+testDetail(data.strategies[1]);
+activeTest.mode.value = "chat";
+activeTest.simulations = [
+  {simulation_id: "samira", display_name: "Samira", contact_type: "first_contact"},
+  {simulation_id: "samira-return", display_name: "Samira", contact_type: "second_contact"},
+];
+activeTest.contact.value = "second_contact";
+activeTest.contact.listeners.change();
+activeTest.request = async () => ({authorized: true});
+`);
+(async () => {
+  assert.deepEqual(plain(run("activeTest.persona.children.map(item => item.value)")), ["samira-return"]);
+  assert.match(run("activeTest.status.textContent"), /Continued support/);
+  await run("activeTest.start()");
+  run("activeTest.socket.onopen()");
+  assert.deepEqual(plain(run("activeTest.socket.sent[0]")),
+    {strategy_id: "S2", mode: "chat", contact_type: "second_contact"});
+  assert.equal(run("activeTest.contact.disabled"), true);
+  run("activeTest.end()");
+  assert.equal(run("activeTest.contact.disabled"), false);
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 """)
 

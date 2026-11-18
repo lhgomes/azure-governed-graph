@@ -1,9 +1,15 @@
 {
-  "template_set_version": "1.4",
+  "template_set_version": "1.5",
   "acknowledgements": {
     "approval_ref": "IMP-35-user-approval-2026-10-27",
     "label": "ILLUSTRATIVE - synthetic data",
-    "voice_checking": "Thank you. I'm checking your official figures now."
+    "voice_checking": "Thank you. I'm checking your official figures now.",
+    "conversation_complete": {
+      "approval_ref": "HR-PENSION-WTP-CONFIRMATION-CLOSURE-2026-11-17",
+      "label": "ILLUSTRATIVE - synthetic data",
+      "en": "Thank you. We can leave it here for now. You can ask another question or request a person at any time.",
+      "nl": "Dank je. We kunnen het hier voor nu bij laten. Je kunt een andere vraag stellen of op elk moment om een medewerker vragen."
+    }
   },
   "note": "Approved templates. Figures are bound BY REFERENCE ({{value:<value_id>}}) from get_member_values results (B2). The model may choose wording around a template but never writes a figure itself. An approved answer-goal template takes precedence for that task and language without changing the selected strategy. Otherwise the runtime picks the first variant whose placeholders are all present in the member's official values.",
   "answer_goals": {

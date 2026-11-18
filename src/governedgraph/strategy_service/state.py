@@ -52,6 +52,27 @@ class BlobStateStore:
         ).get_container_client(container)
         self.blob = self.container.get_blob_client("state.json")
 
+    def _write_immutable(self, reference: str, raw: bytes) -> None:
+        from azure.core.exceptions import ResourceExistsError
+
+        blob = self.container.get_blob_client(reference)
+        try:
+            blob.upload_blob(raw, overwrite=False)
+        except ResourceExistsError:
+            if blob.download_blob().readall() != raw:
+                raise StateUnavailable("immutable strategy blob was modified")
+
+    def archive_upgrade(self, document: dict) -> str:
+        from azure.core.exceptions import AzureError
+
+        raw = canonical_json(document)
+        reference = f"catalogue-upgrades/{hashlib.sha256(raw).hexdigest()}.json"
+        try:
+            self._write_immutable(reference, raw)
+        except AzureError as error:
+            raise StateUnavailable("could not archive predecessor strategy state") from error
+        return reference
+
     def read(self, etag: str | None = None) -> tuple[dict | None, str | None]:
         from azure.core.exceptions import AzureError, ResourceNotFoundError
 
@@ -99,12 +120,7 @@ class BlobStateStore:
                     continue
                 raw = canonical_json(snapshot)
                 reference = f"{field}/{hashlib.sha256(raw).hexdigest()}.json"
-                blob = self.container.get_blob_client(reference)
-                try:
-                    blob.upload_blob(raw, overwrite=False)
-                except ResourceExistsError:
-                    if blob.download_blob().readall() != raw:
-                        raise StateUnavailable("immutable snapshot blob was modified")
+                self._write_immutable(reference, raw)
                 manifest[field] = reference
             raw = canonical_json(manifest)
             if etag:

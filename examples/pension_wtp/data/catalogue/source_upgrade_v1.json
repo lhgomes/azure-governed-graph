@@ -1,0 +1,378 @@
+{
+  "watermark": "ILLUSTRATIVE - synthetic data",
+  "policy": "approved_priors",
+  "decision_ref": "HR-PENSION-WTP-RANKING-COVERAGE-2026-11-18",
+  "evidence_ref": "docs/evaluation.md#complete-ranking-coverage",
+  "target_catalogue_sha256": "6f6fbc9499e5144fa53b9b392189b7db0a367873ce9a1f52f61057635614775b",
+  "target_priors_sha256": "8cf04392c5ec03fb4b1d8ffc22852a5e3d0b003406dbd5bc600f9e94c6b49b1c",
+  "source_catalogue": {
+    "catalogue_version": "1.1.0",
+    "strategies": [
+      {
+        "strategy_id": "S1",
+        "version": "1.1",
+        "name": "Plain-language summary",
+        "status": "active",
+        "template_id": "T-S1",
+        "template_version": "1.0",
+        "teach_back": false,
+        "ranked_for_resolution": true,
+        "eligible_journey_states": [
+          "first_contact",
+          "second_contact",
+          "letter_received",
+          "values_reviewed"
+        ],
+        "channels": [
+          "voice",
+          "chat",
+          "portal",
+          "letter_follow_up"
+        ],
+        "accessibility_modes": [
+          "standard",
+          "plain_language",
+          "english",
+          "slower_pace",
+          "large_text"
+        ]
+      },
+      {
+        "strategy_id": "S2",
+        "version": "1.1",
+        "name": "Worked example using the member's own official figures",
+        "status": "active",
+        "template_id": "T-S2",
+        "template_version": "1.0",
+        "teach_back": false,
+        "ranked_for_resolution": true,
+        "eligible_journey_states": [
+          "first_contact",
+          "second_contact",
+          "values_reviewed"
+        ],
+        "channels": [
+          "voice",
+          "chat",
+          "portal"
+        ],
+        "accessibility_modes": [
+          "standard",
+          "plain_language",
+          "english",
+          "slower_pace",
+          "large_text"
+        ]
+      },
+      {
+        "strategy_id": "S3",
+        "version": "1.1",
+        "name": "Visual before/after timeline (spoken equivalent on voice)",
+        "status": "active",
+        "template_id": "T-S3",
+        "template_version": "1.0",
+        "teach_back": false,
+        "ranked_for_resolution": true,
+        "eligible_journey_states": [
+          "first_contact",
+          "second_contact",
+          "letter_received"
+        ],
+        "channels": [
+          "voice",
+          "chat",
+          "portal"
+        ],
+        "accessibility_modes": [
+          "standard",
+          "plain_language",
+          "english",
+          "large_text"
+        ]
+      },
+      {
+        "strategy_id": "S4",
+        "version": "1.1",
+        "name": "What changes / what stays the same checklist",
+        "status": "active",
+        "template_id": "T-S4",
+        "template_version": "1.0",
+        "teach_back": false,
+        "ranked_for_resolution": true,
+        "eligible_journey_states": [
+          "first_contact",
+          "second_contact",
+          "letter_received",
+          "values_reviewed",
+          "objection_raised"
+        ],
+        "channels": [
+          "voice",
+          "chat",
+          "portal",
+          "letter_follow_up"
+        ],
+        "accessibility_modes": [
+          "standard",
+          "plain_language",
+          "english",
+          "slower_pace",
+          "large_text"
+        ]
+      },
+      {
+        "strategy_id": "S5",
+        "version": "1.1",
+        "name": "Step-by-step with check-back question (teach-back)",
+        "status": "active",
+        "template_id": "T-S5",
+        "template_version": "1.0",
+        "teach_back": true,
+        "ranked_for_resolution": true,
+        "eligible_journey_states": [
+          "first_contact",
+          "second_contact",
+          "letter_received",
+          "values_reviewed"
+        ],
+        "channels": [
+          "voice",
+          "chat",
+          "portal"
+        ],
+        "accessibility_modes": [
+          "standard",
+          "plain_language",
+          "english",
+          "slower_pace",
+          "large_text"
+        ]
+      },
+      {
+        "strategy_id": "S6",
+        "version": "1.0",
+        "name": "Offer a scheduled call with a human advisor",
+        "status": "active",
+        "template_id": "T-S6",
+        "template_version": "1.0",
+        "teach_back": false,
+        "ranked_for_resolution": false,
+        "eligible_journey_states": [
+          "*"
+        ],
+        "channels": [
+          "voice",
+          "chat",
+          "portal",
+          "letter_follow_up"
+        ],
+        "accessibility_modes": [
+          "standard",
+          "plain_language",
+          "english",
+          "slower_pace",
+          "large_text"
+        ]
+      }
+    ],
+    "retired_versions": [
+      {
+        "strategy_id": "S1",
+        "version": "1.0",
+        "name": "Plain-language summary",
+        "status": "active",
+        "template_id": "T-S1",
+        "template_version": "1.0",
+        "teach_back": false,
+        "ranked_for_resolution": true,
+        "eligible_journey_states": [
+          "first_contact",
+          "letter_received",
+          "values_reviewed"
+        ],
+        "channels": [
+          "voice",
+          "chat",
+          "portal",
+          "letter_follow_up"
+        ],
+        "accessibility_modes": [
+          "standard",
+          "plain_language",
+          "english",
+          "slower_pace",
+          "large_text"
+        ]
+      },
+      {
+        "strategy_id": "S2",
+        "version": "1.0",
+        "name": "Worked example using the member's own official figures",
+        "status": "active",
+        "template_id": "T-S2",
+        "template_version": "1.0",
+        "teach_back": false,
+        "ranked_for_resolution": true,
+        "eligible_journey_states": [
+          "first_contact",
+          "values_reviewed"
+        ],
+        "channels": [
+          "voice",
+          "chat",
+          "portal"
+        ],
+        "accessibility_modes": [
+          "standard",
+          "plain_language",
+          "english",
+          "slower_pace",
+          "large_text"
+        ]
+      },
+      {
+        "strategy_id": "S3",
+        "version": "1.0",
+        "name": "Visual before/after timeline (spoken equivalent on voice)",
+        "status": "active",
+        "template_id": "T-S3",
+        "template_version": "1.0",
+        "teach_back": false,
+        "ranked_for_resolution": true,
+        "eligible_journey_states": [
+          "first_contact",
+          "letter_received"
+        ],
+        "channels": [
+          "voice",
+          "chat",
+          "portal"
+        ],
+        "accessibility_modes": [
+          "standard",
+          "plain_language",
+          "english",
+          "large_text"
+        ]
+      },
+      {
+        "strategy_id": "S4",
+        "version": "1.0",
+        "name": "What changes / what stays the same checklist",
+        "status": "active",
+        "template_id": "T-S4",
+        "template_version": "1.0",
+        "teach_back": false,
+        "ranked_for_resolution": true,
+        "eligible_journey_states": [
+          "first_contact",
+          "letter_received",
+          "values_reviewed",
+          "objection_raised"
+        ],
+        "channels": [
+          "voice",
+          "chat",
+          "portal",
+          "letter_follow_up"
+        ],
+        "accessibility_modes": [
+          "standard",
+          "plain_language",
+          "english",
+          "slower_pace",
+          "large_text"
+        ]
+      },
+      {
+        "strategy_id": "S5",
+        "version": "1.0",
+        "name": "Step-by-step with check-back question (teach-back)",
+        "status": "active",
+        "template_id": "T-S5",
+        "template_version": "1.0",
+        "teach_back": true,
+        "ranked_for_resolution": true,
+        "eligible_journey_states": [
+          "first_contact",
+          "letter_received",
+          "values_reviewed"
+        ],
+        "channels": [
+          "voice",
+          "chat",
+          "portal"
+        ],
+        "accessibility_modes": [
+          "standard",
+          "plain_language",
+          "english",
+          "slower_pace",
+          "large_text"
+        ]
+      }
+    ]
+  },
+  "source_priors": {
+    "priors_version": "1.2",
+    "approved_ref": "HR-PENSION-WTP-SECOND-CONTACT-2026-11-17",
+    "watermark": "ILLUSTRATIVE - synthetic data",
+    "default": [
+      "S1",
+      "S4",
+      "S5",
+      "S2",
+      "S3"
+    ],
+    "rankings": {
+      "first_contact|transition_impact_question|voice|standard": [
+        "S1",
+        "S5",
+        "S2",
+        "S4",
+        "S3"
+      ],
+      "first_contact|transition_impact_question|chat|standard": [
+        "S1",
+        "S4",
+        "S5",
+        "S2",
+        "S3"
+      ],
+      "first_contact|transition_impact_question|chat|english": [
+        "S1",
+        "S4",
+        "S5",
+        "S2",
+        "S3"
+      ],
+      "values_reviewed|transition_impact_question|voice|standard": [
+        "S2",
+        "S5",
+        "S4",
+        "S1"
+      ],
+      "second_contact|transition_impact_question|voice|standard": [
+        "S5",
+        "S4",
+        "S1",
+        "S2",
+        "S3"
+      ],
+      "second_contact|transition_impact_question|chat|standard": [
+        "S5",
+        "S4",
+        "S1",
+        "S2",
+        "S3"
+      ],
+      "second_contact|transition_impact_question|chat|english": [
+        "S5",
+        "S4",
+        "S1",
+        "S2",
+        "S3"
+      ]
+    }
+  }
+}

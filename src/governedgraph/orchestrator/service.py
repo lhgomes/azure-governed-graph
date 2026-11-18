@@ -8,11 +8,12 @@ import logging
 import os
 import re
 from time import perf_counter
+from typing import Callable
 from uuid import uuid4
 
 from governedgraph.agents.counsellor import DISCLOSURE, Counsellor, TurnResult
 from governedgraph.common.contracts import (
-    INTENT_DECISIONS, EscalationRequest, ExplainabilityRecord, ExplanationContext,
+    CONTACT_TYPES, INTENT_DECISIONS, ContractError, EscalationRequest, ExplainabilityRecord, ExplanationContext,
     OutcomeOffer, OutcomeSubmission, RequestKey, ResponseReference,
 )
 from governedgraph.common import domain
@@ -26,6 +27,7 @@ from governedgraph.explainability.store import (
 )
 from governedgraph.explainability.reconcile import retry_audits
 from governedgraph.orchestrator.messaging import JourneyPublisher
+from governedgraph.orchestrator.continuity import ConversationContinuity, ContinuityUnavailable
 from governedgraph.orchestrator.state_machine import Event, Journey, State
 from governedgraph.orchestrator.store import Delivery, JourneyBusy, JourneyRecord, JourneyStore
 
@@ -73,8 +75,9 @@ class OutcomeConflict(ValueError):
 
 class OrchestratorService:
     def __init__(self, store: JourneyStore, publisher: JourneyPublisher,
-                 counsellor_factory=Counsellor, *, contact_centre=None, worker=None, audit_store=None,
-                 feedback_store=None):
+                 counsellor_factory: Callable[..., Counsellor] = Counsellor, *,
+                 contact_centre=None, worker=None, audit_store=None,
+                 feedback_store=None, continuity: ConversationContinuity):
         self.store = store
         self.publisher = publisher
         self.counsellor_factory = counsellor_factory
@@ -83,6 +86,7 @@ class OrchestratorService:
         self.audit_store = audit_store if audit_store is not None else default_store()
         self.feedback_store = feedback_store
         self.feedback_manifest = None
+        self.continuity = continuity
 
     def _audit(self, transaction, record, audit) -> None:
         QueuedExplainabilityStore(
@@ -131,10 +135,13 @@ class OrchestratorService:
             record.pending.append(Delivery("journey-events", f"{event.journey_id}:{event.event_id}", asdict(event)))
 
     def start(self, identity: MemberIdentity, channel: str, accessibility_mode: str, *,
-              test_strategy_id: str = "") -> dict:
-        RequestKey("first_contact", "unclassified", channel, accessibility_mode)
+              test_strategy_id: str = "", contact_type: str = "first_contact") -> dict:
+        if not isinstance(contact_type, str) or contact_type not in CONTACT_TYPES:
+            raise ContractError("unsupported contact type")
+        RequestKey(contact_type, "unclassified", channel, accessibility_mode)
         journey = Journey(f"J-{uuid4().hex}", identity.member_ref, channel=channel,
-                          accessibility_mode=accessibility_mode, test_strategy_id=test_strategy_id)
+                          accessibility_mode=accessibility_mode, test_strategy_id=test_strategy_id,
+                          stage=contact_type)
         with operation(journey.journey_id, "governedgraph.orchestrator.start",
                       agent_name="gg-orchestrator", server=True):
             journey.fire(Event.DISCLOSED_AND_AUTHENTICATED)
@@ -352,6 +359,38 @@ class OrchestratorService:
              token: str, utterance: str, trace_parent: str = "", *, voice_model: str = "",
              related_answer: ResponseReference | None = None, received_at: datetime | None = None,
              allow_admin_test: bool = False) -> dict:
+        received_at = _arrival(received_at)
+        # Authorize before touching history; then take customer before journey locks.
+        with self.store.transaction(journey_id) as transaction:
+            record = transaction.record
+            if record is None:
+                raise KeyError(journey_id)
+            if (record.journey.member_ref != identity.member_ref
+                    or (record.journey.test_strategy_id and not allow_admin_test)):
+                log.warning("customer_context_access_denied", extra={"journey_id": journey_id})
+                raise MemberScopeViolation(journey_id)
+            test = bool(record.journey.test_strategy_id)
+        entered = False
+        try:
+            with self.continuity.session(identity, journey_id, request_id, test=test,
+                                         journeys=self.store, flush=self._flush) as conversation:
+                entered = True
+                return self._turn(journey_id, request_id, identity, token, utterance, trace_parent,
+                                  voice_model=voice_model, related_answer=related_answer, received_at=received_at,
+                                  allow_admin_test=allow_admin_test, conversation=conversation)
+        except ContinuityUnavailable:
+            if entered:
+                raise
+            # Missing/invalid memory must not enable an uncontextualized generated answer,
+            # but a deterministic, audited human escalation remains available.
+            return self._turn(journey_id, request_id, identity, token, utterance, trace_parent,
+                              voice_model=voice_model, related_answer=related_answer, received_at=received_at,
+                              allow_admin_test=allow_admin_test, conversation=None)
+
+    def _turn(self, journey_id: str, request_id: str, identity: MemberIdentity,
+              token: str, utterance: str, trace_parent: str = "", *, voice_model: str = "",
+              related_answer: ResponseReference | None = None, received_at: datetime | None = None,
+              allow_admin_test: bool = False, conversation) -> dict:
         started = perf_counter()
         received_at = _arrival(received_at)
         with self.store.transaction(journey_id) as transaction:
@@ -398,6 +437,8 @@ class OrchestratorService:
             counsellor = None
             offer = None
             try:
+                if conversation is None:
+                    raise ContinuityUnavailable("customer context unavailable; human help required")
                 counsellor = self.counsellor_factory(
                     journey, identity.member_ref, member_token=token,
                     step_up_verified=identity.step_up_verified,
@@ -407,6 +448,7 @@ class OrchestratorService:
                 )
                 counsellor.tools.response_id = response_reference(journey_id, request_id)
                 counsellor.tools.trace_parent = traceparent(trace_parent)
+                counsellor.tools.conversation_history = conversation.messages
                 if selected_audit is not None:
                     counsellor.tools.related_answer_context = self._answer_context(journey, selected_audit)
                 counsellor._current_strategy = journey.strategies_tried[-1] if journey.strategies_tried else None
@@ -457,6 +499,10 @@ class OrchestratorService:
                 journey.record_response(released_response, count)
             self._events(record, count)
             record.processed_requests.append(request_id)
+            if (result.audit_status in {"committed", "queued"} and result.numeric_fidelity_passed
+                    and result.no_option_recommendation and not result.escalated
+                    and released_response is not None and not journey.events[-1].response_withheld):
+                conversation.prepare(utterance, result.text)
             transaction.save(record)
             self._flush(transaction, record)
             result.stage_ms["durable_commit"] = (perf_counter() - committing) * 1000

@@ -203,11 +203,18 @@ class OrchestratorChannel:
             raise VoiceError("an authenticated channel token is required")
         return {"Authorization": "Bearer " + token}
 
-    async def start(self, accessibility_mode: str = "standard", *, channel: str = "voice") -> JourneyStart:
+    async def start(self, accessibility_mode: str = "standard", *, channel: str = "voice",
+                    contact_type: str = "first_contact") -> JourneyStart:
+        from governedgraph.common.contracts import CONTACT_TYPES
+
         if channel not in ("voice", "chat"):
             raise ContractError("unsupported presenter channel")
+        if not isinstance(contact_type, str) or contact_type not in CONTACT_TYPES:
+            raise ContractError("unsupported contact type")
         result = await self.client.post("journeys", headers=self._headers(),
-                                        json={"channel": channel, "accessibility_mode": accessibility_mode})
+                                        json={"channel": channel, "accessibility_mode": accessibility_mode,
+                                              **({"contact_type": contact_type}
+                                                 if contact_type != "first_contact" else {})})
         result.raise_for_status()
         return JourneyStart.from_dict(result.json())
 
@@ -317,12 +324,15 @@ class VoiceBridge:
         self.confirmed_responses: set[str] = set()
         self.channel_kind = ""
 
-    async def start(self, accessibility_mode: str = "standard", *, channel: str = "voice") -> None:
+    async def start(self, accessibility_mode: str = "standard", *, channel: str = "voice",
+                    contact_type: str = "first_contact") -> None:
         if self.started or self.failed:
             raise VoiceError("voice session cannot be restarted or reused after failure")
         self.started = True
         try:
-            started = await self.channel.start(accessibility_mode, channel=channel)
+            started = await self.channel.start(
+                accessibility_mode, channel=channel,
+                **({"contact_type": contact_type} if contact_type != "first_contact" else {}))
             self.journey_id = started.journey_id
             self.channel_kind = channel
             if self.spoken_acknowledgement and getattr(self.speech, "checked_sentence_audio", False):
