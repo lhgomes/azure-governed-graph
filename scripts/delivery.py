@@ -11,6 +11,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,11 +41,21 @@ COMMAND_POLICY = {
     ("az", "acr", "repository", "show-tags"): (120, 3),
     ("az", "acr", "repository", "show"): (120, 3),
     ("az", "containerapp", "list"): (120, 3),
+    ("az", "containerapp", "env", "show"): (120, 3),
     ("az", "containerapp", "job", "list"): (120, 3),
     ("az", "containerapp", "job", "execution", "list"): (120, 3),
     ("az", "containerapp", "job", "execution", "show"): (120, 3),
     ("az", "containerapp", "job", "logs", "show"): (120, 3),
     ("az", "network", "private-endpoint-connection", "list"): (120, 3),
+    ("az", "network", "private-endpoint", "list"): (120, 3),
+    ("az", "network", "private-dns", "record-set", "a", "list"): (120, 3),
+    ("az", "network", "private-dns", "link", "vnet", "list"): (120, 3),
+    ("az", "network", "nic", "show"): (120, 3),
+    ("az", "apim", "list"): (120, 3),
+    ("az", "deployment", "group", "show"): (120, 3),
+    ("az", "deployment", "sub", "show"): (120, 3),
+    ("az", "deployment", "operation", "group", "list"): (120, 3),
+    ("az", "deployment", "operation", "sub", "list"): (120, 3),
     ("az", "acr", "build"): (3600, 1),
     ("az", "deployment", "sub", "create"): (7200, 1),
     ("az", "deployment", "group", "create"): (7200, 1),
@@ -72,6 +83,9 @@ class CommandTimeout(DeliveryError):
 
 
 class Runner:
+    def __init__(self, *, evidence=None):
+        self.evidence = evidence
+
     def run(self, args, *, check=True, env=None) -> str:
         args = list(map(str, args))
         operation = next((command for command in COMMAND_POLICY if tuple(args[:len(command)]) == command),
@@ -79,11 +93,15 @@ class Runner:
         label = " ".join(operation)
         timeout, attempts = COMMAND_POLICY.get(operation, (120, 1))
         for attempt in range(attempts):
+            record = (self.evidence.begin("commands", operation=label, attempt=attempt + 1)
+                      if self.evidence is not None else None)
             print(f"Running {label} (attempt {attempt + 1}/{attempts}, timeout {timeout}s)...",
                   file=sys.stderr, flush=True)
             try:
                 result = self._execute(args, env=env, label=label, timeout=timeout)
             except CommandTimeout:
+                if self.evidence is not None and record is not None:
+                    self.evidence.end(record, "timed_out")
                 if attempt == attempts - 1:
                     raise
                 delay = 2 ** (attempt + 1)
@@ -91,6 +109,14 @@ class Runner:
                       file=sys.stderr, flush=True)
                 time.sleep(delay)
                 continue
+            except (OSError, KeyboardInterrupt) as error:
+                if self.evidence is not None and record is not None:
+                    self.evidence.end(record, "interrupted" if isinstance(error, KeyboardInterrupt) else "failed",
+                                      error_type=type(error).__name__)
+                raise
+            if self.evidence is not None and record is not None:
+                self.evidence.end(record, "succeeded" if result.returncode == 0 else "failed",
+                                  exit_code=result.returncode)
             if check and result.returncode:
                 raise CommandError(args, result.returncode, result.stderr)
             print(f"Finished {label} (exit {result.returncode}).", file=sys.stderr, flush=True)
@@ -127,8 +153,17 @@ class Runner:
 
 
 def save_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with NamedTemporaryFile(mode="w", dir=path.parent, prefix=".delivery-", encoding="utf-8", delete=False) as handle:
+        temporary = Path(handle.name)
+        try:
+            json.dump(data, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def resource_group_name(seed: str) -> str:
@@ -183,6 +218,7 @@ class Inputs:
     search_location: str = "swedencentral"
     voice_demo: bool = True
     environment: str = "gg-dev"
+    decision_deployment: str = "decision-v1"
 
     @classmethod
     def load(cls, path: Path) -> Inputs:
@@ -220,6 +256,10 @@ class Inputs:
             raise DeliveryError("on-call destination required")
         if not isinstance(value.voice_demo, bool):
             raise DeliveryError("voice_demo must be a boolean")
+        if not isinstance(value.decision_deployment, str) or not re.fullmatch(
+            r"[A-Za-z0-9_-]{1,64}", value.decision_deployment
+        ):
+            raise DeliveryError("decision_deployment must be a non-empty Foundry deployment name")
         return value
 
 
@@ -229,29 +269,78 @@ def parameters(data: dict) -> dict:
 
 
 def provision(runner, inputs: Inputs, template: str, values: dict, *, group: bool = False) -> dict:
-    path = ROOT / ".run/delivery-parameters" / (Path(template).stem + ".json")
-    save_json(path, parameters(values))
+    evidence = getattr(runner, "evidence", None)
+    record = None
     scope = ["group", "create", "--resource-group", inputs.resource_group] if group else [
         "sub", "create", "--location", inputs.location]
     name = "gg-" + Path(template).stem
     if not group:
         name += "-" + hashlib.sha256(inputs.resource_group.casefold().encode()).hexdigest()[:12]
+    path = ROOT / ".run/delivery-parameters" / (Path(template).stem + ".json")
+    if evidence is not None:
+        ordinal = len(evidence.data["deployments"]) + 1
+        name = f"{name[:40]}-{evidence.run_id}-{ordinal:02d}"
+        path = evidence.directory / f"{ordinal:02d}-parameters.json"
+        record = evidence.begin("deployments", name=name, scope="group" if group else "subscription",
+                                source_template=template, parameters_file=str(path), submission_attempted=False)
+    save_json(path, parameters(values))
+    submitted_template = template
+    if evidence is not None and record is not None:
+        compiled = json.loads(runner.run(["az", "bicep", "build", "--file", template, "--stdout"]))
+        submitted_template = str(evidence.directory / f"{ordinal:02d}-template.json")
+        save_json(Path(submitted_template), compiled)
+        record.update(template_file=submitted_template,
+                      template_sha256=hashlib.sha256(Path(submitted_template).read_bytes()).hexdigest(),
+                      parameters_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        evidence.write()
     command = [
         "az", "deployment", *scope, "--subscription", inputs.subscription,
-        "--name", name, "--template-file", template,
+        "--name", name, "--template-file", submitted_template,
         "--parameters", "@" + str(path), "--only-show-errors", "-o", "json",
     ]
     for attempt in range(4):
         try:
+            if evidence is not None and record is not None:
+                record.update(submission_attempted=True, attempt=attempt + 1)
+                evidence.write()
             result = json.loads(runner.run(command))
             break
         except CommandError as error:
-            if (attempt == 3 or "InvalidParameterValueInContainerTemplate" not in error.stderr
-                    or "unable to pull image using Managed identity" not in error.stderr):
+            image_pull_propagation = ("InvalidParameterValueInContainerTemplate" in error.stderr
+                                      and "unable to pull image using Managed identity" in error.stderr)
+            foundry_account_busy = (
+                template == "infra/main.bicep"
+                and "RequestConflict" in error.stderr
+                and re.search(
+                    r"Another operation is being performed on the parent resource "
+                    r"['\"]?/subscriptions/[^/]+/resourceGroups/[^/]+/providers/"
+                    r"Microsoft\.CognitiveServices/accounts/[^/'\"\s]+['\"]?\.",
+                    error.stderr, re.IGNORECASE,
+                )
+            )
+            if attempt == 3 or not (image_pull_propagation or foundry_account_busy):
+                if evidence is not None and record is not None:
+                    evidence.end(record, "failed", error_type=type(error).__name__)
+                    evidence.deployment_state(runner, inputs, record, group=group)
                 raise
-            print(f"Waiting for managed-identity image pull propagation ({attempt + 1}/3)...", flush=True)
+            reason = ("a concurrent Foundry account operation to finish" if foundry_account_busy
+                      else "managed-identity image pull propagation")
+            print(f"Waiting for {reason} ({attempt + 1}/3)...", flush=True)
             time.sleep(30 * 2 ** attempt)
+        except (CommandTimeout, KeyboardInterrupt) as error:
+            if evidence is not None and record is not None:
+                evidence.end(record, "outcome_unconfirmed", error_type=type(error).__name__)
+                if isinstance(error, CommandTimeout):
+                    evidence.deployment_state(runner, inputs, record, group=group)
+            raise
+    if evidence is not None and record is not None:
+        properties = result["properties"]
+        evidence.end(record, properties["provisioningState"], id=result.get("id"),
+                     correlation_id=properties.get("correlationId"), template_hash=properties.get("templateHash"),
+                     timestamp=properties.get("timestamp"))
     if result["properties"]["provisioningState"] != "Succeeded":
+        if evidence is not None and record is not None:
+            evidence.deployment_state(runner, inputs, record, group=group)
         raise DeliveryError(f"{template} did not succeed")
     return {key: value["value"] for key, value in result["properties"]["outputs"].items()}
 
@@ -309,14 +398,22 @@ def run_job(runner, inputs: Inputs, name: str, *, sleep=time.sleep) -> str:
         ["az", "containerapp", "job", "start", *base, "--query", "name", "-o", "tsv"])
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", execution):
         raise DeliveryError("bootstrap execution ID missing")
+    evidence = getattr(runner, "evidence", None)
+    record = evidence.begin("jobs", name=name, execution_id=execution) if evidence is not None else None
     for _ in range(120):
         status = runner.run(["az", "containerapp", "job", "execution", "show", *base,
                              "--job-execution-name", execution, "--query", "properties.status", "-o", "tsv"])
         if status == "Succeeded":
+            if evidence is not None and record is not None:
+                evidence.end(record, status)
             return execution
         if status not in {"Pending", "Running", "Processing"}:
+            if evidence is not None and record is not None:
+                evidence.end(record, status)
             raise DeliveryError(f"bootstrap {name}/{execution} ended with {status!r}; no replacement execution started")
         sleep(10)
+    if evidence is not None and record is not None:
+        evidence.end(record, "outcome_unconfirmed")
     raise DeliveryError(f"bootstrap {name}/{execution} exceeded bounded wait; inspect it before retrying")
 
 

@@ -423,7 +423,7 @@ def test_b3_b8_replay_uses_injected_decisions_and_same_candidate_for_review_and_
 
     composer = Composer()
 
-    def review(counsellor, _utterance, _strategy, draft):
+    def review(counsellor, _utterance, _strategy, draft, *, allow_repair=True):
         assert counsellor._foundry_composer() is composer
         assert counsellor.decision_agents["answer-review"] is marker
         supporting.usage["input_tokens"] += 1

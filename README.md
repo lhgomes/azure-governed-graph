@@ -31,8 +31,8 @@ your deterministic systems **decide**, and a learning loop improves **how** thin
 
 | Part | What it is | Where |
 |---|---|---|
-| **GovernedGraph** (the framework) | Journey state machine, guardrails, strategy service, learning, fairness, administration console and Azure adapters. Enforces the ten boundaries | [src/governedgraph](src/governedgraph) |
-| **Your domain** | A **domain pack** (strategies, templates, prompts, vocabulary, approved content, fairness thresholds) and a **values source** (read-only access to your system of record) | `examples/<your_package>` |
+| **GovernedGraph** (the framework) | Journey state machine, guardrails, strategy service, learning, quality gates, administration console and Azure adapters. Enforces the ten boundaries | [src/governedgraph](src/governedgraph) |
+| **Your domain** | A **domain pack** (strategies, templates, prompts, vocabulary, approved content, quality gates thresholds) and a **values source** (read-only access to your system of record) | `examples/<your_package>` |
 | **The sample** | A complete Azure-deployable worked domain (pension-transition guidance for a synthetic Dutch sector fund). Synthetic data only | [examples/pension_wtp](examples/pension_wtp) |
 
 The framework never imports or defaults to a sample ([tested](tests/test_layering.py)).
@@ -84,7 +84,7 @@ These are the framework's contract. Each has a code enforcement point and a regr
 | B3 | Runtime selects only from an approved, versioned strategy catalogue (signed ranking snapshot) |
 | B4 | Raw conversations never retrain a model or change behaviour |
 | B5 | Learning is bounded continuous ranking of approved strategies only (minimum sample, maximum rank shift, reorder-only) |
-| B6 | Fairness can veto a high-performing strategy, for all members |
+| B6 | Quality gates can veto a high-performing strategy, for all members |
 | B7 | No runtime demographics; demographics exist only in a segregated cohort zone for aggregate audit |
 | B8 | Human approval for material change, not for bounded ranking adjustments |
 | B9 | Human escalation is always available |

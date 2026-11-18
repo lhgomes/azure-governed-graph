@@ -74,7 +74,11 @@ Activity groups each console action's requested/completed steps into one entry w
 steps in its detail record; a requested-only action remains explicitly incomplete.
 The **Test** action opens a selected-style tester inside the portal, without opening the demo portal.
 Choose **Chat**, **Voice** or an approved **Persona**. Voice asks for microphone permission and sends
-bounded recordings; persona tests use the approved synthetic conversation scripts. The opening AI
+bounded recordings; persona tests use the synthetic behaviour cards. Choose **First contact** or
+**Second contact** for a style eligible at that stage. Second-contact personas bring a fictional
+recap and a specific unresolved concern; the guide gives continued support rather than restarting
+the whole introduction. The contact selector also applies to manual chat and voice style tests.
+The opening AI
 disclosure, authoritative value binding, content checks, numeric fidelity and human handover remain in use.
 Each response shows the actual style used; an unavailable style is not silently replaced with another
 explanation style. Pauses, eligibility and advice escalation remain enforced.
@@ -83,6 +87,15 @@ The portal's short synthetic-data label remains in the main header. The conversa
 independently above a question composer with a separate **Send question** row. These controls
 stay visible as answers accumulate; after a test ends they remain visible but disabled
 until another test starts.
+
+The persona demo's **Contact** selector offers the same first- and second-contact
+stories for each persona, including Dutch-language support, a returning member
+requesting a person, and an adversarial claim of earlier authorization.
+It selects the story played by **Play**, not a stored conversation or proof of a
+previous handover. The standalone **Voice** and **Chat** buttons still start an
+ordinary first contact. The guide must not claim to remember a previous session;
+official facts are checked again and every session includes the AI disclosure.
+Changing contact type alone does not create repeat-contact outcome evidence.
 
 The tester uses the existing Azure-hosted conversation bridge and internal synthetic issuer. It requires
 the configured `gg-dev` issuer/voice channel and operator or owner access, not a separate demo-portal sign-in.

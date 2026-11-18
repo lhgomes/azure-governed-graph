@@ -44,7 +44,8 @@ def test_b3_test_session_requires_approved_style_and_fixed_modes(payload):
         SelectedStyleSession.from_dict(payload)
 
 
-def test_test_channel_pins_style_and_keeps_both_tokens_in_request_headers():
+@pytest.mark.parametrize("contact_type", ["first_contact", "second_contact"])
+def test_test_channel_pins_style_and_keeps_both_tokens_in_request_headers(contact_type):
     seen = []
 
     def handle(request):
@@ -55,14 +56,44 @@ def test_test_channel_pins_style_and_keeps_both_tokens_in_request_headers():
         async with httpx.AsyncClient(base_url="https://runtime.example/", follow_redirects=False,
                                      transport=httpx.MockTransport(handle)) as client:
             channel = SelectedStyleChannel(client, lambda: "synthetic-member-bearer", "S3", "synthetic-admin-bearer")
-            return await channel.start(channel="chat")
+            return await channel.start(channel="chat", contact_type=contact_type)
 
     reply = asyncio.run(run())
     assert reply.text == DISCLOSURE
     assert seen[0].url.path == "/admin-test/journeys"
     assert seen[0].headers["Authorization"] == "Bearer synthetic-member-bearer"
     assert seen[0].headers["X-Admin-Authorization"] == "Bearer synthetic-admin-bearer"
-    assert json.loads(seen[0].read()) == {"strategy_id": "S3", "channel": "chat", "accessibility_mode": "standard"}
+    assert json.loads(seen[0].read()) == {
+        "strategy_id": "S3", "channel": "chat", "accessibility_mode": "standard",
+        **({"contact_type": contact_type} if contact_type == "second_contact" else {}),
+    }
+
+
+@pytest.mark.parametrize("contact_type", ["first_contact", "second_contact"])
+def test_b4_b7_contact_type_persists_as_stage_without_restoring_conversation(contact_type, isolated_conversations):
+    transaction = SimpleNamespace(record=None, save=Mock())
+    store = Mock()
+    store.transaction.return_value = nullcontext(transaction)
+    runtime = OrchestratorService(store, Mock(), audit_store=Mock(), continuity=isolated_conversations)
+    result = runtime.start(MemberIdentity("MEMBER-SYNTHETIC", True), "chat", "standard",
+                           contact_type=contact_type)
+    stored = transaction.save.call_args.args[0].journey
+    restored = Journey.from_dict(stored.to_dict())
+    assert restored.stage == restored.request_key()["journey_state"] == contact_type
+    assert restored.last_explanation is None
+    assert len(restored.events) == 1
+    assert restored.events[0].event == "disclosed_and_authenticated"
+    assert result["text"] == DISCLOSURE
+    assert restored.state.value == "identified"
+
+
+@pytest.mark.parametrize("contact_type", ["third_contact", None, {}, ["second_contact"]])
+def test_b7_contact_type_is_closed_before_any_journey_is_created(contact_type):
+    runtime = object.__new__(OrchestratorService)
+    runtime.store = Mock()
+    with pytest.raises(ContractError, match="contact type"):
+        runtime.start(MemberIdentity("MEMBER-SYNTHETIC", True), "chat", "standard", contact_type=contact_type)
+    runtime.store.transaction.assert_not_called()
 
 
 @pytest.fixture

@@ -312,33 +312,173 @@ def test_a_persona_connection_failure_is_a_closed_error_not_a_voice_transport_er
         connect_live_persona(card())
 
 
-def test_thanks_after_an_answer_with_no_meaning_check_pending_is_a_follow_up_not_a_service_failure(monkeypatch):
+@pytest.fixture
+def confirmation_workflow(monkeypatch):
     from contextlib import contextmanager
 
+    from governedgraph.agents.counsellor import TurnResult
     from governedgraph.agents.tools import Trace
-    from governedgraph.common.contracts import IntentDecision
-    from governedgraph.orchestrator.state_machine import Journey, State
+    from governedgraph.common.contracts import ExplanationContext, IntentDecision, UnderstandingDecision
+    from governedgraph.orchestrator.state_machine import Event, Journey, State
     from governedgraph.orchestrator import workflow
-    from governedgraph.orchestrator.workflow import member_turn
 
     @contextmanager
     def no_tracing(*args, **kwargs):
         yield None
 
     monkeypatch.setattr(workflow, "operation", no_tracing)
-    journey = Journey(journey_id="J-thanks", member_ref="member", state=State.RESOLVED)
+    journey = Journey(
+        journey_id="J-thanks", member_ref="member", state=State.RESOLVED,
+        last_explanation=ExplanationContext(
+            ["official_after_transition_amount", "future_adjustments"], []),
+    )
+    decisions = {
+        "intent": IntentDecision("comprehension", "unclassified", "restating_previous_explanation", "en"),
+        "understanding": UnderstandingDecision("uncertain", "insufficient_evidence"),
+    }
+
+    def explain(*args, **kwargs):
+        journey.fire(Event.NO_TEACH_BACK)
+        return TurnResult("An approved explanation.", journey.state.value)
+
+    def escalate(*args, **kwargs):
+        journey.fire(Event.ESCALATE)
+        return TurnResult("A person can help.", journey.state.value, "S6", escalated=True)
+
     counsellor = SimpleNamespace(
         journey=journey,
-        tools=SimpleNamespace(agent_name="gg-counsellor", trace_parent=None, auth_ref="member", trace=Trace()),
+        tools=SimpleNamespace(agent_name="gg-counsellor", trace_parent=None, auth_ref="member", trace=Trace(),
+                              conversation_history=(), conversation_screened=False),
         screen=SimpleNamespace(screen=lambda text, ref: SimpleNamespace(allowed=True, reason="")),
-        decide=lambda kind, text: IntentDecision("comprehension", "unclassified", "restating_previous_explanation",
-                                                 "en"),
-        _complete_turn=lambda result, count: result,
-        _escalate=lambda *args, **kwargs: pytest.fail("a thank-you must not escalate"),
+        decide=Mock(side_effect=lambda kind, text: decisions[kind]),
+        decisions=decisions,
+        catalogue=SimpleNamespace(get=lambda _: SimpleNamespace(strategy_id="S5", version="1.1")),
+        _current_strategy="S5",
+        _turn_exclusions=set(),
+        _complete_turn=Mock(side_effect=lambda result, count: result),
+        _explain=Mock(side_effect=explain),
+        _escalate=Mock(side_effect=escalate),
     )
-    result = asyncio.run(member_turn(counsellor, "Yes, that helps a lot. Thank you."))
-    assert result.workflow_steps == ["screen-input", "intent-agent", "clarify-question", "commit-checked-evidence"]
-    assert not result.escalated and counsellor.tools.trace.turn_trace[-1]["result"] == "follow_up_question"
+    return counsellor
+
+
+@pytest.mark.parametrize("allowed", [True, False])
+def test_customer_history_is_screened_before_semantic_routing(confirmation_workflow, allowed):
+    from governedgraph.agents.conversation_context import ConversationMessage
+    from governedgraph.orchestrator.workflow import run_member_turn
+
+    c = confirmation_workflow
+    c.tools.conversation_history = (
+        ConversationMessage("user", "Please explain my synthetic letter."),
+        ConversationMessage("assistant", "An earlier checked synthetic explanation."),
+    )
+    c.screen.screen = Mock(side_effect=[
+        SimpleNamespace(allowed=True, reason=""),
+        SimpleNamespace(allowed=allowed, reason="" if allowed else "prompt_shields_document_attack"),
+    ])
+    result = run_member_turn(c, "Thank you, that helps.")
+    assert c.screen.screen.call_count == 2
+    assert c.screen.screen.call_args.args[2] == [item.text for item in c.tools.conversation_history]
+    assert c.tools.conversation_screened is allowed
+    assert result.escalated is (not allowed)
+    assert c.decide.call_count == (1 if allowed else 0)
+
+
+@pytest.mark.parametrize("language,utterance,closing", [
+    ("en", "Yes, that helps a lot. Thank you.",
+     "Thank you. We can leave it here for now. You can ask another question or request a person at any time."),
+    ("en", "Thank you, that helps. So the monthly amount won't suddenly change because of the transition itself, "
+     "but it could go up or down later depending on how well the fund does. That makes me feel a bit better.",
+     "Thank you. We can leave it here for now. You can ask another question or request a person at any time."),
+    ("nl", "Dank je, dat helpt. Ik begrijp het nu.",
+     "Dank je. We kunnen het hier voor nu bij laten. Je kunt een andere vraag stellen of op elk moment om een medewerker vragen."),
+])
+def test_confirmation_after_a_resolved_answer_closes_naturally_without_claiming_comprehension(
+        confirmation_workflow, language, utterance, closing):
+    from dataclasses import replace
+    from governedgraph.guardrails.advice_intent import response_steers_choice
+    from governedgraph.guardrails.numeric_fidelity import check
+    from governedgraph.orchestrator.workflow import member_turn
+
+    c = confirmation_workflow
+    c.decisions["intent"] = replace(c.decisions["intent"], response_language=language)
+    result = asyncio.run(member_turn(c, utterance))
+    assert result.text == closing and result.state == "resolved" and not result.escalated
+    assert check(result.text, None, []).passed and not response_steers_choice(result.text)
+    assert result.workflow_steps == [
+        "screen-input", "intent-agent", "acknowledge-explanation", "commit-checked-evidence",
+    ]
+    assert [call.args[0] for call in c.decide.call_args_list] == ["intent"]
+    assert c.tools.trace.turn_trace[-1]["result"] == "conversation_acknowledged"
+    assert not c.journey.events and not c._explain.called and not c._escalate.called
+    assert c._complete_turn.call_count == 1
+
+
+@pytest.mark.parametrize("outcome,reason", [
+    ("understood", "meaning_correct"),
+    ("uncertain", "insufficient_evidence"),
+    ("needs_explanation", "meaning_not_yet_understood"),
+])
+def test_b5_pending_meaning_checks_still_require_the_understanding_verdict(confirmation_workflow, outcome, reason):
+    from governedgraph.common.contracts import ExplanationContext, UnderstandingDecision
+    from governedgraph.orchestrator.state_machine import State
+    from governedgraph.orchestrator.workflow import member_turn
+
+    c = confirmation_workflow
+    c.journey.state = State.COMPREHENSION_CHECK
+    c.journey.last_explanation = ExplanationContext(
+        ["official_after_transition_amount", "future_adjustments"], ["official_after_transition_amount"])
+    c.decisions["understanding"] = UnderstandingDecision(outcome, reason)
+    utterance = ("The amount immediately after the transition is the official starting amount." if outcome == "understood"
+                 else "Thank you." if outcome == "uncertain" else "The transition means the starting amount is gone.")
+    result = asyncio.run(member_turn(c, utterance))
+    assert [call.args[0] for call in c.decide.call_args_list] == ["intent", "understanding"]
+    passed = [event for event in c.journey.events if event.event == "teach_back_passed"]
+    assert bool(passed) is (outcome == "understood")
+    if outcome == "understood":
+        assert result.state == "resolved" and "We can leave it here for now." in result.text
+        assert "clarify-question" not in result.workflow_steps and not c._explain.called
+    elif outcome == "uncertain":
+        assert result.state == "comprehension_check" and "clarify-question" in result.workflow_steps
+        assert c.journey.teach_back_failures == 0
+    else:
+        assert "explain-with-approved-tools" in result.workflow_steps and c.journey.teach_back_failures == 1
+    assert c._complete_turn.call_count == 1
+
+
+def test_a_confirmation_without_a_previous_answer_does_not_close_the_journey(confirmation_workflow):
+    from governedgraph.orchestrator.state_machine import State
+    from governedgraph.orchestrator.workflow import member_turn
+
+    c = confirmation_workflow
+    c.journey.state, c.journey.last_explanation = State.IDENTIFIED, None
+    result = asyncio.run(member_turn(c, "Thank you."))
+    assert result.state == "identified" and "clarify-question" in result.workflow_steps
+    assert "acknowledge-explanation" not in result.workflow_steps
+    assert [call.args[0] for call in c.decide.call_args_list] == ["intent"]
+
+
+@pytest.mark.parametrize("route,intent,reason,utterance,branch", [
+    ("explanation", "transition_impact_question", "payment_continuity",
+     "Thanks, but please explain what happens to my payment again.", "explain-with-approved-tools"),
+    ("human", "unclassified", "explicit_human_request",
+     "Thank you. I'd like to speak to a person.", "requested-human-handoff"),
+    ("advice", "option_level_question", "personal_choice_or_comparison",
+     "Thanks. Should I object or not?", "personal-advice-handoff"),
+])
+def test_b9_natural_closure_preserves_new_questions_and_human_or_advice_handover(
+        confirmation_workflow, route, intent, reason, utterance, branch):
+    from governedgraph.common.contracts import IntentDecision
+    from governedgraph.orchestrator.workflow import member_turn
+
+    c = confirmation_workflow
+    first = asyncio.run(member_turn(c, "Thanks, that helps."))
+    assert first.state == "resolved" and "acknowledge-explanation" in first.workflow_steps
+    c.decisions["intent"] = IntentDecision(route, intent, reason)
+    result = asyncio.run(member_turn(c, utterance))
+    assert branch in result.workflow_steps and "acknowledge-explanation" not in result.workflow_steps
+    assert result.escalated is (route != "explanation")
+    assert c._complete_turn.call_count == 2
 
 
 class Throttled(Exception):

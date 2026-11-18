@@ -53,6 +53,39 @@ messages containing utterances are not persisted as framework checkpoints.
 Native Azure services supply infrastructure; the journey logic, closed
 contracts, strategy ranking, vetoes and release gates are framework code.
 
+**Decision `IMP-DECISION-MODEL`:** Microsoft-Decision-1.1 is the sole model
+for intent routing and semantic draft review. The host maps intent reasons to
+approved routes and records closed review verdicts, repair issue codes, and
+teach-back concepts as decision evidence. There is no second judge or model
+fallback for these checks. A rejected draft cannot be released; an assessable
+non-advice defect can use the existing bounded repair. Unavailable decisions
+fail closed. The separate understanding assessment and the deterministic
+numeric fidelity, steering, and audit gates remain unchanged.
+
+The foundation provisions the pinned Decision model in the workload's Foundry
+account. The workload takes the deployment name from the foundation output;
+the separate benchmark account is never a runtime dependency.
+
+### Private application ingress
+
+APIM reaches externally exposed Container Apps routes through the environment's
+explicit `managedEnvironments` private endpoint in the existing private-endpoints
+subnet. The environment remains internal with public network access disabled.
+The existing environment-domain private DNS zone maps its apex and wildcard to
+the private endpoint's allocated address, not the environment's `staticIp`.
+Environment-only routes remain environment-only; no identity or permission is
+shared or added by this network connection.
+
+Decision `IMP-PRIVATE-APPLICATION-INGRESS`: use an explicit Azure Private Link
+endpoint rather than depend on the implicit internal ingress address. The
+reported environment address was outside the VNet and APIM timed out before
+reaching any application. This is a private connectivity correction, not a
+change to B1-B10, channel authorization, catalogue approval or learning.
+Alternatives were Azure support repair of implicit ingress, or public access
+(rejected). Private Link adds recurring network and Container Apps charges.
+The narrowly scoped module also supports recovery of an existing deployment
+without rebuilding images, rerunning bootstrap or replacing data stores.
+
 ## Runtime sequence (P1)
 
 1. Start an authenticated journey and deliver the approved AI disclosure before
@@ -69,8 +102,16 @@ contracts, strategy ranking, vetoes and release gates are framework code.
 7. Compose a question-specific draft with `{{value:<id>}}` references. Bind only
    authorized official display strings; reject literal invented figures and steering.
 8. An independent grounded judge checks support, relevance and language.
-   At most one evidence-preserving repair and one recheck are allowed; deterministic
-   gates run again. If no safe, relevant explanation is available, clarify or escalate.
+   At most one evidence-preserving repair is allowed across the deterministic output
+   gate and independent review. A literal-digit contract failure without a usable
+   approved fallback can use that repair before judging; all deterministic gates
+   and the independent judge must then pass. An internal answer failure never asks
+   the member to repeat an already classified question: the approved answer-failure
+   acknowledgment offers human help in the same journey, or escalates if that offer
+   cannot safely be delivered. Genuine clarification remains an intent-routing decision.
+   The sample's vocabulary `1.3` carries the contextual failure wording approved
+   under `HR-PENSION-WTP-CONTEXTUAL-FAILURE-2026-11-18`; it adds no substantive
+   transition or opt-out claims.
 9. Durably commit response metadata to the explainability store or its independent
    retry outbox, then commit the response-linked journey event.
 10. Release the checked response only after the audit write-ahead barrier.
@@ -93,11 +134,81 @@ Unknown tools and model-originated audit writes are rejected. Tool rounds,
 calls, deadlines and repair attempts are bounded.
 
 Understanding is assessed only against concepts targeted by the accepted
-teach-back. Follow-ups use approved reference context, not stored transcripts.
+teach-back. After an explanation is already resolved, confirmation, thanks or a
+voluntary recap with no new request receives the approved bilingual closing
+acknowledgment instead of restarting clarification. This preserves the resolved
+state and does not manufacture a comprehension event or learning success.
+A pending meaning check still requires the Understanding Assessment Agent's
+verdict; gratitude alone is insufficient. New explanation, advice and human
+requests retain their own routes, including after the natural close; this is not
+a terminal journey lock.
+Journey starts accept a closed, explicitly selected `contact_type`: `first_contact`
+(the backwards-compatible default) or `second_contact`. It initializes the existing
+journey stage and strategy request key; it does not restore an earlier journey,
+prove a previous interaction, link an earlier answer or bypass authentication.
+Second-contact explanations address the remaining question in the selected
+approved style. Member recaps remain untrusted input, never a factual source.
+Each contact still starts with the AI disclosure
+and retains all value, output and human-escalation gates (B2, B9, Art. 50).
 Letter help acknowledges that a personal letter is unseen and invites a relevant
 passage without personal details; excerpts remain untrusted input, not official
 values or instructions. Uncertainty must remain explicit. A proposed handover
 must not be described as completed until its durable effect is confirmed.
+
+### Customer-scoped conversation continuity
+
+Decision `IMP-CUSTOMER-CONTINUITY`, human approval
+`HR-PENSION-WTP-CUSTOMER-CONTINUITY-2026-11-17`: the authenticated, step-up-verified
+`MemberIdentity.member_ref`, namespaced by the configured trusted issuer and
+Foundry project, owns a durable Foundry conversation across turns,
+new contacts, channels and orchestrator restarts. A closed contact selector is
+not a memory reset. A new customer or absent earlier exchange gets no invented
+recollection. Each administrator test journey has a separate conversation;
+it neither reads nor updates ordinary customer history.
+
+The [continuity adapter](../src/governedgraph/orchestrator/continuity.py) keeps
+only an opaque owner key, Foundry conversation ID and pending commit references
+under `customer-context/` in the existing `journey-state` container. Ordinary
+journey enumeration excludes that prefix. Customer leases serialize concurrent
+contacts; customer locks precede journey locks. A busy customer returns the
+existing retryable conflict, not a second concurrent model turn. Channel bodies
+and model tools cannot select customer or Foundry conversation identifiers.
+Non-step-up identities receive no persisted personal context.
+
+Only screened customer text paired with the final checked, audited answer
+committed for release is appended, never rejected drafts, internal decisions,
+tool outputs or withheld/escalated turns. A reference-only prepare journal is
+saved before the Foundry append. Recovery checks the durable journey request
+commit and flushes its existing audit/delivery outbox before accepting the pair;
+uncommitted appended items are removed before any later model invocation.
+Ambiguous appends are not blindly retried. Retention is the most recent **20
+completed turns**, not a time-based retention promise. Older Foundry context
+items are pruned on successful commit/recovery; cleanup failure prevents reuse
+and surfaces an error for retry. Immutable audit/event history is not deleted.
+A released reply is not proof of receipt, voice playback or comprehension.
+
+Prior dialogue is re-screened through Prompt Shields in provider-bounded batches.
+Historical numbers are masked before the intent, understanding, writer and
+answer-review agents receive the role-labelled dialogue as untrusted reference
+data. Current authorization, authoritative value reads, approved retrieval,
+signed ranking and all output gates still run. History never authorizes tools,
+restores an old journey state or becomes approved factual evidence. Demographic
+self-descriptions are not profile features and must not affect treatment.
+The [context contract](../src/governedgraph/agents/conversation_context.py) is
+closed; no demographic attribute or caller-selected identity is added.
+
+Inference remains behind APIM, with `store=false`; intra-answer tool rounds
+carry their inputs/outputs only in process memory. Accepted dialogue is retained
+through Foundry Conversations CRUD at the existing private project endpoint,
+using the existing runtime identity and permissions. This avoids automatically
+appending an unchecked model response to durable customer history.
+There is no new resource, grant, deployment mode, migration, bootstrap step or
+deployment-dependent repository check.
+
+Operational memory is not model training or modification of prompts, templates,
+models or catalogue: B4 continues to prohibit those transcript-driven changes.
+P2 still reads closed aggregates only, never Foundry conversation content.
+See [focused regression evidence and limits](evaluation.md#customer-scoped-conversation-continuity).
 
 ## Durable state, audit and handover
 
@@ -146,6 +257,61 @@ The sample starts with six approved strategies:
 | S4 | What changes / what stays the same |
 | S5 | Step-by-step explanation with teach-back |
 | S6 | Offer a human advisor; always available and never ranked |
+
+The source catalogue's S1-S5 version 1.1 adds `second_contact` eligibility without
+changing first-contact eligibility or template versions. Version 1.0 definitions
+remain available for historical evidence and verified predecessor selection
+during rolling delivery, not selection after upgrade. Separate
+second-contact expert priors emphasize focused teach-back and clarification;
+they never borrow first-contact outcomes. S6 remains unchanged and always
+available. The catalogue, expert baseline and revised counsellor instructions
+are a material change requiring reviewed Tier 2 delivery and newly verified
+signed snapshots before live activation (B3, B5, B8, B10). Updating source alone
+does not activate them or certify conversation quality.
+
+Decision `IMP-FOUNDRY-DELIVERY-TLS`: delivery's shared Foundry project client uses
+a certificate-verified P-256 transport. Verified endpoint probes showed OpenSSL
+3.5 hybrid key-share offers closing before HTTP, while classic groups negotiated
+TLS 1.3 with a valid Microsoft certificate. This is a delivery-path
+interoperability correction, not proof of which network component closed the
+connection. Disabling certificate checks, downgrading TLS, changing the endpoint
+and altering system-wide OpenSSL settings were rejected. Selected-tenant
+credentials and approved immutable writer pins remain unchanged. Request/response
+transport failures become explicit delivery errors so both delivery entrypoints
+finalize failed-stage evidence rather than leave a running receipt. No new
+identity, grant, network path or runtime fallback is introduced.
+
+Decision `IMP-COMPLETE-RANKING-COVERAGE`, approved under
+`HR-PENSION-WTP-RANKING-COVERAGE-2026-11-18`: sample catalogue `1.1.1` and priors
+`1.3` explicitly cover every catalogue-eligible combination of explanation
+intent, journey stage, channel and accessibility mode. Existing expert orders
+are unchanged. New contexts use the approved default order, except second-contact
+contexts use the focused second-contact order; eligibility filters apply before
+signing. No new strategy definition or cross-context outcome is introduced.
+The signed snapshots, not an unsigned runtime default, authorize treatment.
+The same complete priors seed P2 and the control arm. Regression coverage checks
+all supported contexts, including a general-information follow-up after a
+transition question. Reusing an unsigned default at runtime was rejected.
+The approved upgrade from `1.1.0` archives prior state and resets live ordering
+to the approved baseline; protective suspensions and pauses remain effective.
+
+Source-pack upgrades use an explicit reviewed predecessor pack and exact target
+hashes in [source_upgrade_v1.json](../examples/pension_wtp/data/catalogue/source_upgrade_v1.json).
+They are a separate existing-target operation through
+[`scripts.upgrade_catalogue`](../scripts/upgrade_catalogue.py), not part of normal
+deployment. Normal deployment initializes expert priors before workloads and
+does not load or sign upgrade metadata. Empty state and snapshots matching the
+running catalogue do not depend on old upgrade files, even for future fresh
+catalogue versions. The exceptional upgrade alone rolls out compatible workloads
+before state activation. The existing P2 signing
+identity signs the human-approved plan and target expert baseline; the separate
+Strategy Service initializer verifies both and archives the entire old signed
+state before an ETag-conditional manifest update. New versions use their approved
+expert priors, never old-version learned ordering. Suspensions and owner pauses
+survive unchanged. Frozen state, pending or widening owner decisions and
+owner-managed catalogues block this source-pack upgrade. Immutable history is
+retained; no permission, schema-field, unfreeze or reinstatement bypass is added.
+See [explicit upgrades](deploying.md#explicit-source-catalogue-upgrade).
 
 The Strategy Service verifies signatures and active catalogue versions on read,
 startup and rollback. Immutable current, last-good and static snapshots are
@@ -262,6 +428,14 @@ Connection reuse and warm-up do not cache member values or bypass per-turn
 screening. Figure-free acknowledgements are distinguished from substantive answers
 and cannot claim that checks or audit have completed.
 
+Decision `IMP-VOICE-STARTUP-CONTEXT`: warm-up supplies an explicitly empty
+conversation context to the same decision-agent request path used by live turns;
+it never loads a customer's history or creates a journey. A presenter connection
+that closes before confirmed completion becomes a visible error, including during
+startup; an explicit service error is preserved. Masking missing context in the
+live agent or bypassing warm-up was rejected. B1-B10 and disclosure playback
+remain unchanged.
+
 ### Voice SLO table
 
 These are **illustrative targets**, not measured framework guarantees. Both
@@ -306,13 +480,13 @@ Guidance-not-advice and opening AI disclosure apply across the runtime.
 
 | Boundary | Enforcement | Regression source |
 |---|---|---|
-| B1: deterministic authority | [Values tools](../src/governedgraph/agents/tools.py), [sample facade](../examples/pension_wtp/member_values_api) | [Values facade](../tests/test_member_values_facade.py) |
+| B1: deterministic authority | [Values tools](../src/governedgraph/agents/tools.py), [history number masking](../src/governedgraph/agents/conversation_context.py), [sample facade](../examples/pension_wtp/member_values_api) | [Values facade](../tests/test_member_values_facade.py), [customer continuity](../tests/test_customer_continuity.py) |
 | B2: no AI calculations | [Placeholder binding](../src/governedgraph/guardrails/binding.py), [numeric fidelity](../src/governedgraph/guardrails/numeric_fidelity.py) | [Numeric fidelity](../tests/test_numeric_fidelity.py), [Foundry output](../tests/test_foundry_counsellor.py) |
-| B3: approved strategies only | [Strategy Service](../src/governedgraph/strategy_service/service.py), [host tools](../src/governedgraph/agents/tools.py) | [Signed Azure state](../tests/test_strategy_azure.py), [catalogue publication](../tests/test_foundry_publication.py) |
+| B3: approved strategies only | [Strategy Service](../src/governedgraph/strategy_service/service.py), [source upgrades](../src/governedgraph/strategy_service/source_upgrade.py), [host tools](../src/governedgraph/agents/tools.py) | [Signed Azure state](../tests/test_strategy_azure.py), [catalogue publication](../tests/test_foundry_publication.py), [upgrade gates](../tests/test_bootstrap.py) |
 | B4: no conversation-to-behavior path | [Closed aggregates](../src/governedgraph/common/contracts.py), [feedback projection](../src/governedgraph/learning/feedback.py) | [Ranking inputs](../tests/test_ranking_bounds.py), [learning feedback](../tests/test_learning_feedback.py) |
 | B5: bounded reorder-only learning | [Ranking pipeline](../src/governedgraph/learning/ranking_pipeline.py) | [Ranking bounds](../tests/test_ranking_bounds.py) |
 | B6: fairness veto for everyone | [Fairness agent](../src/governedgraph/agents/fairness_explainability.py), [read-time overlays](../src/governedgraph/strategy_service/service.py) | [Fairness veto](../tests/test_fairness_veto.py), [Azure overlays](../tests/test_strategy_azure.py) |
-| B7: no runtime demographics | [Closed contracts](../src/governedgraph/common/contracts.py), [APIM policy](../infra/policies/strategy-request.xml) | [Demographic rejection](../tests/test_contracts_no_demographics.py) |
-| B8: human material-change approval | [Tier routing](../src/governedgraph/learning/run_cycle.py), [assurance committee](../src/governedgraph/learning/assurance_committee.py), [Strategy Service](../src/governedgraph/strategy_service/service.py) | [Reinstatement](../tests/test_strategy_service.py), [owner decisions](../tests/test_admin_owners.py), [writer approval](../tests/test_writer_approval.py) |
-| B9: human help always available | [State machine](../src/governedgraph/orchestrator/state_machine.py), [escalation tools](../src/governedgraph/agents/tools.py) | [Every-state escalation](../tests/test_state_machine.py), [durable handover](../tests/test_durable_orchestrator.py) |
+| B7: no runtime demographics | [Closed contracts](../src/governedgraph/common/contracts.py), [customer context boundary](../src/governedgraph/orchestrator/continuity.py), [APIM policy](../infra/policies/strategy-request.xml) | [Demographic rejection](../tests/test_contracts_no_demographics.py), [customer isolation](../tests/test_customer_continuity.py) |
+| B8: human material-change approval | [Tier routing](../src/governedgraph/learning/run_cycle.py), [assurance committee](../src/governedgraph/learning/assurance_committee.py), [Strategy Service](../src/governedgraph/strategy_service/service.py), [signed source upgrade](../src/governedgraph/strategy_service/bootstrap.py) | [Reinstatement](../tests/test_strategy_service.py), [owner decisions](../tests/test_admin_owners.py), [writer approval](../tests/test_writer_approval.py), [upgrade gates](../tests/test_bootstrap.py) |
+| B9: human help always available | [State machine](../src/governedgraph/orchestrator/state_machine.py), [escalation tools](../src/governedgraph/agents/tools.py), [closed intent routing](../src/governedgraph/agents/decision_agents.py) | [Every-state escalation](../tests/test_state_machine.py), [durable handover](../tests/test_durable_orchestrator.py), [Decision model checks](../tests/test_decision_agents.py) |
 | B10: continuous governed control | [Arm assignment](../src/governedgraph/strategy_service/service.py), [uplift kill switch](../src/governedgraph/learning/uplift.py) | [Uplift](../tests/test_uplift_and_design_agents.py), [signed static rollback](../tests/test_governed_static_contracts.py) |

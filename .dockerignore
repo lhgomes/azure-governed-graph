@@ -13,8 +13,9 @@ venv
 *.key
 dist
 build
-.azure/
-**/.azure/
+.azure
+**/.azure
+.run
 **/.env
 **/.env.*
 **/*.pem

@@ -1,8 +1,12 @@
 -r requirements.txt
 # P1 Azure Public application runtime. Version pins must be reviewed before upgrade.
 # Versioned prompt agents, strict Responses text.format and safe trace capture reverified (IMP-11/51).
+# Foundry Conversations create/retrieve/items create/list/delete verified for customer continuity.
 azure-identity==1.26.0
 azure-ai-projects==2.9.0
+# Reviewed delivery-only RequestsTransport / pool-key TLS customization (IMP-FOUNDRY-DELIVERY-TLS).
+azure-core==1.41.0
+requests==2.34.2
 azure-ai-voicelive[aiohttp]==1.3.1
 openai==3.36.0
 azure-core-tracing-opentelemetry==1.0.0b13

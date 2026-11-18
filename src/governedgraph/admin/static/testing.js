@@ -11,6 +11,15 @@ window.AdminStyleTest = class {
     this.persona = node("select"); this.persona.id = "test-persona"; this.persona.hidden = true;
     this.personaLabel = node("label", "Persona"); this.personaLabel.htmlFor = this.persona.id;
     this.personaLabel.hidden = true;
+    this.contact = node("select"); this.contact.id = "test-contact";
+    [["first_contact", "First contact"], ["second_contact", "Second contact"]].forEach(([value, name]) => {
+      const option = node("option", name); option.value = value;
+      option.disabled = !style.eligible_journey_states.some((stage) => stage === "*" || stage === value);
+      this.contact.append(option);
+    });
+    const availableContact = [...this.contact.children].find((option) => !option.disabled);
+    if (availableContact) this.contact.value = availableContact.value;
+    const contactLabel = node("label", "Contact"); contactLabel.htmlFor = this.contact.id;
     const modeLabel = node("label", "Test with"); modeLabel.htmlFor = this.mode.id;
     this.startButton = button("Start test", () => this.start(), "primary"); this.startButton.disabled = true;
     this.endButton = button("End test", () => this.end(), "quiet"); this.endButton.disabled = true;
@@ -29,11 +38,12 @@ window.AdminStyleTest = class {
     const controls = node("div", null, "test-controls");
     const actions = node("div", null, "row-actions");
     actions.append(this.startButton, this.endButton);
-    controls.append(modeLabel, this.mode, this.personaLabel, this.persona, actions);
+    controls.append(modeLabel, this.mode, contactLabel, this.contact, this.personaLabel, this.persona, actions);
     this.element.append(controls, this.status, this.result, this.error, this.transcript, this.form, this.recordButton);
     this.mode.addEventListener("change", () => {
       this.persona.hidden = this.personaLabel.hidden = this.mode.value !== "simulator";
     });
+    this.contact.addEventListener("change", () => this.renderPersonas());
     this.form.addEventListener("submit", (event) => {
       event.preventDefault();
       if (!this.input.value.trim() || this.send.disabled) return;
@@ -43,11 +53,21 @@ window.AdminStyleTest = class {
     });
     this.request("/config").then((config) => {
       if (this.closed) return;
-      config.simulations.forEach((item) => {
-        const option = node("option", item.display_name); option.value = item.simulation_id; this.persona.append(option);
-      });
+      this.simulations = config.simulations; this.renderPersonas();
       this.ready = true; this.startButton.disabled = false; this.status.textContent = "Choose a mode and start the selected-style test.";
     }).catch((error) => { if (!this.closed) this.fail(error); });
+  }
+  renderPersonas() {
+    const previous = this.persona.value.replace(/-return$/, "");
+    this.persona.replaceChildren();
+    this.simulations.filter((item) => item.contact_type === this.contact.value).forEach((item) => {
+      const option = node("option", item.display_name); option.value = item.simulation_id;
+      this.persona.append(option);
+      if (item.simulation_id.replace(/-return$/, "") === previous) option.selected = true;
+    });
+    this.status.textContent = this.contact.value === "second_contact"
+      ? "Continued support: the persona supplies a fictional recap, not stored conversation history."
+      : "Choose a mode and start the selected-style test.";
   }
   caption(role, text) {
     const line = node("p"); line.append(node("strong", `${role}: `), node("span", text));
@@ -59,7 +79,7 @@ window.AdminStyleTest = class {
   }
   async start() {
     this.form.hidden = true;
-    this.startButton.disabled = true; this.mode.disabled = this.persona.disabled = true;
+    this.startButton.disabled = true; this.mode.disabled = this.persona.disabled = this.contact.disabled = true;
     this.error.hidden = this.result.hidden = true; this.transcript.replaceChildren();
     this.status.textContent = "Connecting...";
     try {
@@ -74,7 +94,7 @@ window.AdminStyleTest = class {
       const socket = new WebSocket(url); this.socket = socket; socket.binaryType = "arraybuffer";
       socket.onopen = () => {
         this.endButton.disabled = false;
-        this.sendMessage({strategy_id: this.style.strategy_id, mode: this.mode.value,
+        this.sendMessage({strategy_id: this.style.strategy_id, mode: this.mode.value, contact_type: this.contact.value,
           ...(this.mode.value === "simulator" ? {simulation_id: this.persona.value} : {})});
       };
       socket.onmessage = (event) => {
@@ -174,7 +194,7 @@ window.AdminStyleTest = class {
     const socket = this.socket; this.socket = null; socket?.close();
     if (this.audio) { this.audio.close().catch((error) => { this.error.textContent = error.message; this.error.hidden = false; }); this.audio = null; }
     this.send.disabled = this.input.disabled = true; this.recordButton.hidden = true;
-    this.startButton.disabled = !this.ready; this.endButton.disabled = true; this.mode.disabled = this.persona.disabled = false;
+    this.startButton.disabled = !this.ready; this.endButton.disabled = true; this.mode.disabled = this.persona.disabled = this.contact.disabled = false;
     if (!this.finished) this.status.textContent = "Test ended. Start a new test to continue.";
   }
   fail(error) { this.error.textContent = error.message || String(error); this.error.hidden = false; this.end(); }

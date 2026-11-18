@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 
 from governedgraph.admin.access import AccessPolicy
 from governedgraph.common.config import settings
-from governedgraph.common.contracts import ContractError, RequestKey, _strict
+from governedgraph.common.contracts import CONTACT_TYPES, ContractError, RequestKey, _strict
 from governedgraph.agents.clients import HttpStrategyClient
 from governedgraph.voice.presenter import SessionRequest, serve
 from governedgraph.voice.simulations import load_simulations
@@ -52,12 +52,13 @@ class TestSession:
     strategy_id: str
     mode: str
     simulation_id: str | None = None
+    contact_type: str = "first_contact"
 
     def __post_init__(self):
         if self.mode not in ("chat", "presenter", "simulator"):
             raise ContractError("choose chat, voice or a persona")
         require_style(self.strategy_id)
-        SessionRequest(self.mode, simulation_id=self.simulation_id)
+        SessionRequest(self.mode, simulation_id=self.simulation_id, contact_type=self.contact_type)
         if self.mode == "simulator" and self.simulation_id is None:
             raise ContractError("choose an approved synthetic persona")
 
@@ -71,10 +72,13 @@ class TestJourney:
     strategy_id: str
     channel: str
     accessibility_mode: str
+    contact_type: str = "first_contact"
 
     def __post_init__(self):
         require_style(self.strategy_id)
-        RequestKey("first_contact", "unclassified", self.channel, self.accessibility_mode)
+        if not isinstance(self.contact_type, str) or self.contact_type not in CONTACT_TYPES:
+            raise ContractError("unsupported contact type")
+        RequestKey(self.contact_type, "unclassified", self.channel, self.accessibility_mode)
         if self.channel not in ("chat", "voice"):
             raise ContractError("unsupported synthetic test channel")
 
@@ -92,11 +96,14 @@ class TestChannel(OrchestratorChannel):
     def _headers(self) -> dict[str, str]:
         return {**super()._headers(), "X-Admin-Authorization": "Bearer " + self.admin_token}
 
-    async def start(self, accessibility_mode: str = "standard", *, channel: str = "voice") -> JourneyStart:
-        body = TestJourney(self.strategy_id, channel, accessibility_mode)
+    async def start(self, accessibility_mode: str = "standard", *, channel: str = "voice",
+                    contact_type: str = "first_contact") -> JourneyStart:
+        body = TestJourney(self.strategy_id, channel, accessibility_mode, contact_type)
         result = await self.client.post("admin-test/journeys", headers=self._headers(),
                                         json={"strategy_id": body.strategy_id, "channel": body.channel,
-                                              "accessibility_mode": body.accessibility_mode})
+                                              "accessibility_mode": body.accessibility_mode,
+                                              **({"contact_type": body.contact_type}
+                                                 if body.contact_type != "first_contact" else {})})
         result.raise_for_status()
         return JourneyStart.from_dict(result.json())
 
@@ -137,7 +144,8 @@ async def start(request: Request, authorization: str = Header(""),
     except (ContractError, TypeError, json.JSONDecodeError):
         raise HTTPException(400, "Invalid closed selected-style test request.") from None
     return await asyncio.to_thread(request.app.state.runtime.start, identity, body.channel,
-                                   body.accessibility_mode, test_strategy_id=body.strategy_id)
+                                   body.accessibility_mode, test_strategy_id=body.strategy_id,
+                                   contact_type=body.contact_type)
 
 
 @router.websocket("/admin-test-stream")
@@ -154,7 +162,8 @@ async def stream(socket: WebSocket):
     await socket.accept()
     try:
         selected = TestSession.from_dict(await asyncio.wait_for(socket.receive_json(), 20))
-        request = SessionRequest(selected.mode, simulation_id=selected.simulation_id)
+        request = SessionRequest(selected.mode, simulation_id=selected.simulation_id,
+                                 contact_type=selected.contact_type)
         await serve(socket, {"exp": identity.expires_at}, request=request,
                     channel_factory=lambda client, bearer: TestChannel(client, bearer, selected.strategy_id, token))
     except (VoiceError, httpx.HTTPError, ContractError, TimeoutError, OSError,

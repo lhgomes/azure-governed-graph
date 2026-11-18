@@ -1,9 +1,12 @@
 """No-network Foundry Responses, host tools and fail-closed safety regressions."""
 from dataclasses import asdict, replace
+from contextlib import nullcontext
 import json
 import os
 from types import ModuleType, SimpleNamespace
 import sys
+from unittest.mock import Mock
+from uuid import uuid4
 
 import pytest
 
@@ -85,7 +88,8 @@ def response(text="", *calls, content_ids=(), question=None):
 
 
 def function(name, arguments):
-    return SimpleNamespace(type="function_call", name=name, arguments=json.dumps(arguments), call_id="call-test")
+    payload = dict(type="function_call", name=name, arguments=json.dumps(arguments), call_id="call-test")
+    return SimpleNamespace(**payload, model_dump=lambda **_: payload)
 
 
 def stepwise(text):
@@ -131,9 +135,8 @@ def install_responses(monkeypatch, client):
     composer = FoundryComposer("test instructions", client=client)
     monkeypatch.setattr(FoundryComposer, "shared", classmethod(lambda cls, instructions: composer))
     monkeypatch.setattr(decision_agents.settings.__class__, "review_agent_version", property(lambda _: "7"))
-    original = decision_agents.FoundryDecisionAgent.shared
-    monkeypatch.setattr(decision_agents.FoundryDecisionAgent, "shared", classmethod(
-        lambda cls, role: cls(role, client=client) if role == "answer-review" else original(role)))
+    judge = decision_agents.FoundryDecisionAgent("answer-review", client=client, agent_version="7")
+    monkeypatch.setattr(decision_agents, "review_with_decision_model", judge.judge)
 
 
 @pytest.mark.parametrize("strategy_id", ["S1", "S5"])
@@ -244,6 +247,22 @@ def test_b1_b2_b7_question_focus_limits_reference_context_without_changing_strat
     assert "member_ref" not in json.dumps(task) and "age_band" not in json.dumps(task)
 
 
+def test_b4_second_contact_task_contains_stage_but_no_invented_previous_explanation():
+    from governedgraph.orchestrator.state_machine import Journey
+
+    tools = SimpleNamespace(
+        journey=Journey("J-returning", "MEMBER-SYNTHETIC", stage="second_contact"),
+        related_answer_context=None, explanation_pattern="A focused plain-language summary.",
+        trace=SimpleNamespace(decision_evidence=[]),
+    )
+    strategy = SimpleNamespace(strategy_id="S1", version="1.1", name="Plain-language summary",
+                               teach_back=False, template_id="T-S1", template_version="1.0")
+    task = foundry_runtime.task_context(tools, strategy)
+    assert task["journey_state"] == "second_contact"
+    assert task["last_explanation"] is None and "follow_up_scope" not in task
+    assert "MEMBER-SYNTHETIC" not in json.dumps(task)
+
+
 def test_b1_b3_rights_question_repairs_unrequested_adjustments_without_changing_strategy(
         counsellor, monkeypatch):
     def route(bound_tools, *_):
@@ -323,6 +342,176 @@ def test_b1_b3_information_gap_task_supports_direct_answer_and_specific_human_he
     assert not foundry_runtime._official_references(counsellor.tools, task)
 
 
+@pytest.fixture
+def contextual_answer(monkeypatch, azure_errors, channel):
+    from governedgraph.agents.counsellor import Counsellor
+    from governedgraph.agents.tools import CounsellorTools, Trace
+    from governedgraph.common.config import settings
+    from governedgraph.common.contracts import MemberValue, MemberValues, RankedStrategy, StrategyResponse
+    from governedgraph.orchestrator.state_machine import Event, Journey
+    from governedgraph.strategy_service.catalogue import Catalogue
+
+    for module in ("agents.tools", "agents.decision_agents"):
+        monkeypatch.setattr(f"governedgraph.{module}.operation", lambda *args, **kwargs: nullcontext(None))
+    monkeypatch.setattr("governedgraph.observability.emit", Mock())
+    monkeypatch.setattr("governedgraph.observability.model_usage", Mock())
+    monkeypatch.setattr(foundry_runtime, "settings", replace(settings, agent_version="7"))
+    catalogue = Catalogue.load()
+    journey = Journey("J-contextual-answer", "SYNTHETIC-CUSTOMER", channel=channel)
+    records = []
+    bound = CounsellorTools(
+        journey, journey.member_ref, Mock(), Mock(), Mock(), SimpleNamespace(append=records.append),
+        "synthetic-model", "1.5", agent_name="gg-counsellor", agent_version="7",
+    )
+    values = MemberValues(journey.member_ref, [
+        MemberValue("monthly_pension_after_transition", "Monthly pension", 1412.5, "EUR/month",
+                    "synthetic-administrator", "synthetic-run", "2026-11-17", "EUR 1,412.50"),
+    ])
+    ranked = StrategyResponse(
+        "synthetic-snapshot", True, catalogue.version, "treatment",
+        [RankedStrategy("S5", catalogue.get("S5").version, 1)], [], ["S6"], "snapshot",
+    )
+    c = object.__new__(Counsellor)
+    c.journey, c.tools, c.catalogue = journey, bound, catalogue
+    c.decision_agents, c._current_strategy = {}, None
+    c._prefetched, c.step_up_verified, c.compact_voice = True, True, False
+    monkeypatch.setattr(c, "_parallel_explanation_sources", lambda _: None)
+    c.start()
+
+    def explain(question, focus):
+        journey.fire(Event.INTENT_IN_SCOPE)
+        journey.intent = "transition_impact_question"
+        bound.trace = Trace(values=values, ranked=ranked, content_versions=["C-001-v1.2", "C-006-v1.0"],
+                            content_texts=[
+                                "The fund moves built-up pension rights into the new contract.",
+                                "You can always ask to speak with a fund advisor.",
+                            ])
+        bound.trace.decision_evidence.append(DecisionEvidence(
+            "intent", "gg-intent-agent", "7",
+            asdict(IntentDecision("explanation", journey.intent, focus, "en")),
+        ))
+        bound.response_id = uuid4().hex
+        return c._explain(question, set())
+
+    return SimpleNamespace(counsellor=c, explain=explain, records=records)
+
+
+@pytest.mark.parametrize("channel", ["chat", "voice"])
+def test_b2_b3_followup_repairs_a_blocked_draft_without_losing_the_question(
+        contextual_answer, monkeypatch):
+    from governedgraph.agents.conversation_context import ConversationMessage
+
+    case = contextual_answer
+    first_question = "What will I receive after the transition?"
+    followup = "Can I reject this change?"
+    payment = response("Your official monthly amount is {{value:monthly_pension_after_transition}}.",
+                       question="Which payment amount did I explain?")
+    blocked = response("The conversion happens in 2028.", content_ids=["C-001-v1.2"],
+                       question="When does the conversion happen?")
+    corrected = response(
+        "Your built-up rights move into the new contract. "
+        "I can't confirm whether you can refuse that transition. "
+        "I can arrange for a fund advisor to clarify that specific question.",
+        content_ids=["C-001-v1.2", "C-006-v1.0"],
+        question="What remains to be confirmed about refusing the transition?",
+    )
+    client = FakeResponses(payment, blocked, reviews=[corrected],
+                           judgments=[review_response(), review_response()])
+    install_responses(monkeypatch, client)
+    first = case.explain(first_question, "payment_continuity")
+    assert first.fidelity.passed and "EUR 1,412.50" in first.text
+    case.counsellor.tools.conversation_history = (
+        ConversationMessage("user", first_question), ConversationMessage("assistant", first.text),
+    )
+    case.counsellor.tools.conversation_screened = True
+    result = case.explain(followup, "transition_information_gap")
+    assert result.fidelity.passed and not result.escalated
+    assert "can't confirm whether you can refuse" in result.text
+    assert "What would you like me to explain" not in result.text and "2028" not in result.text
+    assert case.counsellor.tools.trace.composition_source == "foundry"
+    assert len(client.calls) == 5 and len(case.records) == 2
+    repair = client.calls[3]
+    assert repair["input"][-1]["content"] == followup and repair["tool_choice"] == "none"
+    assert '"question_focus": "transition_information_gap"' in repair["input"][0]["content"]
+    assert "placeholder_contract" in repair["input"][0]["content"]
+    assert "conversation_context" in repair["input"][1]["content"]
+    assert client.calls[4]["extra_body"]["agent_reference"]["name"] == "gg-answer-review-agent"
+    assert case.records[-1].strategy_id == "S5"
+    assert {"stage": "answer_repair", "result": "revised", "issues": []} in (
+        case.counsellor.tools.trace.turn_trace
+    )
+
+
+@pytest.mark.parametrize("channel", ["chat", "voice"])
+@pytest.mark.parametrize("failure", ["digits", "steering", "grounding", "review"])
+def test_b2_b3_b9_failed_followup_repair_offers_help_instead_of_restarting_discovery(
+        contextual_answer, monkeypatch, failure):
+    case = contextual_answer
+    blocked = response("The conversion happens in 2028.", content_ids=["C-001-v1.2"],
+                       question="When does the conversion happen?")
+    revisions = {
+        "digits": blocked,
+        "steering": response("You should choose option A.", content_ids=["C-001-v1.2"],
+                             question="Which option should you choose?"),
+        "grounding": response("An unsupported answer.", content_ids=["UNAPPROVED"],
+                              question="What did I explain?"),
+        "review": response("Your built-up rights move into the new contract.", content_ids=["C-001-v1.2"],
+                           question="What happens to your built-up rights?"),
+    }
+    client = FakeResponses(blocked, reviews=[revisions[failure]], judgments=[
+        review_response("revise", ["relevance"]),
+    ])
+    install_responses(monkeypatch, client)
+    result = case.explain("Can I reject this change?", "transition_information_gap")
+    assert result.fidelity.passed and case.counsellor.tools.trace.composition_source == "unanswered"
+    assert "couldn't complete a reliable answer to your question" in result.text
+    assert "You don't need to repeat it" in result.text and "unavailable" not in result.text
+    assert "talk this through with a person" in result.text
+    assert "What would you like me to explain" not in result.text
+    assert "2028" not in result.text and "option A" not in result.text
+    assert len(client.calls) == (3 if failure == "review" else 2)
+    assert len(case.records) == 1 and case.records[0].response_kind == "acknowledgment"
+    assert {"stage": "outcome", "result": "advisor_offer", "issues": []} in (
+        case.counsellor.tools.trace.turn_trace
+    )
+
+
+@pytest.mark.parametrize("channel", ["chat", "voice"])
+def test_b9_unusable_non_numeric_draft_does_not_blame_the_members_clear_question(
+        contextual_answer, monkeypatch):
+    client = FakeResponses(response('{"invalid":true}'))
+    install_responses(monkeypatch, client)
+    result = contextual_answer.explain("Can I reject this change?", "transition_information_gap")
+    assert result.fidelity.passed and "talk this through with a person" in result.text
+    assert "What would you like me to explain" not in result.text
+    assert len(client.calls) == 1 and len(contextual_answer.records) == 1
+
+
+@pytest.mark.parametrize("channel", ["chat", "voice"])
+def test_b3_contextual_recovery_keeps_an_existing_approved_task_fallback(contextual_answer, monkeypatch):
+    client = FakeResponses(response('{"invalid":true}'))
+    install_responses(monkeypatch, client)
+    result = contextual_answer.explain("Help me understand my letter.", "personal_letter_context")
+    assert result.fidelity.passed and "happy to help you understand your letter" in result.text
+    assert contextual_answer.counsellor.tools.trace.composition_source == "template_fallback"
+    assert len(client.calls) == 1 and len(contextual_answer.records) == 1
+
+
+@pytest.mark.parametrize("channel", ["chat", "voice"])
+def test_b3_contextual_recovery_preserves_the_existing_independent_review_repair(contextual_answer, monkeypatch):
+    initial = response("Your built-up rights move into the new contract.", content_ids=["C-001-v1.2"],
+                       question="What happens to your built-up rights?")
+    corrected = response("I can't confirm whether you can refuse that transition.", content_ids=["C-001-v1.2"],
+                         question="What remains to be confirmed?")
+    client = FakeResponses(initial, reviews=[corrected],
+                           judgments=[review_response("revise", ["relevance"]), review_response()])
+    install_responses(monkeypatch, client)
+    result = contextual_answer.explain("Can I reject this change?", "transition_information_gap")
+    assert result.fidelity.passed and "can't confirm whether you can refuse" in result.text
+    assert contextual_answer.counsellor.tools.trace.composition_source == "foundry"
+    assert len(client.calls) == 4 and len(contextual_answer.records) == 1
+
+
 def test_b1_b3_explicit_source_question_keeps_relevant_provenance(counsellor, monkeypatch):
     def route(bound_tools, *_):
         decision = IntentDecision("explanation", "transition_impact_question", "official_calculation_source")
@@ -377,8 +566,9 @@ def test_b1_b7_injected_member_and_request_key_are_ignored_by_host(counsellor, m
     result = counsellor.handle("Please explain the transition letter.")
     assert result.fidelity.passed
     assert counsellor.tools.trace.values.member_ref == "MBR-7Q2K"
-    output = client.calls[1]["input"][0]
+    output = client.calls[1]["input"][-1]
     assert output["type"] == "function_call_output"
+    assert all(call["store"] is False and "previous_response_id" not in call for call in client.calls)
     assert "MBR-3H8D" not in output["output"] and "1,412" not in output["output"]
     assert "current_monthly_pension" in output["output"]
     assert "MBR-3H8D" not in caplog.text and "model_scope_arguments_ignored" in caplog.text
@@ -720,7 +910,7 @@ def test_b1_b2_b8_letter_help_fallback_keeps_the_approved_goal(
         assert "help je graag" in result.text and "heb je brief hier niet" in result.text
         assert "zonder persoonsgegevens" in result.text
     record, = counsellor.tools.store.read_all()
-    assert record["template_version"] == "1.4"
+    assert record["template_version"] == "1.5"
     assert record["strategy_id"] == result.strategy_id
     if failure == "review_rejected":
         assert len([item for item in record["decision_evidence"] if item["role"] == "answer-review"]) == 2

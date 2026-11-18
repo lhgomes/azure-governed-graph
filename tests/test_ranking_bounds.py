@@ -3,6 +3,67 @@ from governedgraph.learning.ranking_pipeline import bounded_reorder, compute_can
 from governedgraph.strategy_service.catalogue import Catalogue
 
 
+def test_b3_b5_second_contact_has_separate_eligible_priors_without_first_contact_outcomes():
+    from governedgraph.common.config import DATA_DIR
+    from governedgraph.common.contracts import RequestKey
+    from governedgraph.common.io import load_json
+    from governedgraph.strategy_service.snapshot import expert_rankings
+
+    catalogue = Catalogue.load()
+    priors = load_json(DATA_DIR / "catalogue/expert_priors_v1.json")
+    rankings = expert_rankings(catalogue, priors)
+    evidence = load_outcome_aggregates()
+    for channel, mode in (("voice", "standard"), ("chat", "standard"), ("chat", "english")):
+        key = RequestKey("second_contact", "transition_impact_question", channel, mode)
+        eligible = {style.strategy_id for style in catalogue.rankable_for(key)}
+        assert {sid for sid, _ in rankings[key.id]} == eligible == {"S1", "S2", "S3", "S4", "S5"}
+        candidates = compute_candidates(catalogue, {key.id: priors["rankings"][key.id]}, evidence, load_thresholds())
+        assert len(candidates) == 1 and candidates[0].candidate == candidates[0].previous
+        assert catalogue.get("S6").eligible_for(key)
+        assert catalogue.get("S6").ranked_for_resolution is False
+    assert catalogue.historical("S5", "1.0") is not None
+    assert not catalogue.is_active("S5", "1.0")
+
+
+def test_b3_b5_expanded_coverage_preserves_approved_orders_without_borrowing_outcomes():
+    from types import SimpleNamespace
+
+    from governedgraph.common.config import DATA_DIR
+    from governedgraph.common.contracts import RequestKey
+    from governedgraph.common.io import load_json
+    from governedgraph.learning.pipeline_steps import previous_rankings
+    from governedgraph.learning.ranking_pipeline import StrategyEvidence
+    from governedgraph.strategy_service.source_upgrade import load_upgrade
+
+    catalogue = Catalogue.load()
+    priors = load_json(DATA_DIR / "catalogue/expert_priors_v1.json")
+    plan = load_upgrade()
+    assert plan is not None
+    old_key = "first_contact|transition_impact_question|voice|standard"
+    new_keys = set(priors["rankings"]) - set(plan.source_priors["rankings"])
+    assert "first_contact|general_question|voice|standard" in new_keys
+    for key, order in plan.source_priors["rankings"].items():
+        assert priors["rankings"][key] == order
+    for key in new_keys:
+        context = RequestKey(*key.split("|"))
+        eligible = {style.strategy_id for style in catalogue.rankable_for(context)}
+        approved = (plan.source_priors["rankings"]["second_contact|transition_impact_question|voice|standard"]
+                    if context.journey_state == "second_contact" else plan.source_priors["default"])
+        assert priors["rankings"][key] == [sid for sid in approved if sid in eligible]
+    learned = list(reversed(priors["rankings"][old_key]))
+    service = SimpleNamespace(priors=priors, current=SimpleNamespace(
+        rankings={old_key: [[sid, catalogue.get(sid).version] for sid in learned]}))
+    previous = previous_rankings(service)
+    assert previous[old_key] == learned
+    evidence = {old_key: {"S2": StrategyEvidence("S2", 900, 850, 50)}}
+    candidates = compute_candidates(catalogue, previous, evidence, load_thresholds(), expert_priors=priors)
+    assert {candidate.request_key for candidate in candidates} == set(priors["rankings"])
+    for candidate in candidates:
+        if candidate.request_key in new_keys:
+            assert candidate.previous == candidate.candidate == priors["rankings"][candidate.request_key]
+            assert candidate.shift == 0
+
+
 def test_rank_shift_is_capped():
     prev = ["S1", "S5", "S2", "S4", "S3"]
     scores = {"S2": 0.9, "S5": 0.8, "S4": 0.7, "S1": 0.1, "S3": 0.05}

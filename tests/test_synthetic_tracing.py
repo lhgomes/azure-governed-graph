@@ -228,7 +228,8 @@ def test_b4_capture_is_only_for_authenticated_allowlisted_synthetic_members(opte
     assert observed[0]["gen_ai.conversation.id"] == "J-synthetic"
 
 
-def test_b4_trace_observation_occurs_after_durable_delivery_and_not_on_failed_outbox(tmp_path, monkeypatch):
+def test_b4_trace_observation_occurs_after_durable_delivery_and_not_on_failed_outbox(
+        tmp_path, monkeypatch, isolated_conversations):
     from governedgraph.agents.counsellor import Counsellor
     from governedgraph.common.member_auth import MemberIdentity
     from governedgraph.explainability.store import LocalExplainabilityStore
@@ -249,6 +250,7 @@ def test_b4_trace_observation_occurs_after_durable_delivery_and_not_on_failed_ou
         FileJourneyStore(tmp_path / "journeys"), publisher,
         counsellor_factory=lambda j, auth, **kwargs: Counsellor(j, auth, strategy_service=service, **kwargs),
         audit_store=LocalExplainabilityStore(tmp_path / "audit.jsonl"),
+        continuity=isolated_conversations,
     )
     identity = MemberIdentity("MBR-7Q2K", True)
     start = runtime.start(identity, "chat", "standard")

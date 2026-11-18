@@ -11,6 +11,7 @@ from urllib.request import urlopen
 from scripts.delivery import AGENT_NAMES, AGENT_ROLES, ROOT, Composition, DeliveryError, Runner, build, provision, run_job, save_json
 from scripts.azd_env import EnvError, derived
 from scripts.deployment_target import new_target, read_inputs, same_scope, select_target
+from scripts.delivery_evidence import Evidence, admin_readiness, network_snapshot, readiness_observation, stage
 
 ISSUER = "https://gg-dev.synthetic.invalid"
 SEQUENCE = ("foundation", "immutable images", "bounded bootstrap", "complete workloads", "readiness")
@@ -74,26 +75,51 @@ def environment(runner, inputs, composition) -> None:
     sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
 
 
-def deploy(runner, inputs, composition) -> dict:
+def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> dict:
+    stage(runner, "environment", target={"subscription": inputs.subscription, "resource_group": inputs.resource_group,
+                                       "naming_seed": inputs.naming_seed, "location": inputs.location,
+                                       "composition": composition.name})
     environment(runner, inputs, composition)
     from scripts.bootstrap import agents, approve_search_link, persona_agent, release_approval, entra, initial_priors, member_public_jwk, ml_containers
     from scripts.create_agents import provision as agent_plan
 
     plans = {role: agent_plan(None, apply=False, role=role, agent_name=AGENT_NAMES[role]) for role in AGENT_ROLES}
-    release_approval(composition, plans)
+    approval = release_approval(composition, plans)
+    if catalogue_upgrade:
+        from governedgraph.strategy_service.source_upgrade import load_upgrade
+
+        upgrade = load_upgrade(composition.data_directory)
+        if upgrade is None:
+            raise DeliveryError("explicit catalogue upgrade requires a reviewed source upgrade plan")
+        upgrade.validate_approval(approval)
     base = {"environmentName": inputs.environment, "location": inputs.location,
             "searchLocation": inputs.search_location, "resourceGroupName": inputs.resource_group,
             "namingSeed": inputs.naming_seed, "principalId": inputs.operator_id,
+            "decisionDeployment": inputs.decision_deployment,
             "publisherEmail": inputs.on_call_email, "deployDevIssuer": True,
             "deploySyntheticContactCentre": True, "deployAdminConsole": True,
             "deployVoicePersona": inputs.voice_demo}
     print("Deploying foundation...", flush=True)
+    stage(runner, "foundation")
     foundation = provision(runner, inputs, "infra/main.bicep", base)["foundation"]
+    network_snapshot(runner, inputs, foundation, "foundation")
     print("Preparing immutable images...", flush=True)
+    stage(runner, "immutable images")
     images = image_artifacts(runner, foundation, composition, subscription=inputs.subscription)
     print("Running bounded bootstrap...", flush=True)
+    stage(runner, "bounded bootstrap", images=images)
     os.environ["AZURE_AI_PROJECT_ENDPOINT"] = foundation["ai"]["projectEndpoint"]
-    registrations = entra(inputs, foundation)
+    from governedgraph.strategy_service.provision_auth import GraphError
+
+    try:
+        registrations = entra(inputs, foundation)
+    except GraphError as error:
+        guidance = ""
+        if "AADSTS53003" in error.detail:
+            guidance = (" Entra Conditional Access blocked this operation; it was not retried. "
+                        "Have a tenant administrator review the corresponding Entra sign-in event, "
+                        "then rerun from an approved sign-in context using the same resource group.")
+        raise DeliveryError(f"Entra bootstrap failed: {error}.{guidance}") from None
     pins, approval = agents(composition, foundation["ai"]["projectEndpoint"], subscription=inputs.subscription)
     persona_version = (persona_agent(foundation["ai"]["projectEndpoint"], subscription=inputs.subscription)
                        if inputs.voice_demo else "")
@@ -105,7 +131,9 @@ def deploy(runner, inputs, composition) -> dict:
         "memberTokenIssuer": ISSUER, "deployDevIssuer": True,
     })
     public_key = member_public_jwk(runner, inputs, jobs["issuerJob"], run_job(runner, inputs, jobs["issuerJob"]))
-    initial = initial_priors(runner, inputs, composition, foundation, images)
+    initial = None
+    if not catalogue_upgrade:
+        initial = initial_priors(runner, inputs, composition, foundation, images)
     executions = {"content": run_job(runner, inputs, jobs["contentJob"])}
     executions["fixtures"] = run_job(runner, inputs, jobs["fixturesJob"])
     workload = {
@@ -126,7 +154,15 @@ def deploy(runner, inputs, composition) -> dict:
         "p2MlArtifactContainers": ml_containers(inputs, foundation),
     }
     print("Deploying complete workloads...", flush=True)
+    stage(runner, "complete workloads", agent_pins={
+        role: {key: pin[key] for key in ("agent_name", "agent_version", "definition_sha256") if key in pin}
+        for role, pin in pins.items()})
     outputs = provision(runner, inputs, composition.workload_template, {"configuration": workload})["deployment"]
+    network_snapshot(runner, inputs, foundation, "workloads")
+    if catalogue_upgrade:
+        print("Upgrading governed catalogue state...", flush=True)
+        stage(runner, "signed catalogue upgrade")
+        initial = initial_priors(runner, inputs, composition, foundation, images, catalogue_upgrade=True)
     environment_values = {**outputs, **{AGENT_ROLES[role]: pin["agent_version"] for role, pin in pins.items()},
                           **({"AZURE_AI_PERSONA_VERSION": persona_version} if persona_version else {}),
                           "GOVERNEDGRAPH_WRITER_APPROVAL_JSON": json.dumps(approval),
@@ -145,11 +181,15 @@ def deploy(runner, inputs, composition) -> dict:
     for key, value in environment_values.items():
         runner.run(["azd", "env", "set", key, str(value), "--environment", inputs.environment])
     print("Checking deployment readiness...", flush=True)
+    stage(runner, "readiness")
     readiness(runner, inputs, outputs)
     receipt = {"label": "ILLUSTRATIVE - synthetic data", "environment": inputs.environment,
                "subscription": inputs.subscription, "resource_group": inputs.resource_group, "naming_seed": inputs.naming_seed,
                "images": images, "agent_pins": pins, "bootstrap": {"priors": initial, "executions": executions},
                "outputs": outputs, "readiness": "passed", "evaluation": "not_run"}
+    evidence = getattr(runner, "evidence", None)
+    if evidence is not None:
+        receipt.update(run_id=evidence.run_id, evidence_path=str(evidence.path))
     save_json(ROOT / ".run/delivery.json", receipt)
     return receipt
 
@@ -157,19 +197,19 @@ def deploy(runner, inputs, composition) -> dict:
 def readiness(runner, inputs, outputs) -> None:
     apps = json.loads(runner.run(["az", "containerapp", "list", "-g", inputs.resource_group,
                                  "--subscription", inputs.subscription, "-o", "json"]))
+    readiness_observation(runner, "apps", apps)
     required = {"orchestrator", "strategy-service", "member-values", "contact-centre", "admin"}
     ready = {app.get("tags", {}).get("azd-service-name") for app in apps
              if app["properties"]["provisioningState"] == "Succeeded" and app["properties"].get("runningStatus") == "Running"}
     if not required <= ready:
-        raise DeliveryError("complete workloads are not ready")
+        raise DeliveryError("complete workloads are not ready: " + ", ".join(sorted(required - ready)))
     jobs = json.loads(runner.run(["az", "containerapp", "job", "list", "-g", inputs.resource_group,
                                  "--subscription", inputs.subscription, "-o", "json"]))
+    readiness_observation(runner, "jobs", jobs)
     scheduled = {job["name"] for job in jobs if job["properties"]["configuration"]["triggerType"] == "Schedule"}
     if not {"job-gg-p2-fairness", "job-gg-p2-pipeline"} <= scheduled:
         raise DeliveryError("native learning and fairness schedules are not enabled")
-    with urlopen(outputs["ADMIN_CONSOLE_URL"], timeout=30) as response:
-        if response.status != 200:
-            raise DeliveryError("admin deployment health is not ready")
+    admin_readiness(runner, outputs["ADMIN_CONSOLE_URL"], opener=urlopen)
 
 
 def main(argv=None) -> int:
@@ -180,6 +220,7 @@ def main(argv=None) -> int:
     target.add_argument("--reuse", metavar="RESOURCE_GROUP", help="reuse a discovered GovernedGraph gg-dev deployment")
     target.add_argument("--new", action="store_true", help="generate and save a fresh seed and deployment target")
     args = parser.parse_args(argv)
+    evidence = None
     try:
         raw = read_inputs(args.inputs)
         inputs = new_target(raw)
@@ -187,9 +228,14 @@ def main(argv=None) -> int:
         if args.plan:
             print(json.dumps({"environment": inputs.environment, "composition": composition.name, "sequence": SEQUENCE}))
             return 0
-        runner = Runner()
+        evidence = Evidence(ROOT)
+        evidence.data["selection"] = {"subscription": inputs.subscription, "reuse_requested": args.reuse is not None,
+                                      "create_new": args.new}
+        evidence.write()
+        runner = Runner(evidence=evidence)
         inputs = select_target(runner, args.inputs, raw, inputs, reuse=args.reuse, create_new=args.new)
         receipt = deploy(runner, inputs, composition)
+        evidence.finish("succeeded")
         demo_url = derived(receipt["outputs"])["PRESENTER_URL"] if inputs.voice_demo else "disabled"
         admin_url = receipt["outputs"]["ADMIN_CONSOLE_URL"]
         print(json.dumps({"readiness": receipt["readiness"], "evaluation": "not_run", "outputs": receipt["outputs"]}))
@@ -197,10 +243,14 @@ def main(argv=None) -> int:
         print(f"Admin URL: {admin_url}")
         return 0
     except KeyboardInterrupt:
+        if evidence is not None:
+            evidence.failure("interrupted")
         print("Delivery interrupted; local command stopped. Any submitted Azure operation may still be running; "
               "inspect its status before rerunning.", file=sys.stderr)
         return 130
     except (DeliveryError, EnvError, OSError, ValueError, TypeError, KeyError) as error:
+        if evidence is not None:
+            evidence.failure("failed", error)
         print(f"Delivery failed: {error}", file=sys.stderr)
         return 1
 

@@ -96,6 +96,7 @@ async def run_simulator(bridge: VoiceBridge, persona_speech: Speech, *, persona_
 
 async def run_live_simulator(bridge: VoiceBridge, persona_speech: Speech, live: LivePersona, *,
                              channel: str = "voice", accessibility_mode: str = "standard",
+                             contact_type: str = "first_contact",
                              takeover: Callable[[], bool] | None = None,
                              deadline_seconds: float = 300) -> VoiceDemoResult:
     """Agent-to-agent conversation: the persona agent speaks, the governed guide answers, both over audio."""
@@ -106,7 +107,8 @@ async def run_live_simulator(bridge: VoiceBridge, persona_speech: Speech, live: 
     ended_by = "persona"
     try:
         async with asyncio.timeout(deadline_seconds):
-            await bridge.start(accessibility_mode, channel=channel)
+            await bridge.start(accessibility_mode, channel=channel,
+                               **({"contact_type": contact_type} if contact_type != "first_contact" else {}))
             for _ in range(live.card.max_turns):
                 if takeover is not None and takeover():
                     ended_by = "takeover"

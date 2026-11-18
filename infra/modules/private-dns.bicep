@@ -1,6 +1,10 @@
 param zoneName string
-param staticIp string
+param privateEndpointNicName string
 param virtualNetworkId string
+
+resource endpointNic 'Microsoft.Network/networkInterfaces@2024-05-01' existing = {
+  name: privateEndpointNicName
+}
 
 resource zone 'Microsoft.Network/privateDnsZones@2024-06-01' = {
   name: zoneName
@@ -17,5 +21,7 @@ resource link 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01'
 resource records 'Microsoft.Network/privateDnsZones/A@2024-06-01' = [for record in [ '@', '*' ]: {
   parent: zone
   name: record
-  properties: { ttl: 300, aRecords: [ { ipv4Address: staticIp } ] }
+  properties: { ttl: 300, aRecords: [ { ipv4Address: endpointNic.properties.ipConfigurations[0].properties.privateIPAddress } ] }
 }]
+
+output privateIp string = endpointNic.properties.ipConfigurations[0].properties.privateIPAddress

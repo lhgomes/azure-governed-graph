@@ -17,7 +17,7 @@ main{padding-top:0}h2{font-size:21px;margin:0 0 8px}p{max-width:72ch}
 .story-picker select{width:100%;min-width:0;border:1px solid var(--line);border-radius:8px;padding:12px;background:white;color:var(--ink)}
 .demo-toolbar button,.story-picker select{min-height:48px;line-height:1.4}.demo-toolbar button{flex:0 0 auto;white-space:nowrap}
 #status{margin:0;padding:12px 24px 0;color:var(--quiet);font-size:14px}.controls{display:flex;gap:12px;flex-wrap:wrap}
-.privacy{font-size:13px;color:var(--quiet);margin:12px 0 0}.disclosure{font-size:15px;max-width:78ch;color:var(--quiet)}
+.privacy{padding: 12px 24px 0; font-size:13px;color:var(--quiet);margin:12px 0 0}.disclosure{font-size:15px;max-width:78ch;color:var(--quiet)}
 .conversation{padding:20px 24px}#conversation{list-style:none;padding:0;margin:0;max-height:36dvh;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}#conversation li{padding:12px 16px;margin:8px 0;background:#f5f7fc;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}
 #conversation li.member{background:#e8eef9;margin-left:10%}#conversation strong{display:block;font-size:13px;color:var(--quiet);margin-bottom:4px}
 .session-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line);padding:12px 24px}
@@ -48,9 +48,11 @@ textarea{display:block;width:100%;min-height:80px;max-height:18dvh;resize:vertic
 <section aria-label="Your conversation">
 <div class="demo-toolbar" id="demo-controls" role="group" aria-label="Demo controls">
 <button id="present" class="primary" disabled>Voice</button><button id="chat" disabled>Chat</button>
+<div class="story-picker"><label for="contact-type">Contact</label><select id="contact-type" disabled><option value="first_contact">First contact</option><option value="second_contact">Second contact</option></select></div>
 <div class="story-picker"><label class="sr-only" for="simulation">Story</label><select id="simulation" disabled></select></div><button id="simulate" disabled>Play</button>
 <button id="speak" class="primary" disabled hidden>Speak</button><button id="finish" class="primary" disabled hidden>Send recording</button>
 </div>
+<p id="contact-context" class="privacy" hidden>Continued support for a remaining question. The persona supplies a fictional recap; the guide does not remember a previous conversation.</p>
 <p id="status" role="status" aria-live="polite">Sign in to try the conversation.</p>
 <section class="conversation" id="conversation-panel" aria-label="Conversation">
 <div class="disclosure" id="disclosure">{{AI_DISCLOSURE}}</div>
@@ -122,7 +124,7 @@ function paint(){
 paint();
 function syncControls(){
   const active=Boolean(socket&&socket.readyState!==WebSocket.CLOSED);
-  for(const id of ["present","chat","simulation","simulate"])$(id).disabled=!authenticated||active;
+  for(const id of ["present","chat","contact-type","simulation","simulate"])$(id).disabled=!authenticated||active;
   $("speak").hidden=!(active&&sessionMode==="presenter"&&waitingForInput&&!inputStream);
   $("finish").hidden=!inputStream;
   $("end-session").hidden=!active;
@@ -297,13 +299,20 @@ async function load(){
   const response=await fetch("/demo/config");if(!response.ok)throw Error("Demo is disabled");
   config=await response.json();
   if(!Array.isArray(config.simulations)||!config.simulations.length)throw Error("Sample conversations unavailable");
+  renderSimulations();
+}
+function renderSimulations(){
+  const previous=$("simulation").value.replace(/-return$/,"");
   $("simulation").replaceChildren();
-  for(const item of config.simulations){
+  for(const item of config.simulations.filter(item=>item.contact_type===$("contact-type").value)){
     const option=document.createElement("option");option.value=item.simulation_id;
     option.textContent=item.display_name;
     $("simulation").append(option);
+    if(item.simulation_id.replace(/-return$/,"")===previous)option.selected=true;
   }
+  $("contact-context").hidden=$("contact-type").value!=="second_contact";
 }
+$("contact-type").onchange=renderSimulations;
 $("login").onclick=async()=>{
   try{
     popup=window.open("about:blank","gg-voice-login","width=650,height=800");
@@ -367,7 +376,7 @@ async function connect(mode, handover=false){
   socket=new WebSocket(origin.replace("https:","wss:")+"/demo-stream");socket.binaryType="arraybuffer";
   socket.onopen=()=>{
     if(mode==="simulator")startRecording();
-    socket.send(JSON.stringify(mode==="simulator"?{mode,simulation_id:simulationId}:{mode}));activity("thinking");status("Starting your conversation...");
+    socket.send(JSON.stringify(mode==="simulator"?{mode,simulation_id:simulationId,contact_type:$("contact-type").value}:{mode}));activity("thinking");status("Starting your conversation...");
   };
   socket.onmessage=async event=>{
     try{
@@ -479,7 +488,11 @@ async function connect(mode, handover=false){
   };
   socket.onerror=()=>{recording=false;fail(Error("Authenticated media connection failed"));};
   socket.onclose=()=>{
-    if(replyTimeout!==undefined)fail(Error("Connection closed before a reply arrived. Your message may already be saved. Start a new conversation or ask a person."));
+    if(!["error","complete"].includes($("voice-stage").dataset.state)){
+      fail(Error(replyTimeout!==undefined?
+        "Connection closed before a reply arrived. Your message may already be saved. Start a new conversation or ask a person.":
+        "Connection closed before the conversation finished. Start a new conversation or ask a person."));
+    }
     clearReplyTimeout();
     if(recorder&&recorder.state==="recording"){recording=false;recorder.stop();}
     showSummary();

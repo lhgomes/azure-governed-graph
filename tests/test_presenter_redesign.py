@@ -401,7 +401,7 @@ def test_executive_demo_keeps_conversation_primary_and_technical_evidence_collap
     assert "open" not in layout.elements["evidence"][0]
     for identity in ("meta-strategy", "meta-snapshot", "meta-arm", "workflow-steps", "learning-feedback", "download"):
         assert "evidence" in layout.elements[identity][1]
-    for identity in ("present", "chat", "simulation", "simulate"):
+    for identity in ("present", "chat", "contact-type", "simulation", "simulate"):
         assert "demo-controls" in layout.elements[identity][1]
         assert "hidden" not in layout.elements[identity][0]
     for identity in ("stop", "chat-form", "conversation", "demo-controls"):
@@ -449,7 +449,7 @@ function element(){
 }
 global.document={getElementById(id){
     assert.ok(ids.has(id),"missing HTML element: "+id);
-    if(!elements.has(id)){const item=element();item.hidden=hiddenIds.has(id);elements.set(id,item)}
+    if(!elements.has(id)){const item=element();item.hidden=hiddenIds.has(id);if(id==="contact-type")item.value="first_contact";elements.set(id,item)}
     return elements.get(id)},
   createElement:element,createTextNode(text){return {textContent:text}}};
 global.location={origin:"https://synthetic.example",hash:""};
@@ -562,6 +562,8 @@ global.WebSocket=class {
   assert.equal($("voice-stage").dataset.state,"error","failure must not become a completed conversation");
   assert.deepEqual(channelErrors.at(-1),["Channel operation failed",
     {error_type:"HTTPStatusError",location:"presenter.serve.L478"}]);
+  socket.onclose();
+  assert.equal($("conversation-error").textContent,"Synthetic delivery unavailable","closing must preserve the server's error");
   await connect("chat");socket.onopen();
   await socket.onmessage({data:JSON.stringify({kind:"chat_ready"})});
   $("end-session").onclick();
@@ -573,6 +575,7 @@ global.WebSocket=class {
   assert.equal($("chat-text").disabled,true);
   assert.equal($("send").disabled,true);
   socket.readyState=WebSocket.CLOSED;socket.onclose();
+  assert.equal($("conversation-error").hidden,true,"a confirmed ending must not become a connection failure");
   await load();
   assert.equal($("simulation").children.length,6);
   assert.ok($("simulation").children.some(option=>option.value==="samira"));
@@ -589,6 +592,15 @@ global.WebSocket=class {
   };
   canvas.captureStream=()=>({getVideoTracks:()=>[],getTracks:()=>[]});
   await connect("presenter");socket.onopen();
+  assert.equal($("status").textContent,"Starting your conversation...");
+  socket.readyState=WebSocket.CLOSED;socket.onclose();
+  assert.equal($("voice-stage").dataset.state,"error","a startup crash must not leave the UI starting");
+  assert.equal($("conversation-error").hidden,false);
+  assert.match($("conversation-error").textContent,/Connection closed before the conversation finished/);
+  assert.equal($("status").hidden,true);
+  assert.equal($("present").disabled,false,"voice can be restarted after a failed startup");
+  assert.equal($("stop").disabled,false,"human support must remain available after a startup failure");
+  await connect("presenter");socket.onopen();
   await socket.onmessage({data:JSON.stringify({kind:"capture"})});
   assert.equal($("speak").hidden,false);
   assert.equal($("finish").hidden,true);
@@ -603,7 +615,7 @@ global.WebSocket=class {
   await connect("simulator");socket.onopen();
   assert.equal($("screen").hidden,true,"example captions use the same conversation log, never a duplicate video");
   assert.equal($("speak").hidden,true);
-  assert.deepEqual(socket.sent[0],{mode:"simulator",simulation_id:"joost"});
+  assert.deepEqual(socket.sent[0],{mode:"simulator",simulation_id:"joost",contact_type:"first_contact"});
   assert.equal($("simulation").disabled,true);
   assert.equal($("takeover").hidden,false,"the presenter can take over a persona simulation");
   assert.equal($("takeover").disabled,false);
@@ -627,7 +639,7 @@ global.WebSocket=class {
   assert.equal($("download").clickCount,undefined,"Play must not automatically download a video");
   socket.readyState=WebSocket.CLOSED;socket.onclose();
   await connect("simulator");socket.onopen();
-  assert.deepEqual(socket.sent[0],{mode:"simulator",simulation_id:"samira"});
+  assert.deepEqual(socket.sent[0],{mode:"simulator",simulation_id:"samira",contact_type:"first_contact"});
   addCaption("persona","Synthetic opening");
   assert.equal($("conversation").children[0].children[0].textContent,"Samira (synthetic)");
   addCaption("persona","Thank you for explaining. Goodbye.");
@@ -671,10 +683,22 @@ global.WebSocket=class {
   await connect("simulator");socket.onopen();
   assert.equal($("conversation-summary").hidden,true,"a new conversation starts with a clean log");
   socket.readyState=WebSocket.CLOSED;socket.onclose();
+  $("contact-type").value="second_contact";$("contact-type").onchange();
+  assert.equal($("simulation").children.length,6);
+  assert.ok($("simulation").children.every(option=>option.value.endsWith("-return")));
+  assert.equal($("contact-context").hidden,false);
+  $("simulation").value="samira-return";
+  await connect("simulator");socket.onopen();
+  assert.deepEqual(socket.sent[0],{mode:"simulator",simulation_id:"samira-return",contact_type:"second_contact"});
+  assert.equal($("contact-type").disabled,true);
+  socket.readyState=WebSocket.CLOSED;socket.onclose();
+  $("contact-type").value="first_contact";$("contact-type").onchange();
+  assert.ok($("simulation").children.every(option=>!option.value.endsWith("-return")));
+  assert.equal($("contact-context").hidden,true);
   global.fetch=async()=>({ok:true,json:async()=>({})});
   await assert.rejects(load(),/Sample conversations unavailable/);
   console.log("UX states and evidence passed");
-})().catch(error=>{console.error(error);process.exitCode=1});
+})().catch(error=>{process.stderr.write(error.stack+"\n");process.exitCode=1});
 """
     result = subprocess.run(["node", "-e", harness + script + assertions],
                             capture_output=True, text=True, check=False)

@@ -14,7 +14,7 @@ def test_art50_b8_natural_opening_is_exactly_user_approved_and_versioned():
     from governedgraph.agents.counsellor import DISCLOSURE, TEMPLATES
     from governedgraph.guardrails.numeric_fidelity import check
 
-    assert TEMPLATES["template_set_version"] == "1.4"
+    assert TEMPLATES["template_set_version"] == "1.5"
     assert TEMPLATES["disclosure"]["approval_ref"] == "IMP-102-user-approval-2026-11-14"
     assert DISCLOSURE == (
         "Hello, welcome! I'm your AI pension guide. We can take your pension questions one step at a time. "

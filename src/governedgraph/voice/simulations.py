@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from governedgraph.agents.live_persona import PersonaCard
 from governedgraph.common import domain
 from governedgraph.common.config import DATA_DIR
-from governedgraph.common.contracts import ACCESSIBILITY_MODES, ContractError, _strict
+from governedgraph.common.contracts import ACCESSIBILITY_MODES, CONTACT_TYPES, ContractError, _strict
 from governedgraph.common.io import load_json
 from governedgraph.orchestrator.store import validate_id
 
@@ -21,12 +21,15 @@ class Simulation:
     channel: str
     accessibility_mode: str
     persona: dict = field(default_factory=dict)
+    contact_type: str = "first_contact"
 
     def __post_init__(self):
         if any(not isinstance(value, str) or len(value) > 2000 for value in (
                 self.simulation_id, self.display_name, self.member_ref, self.channel, self.accessibility_mode)):
             raise ContractError("bounded synthetic simulation fields required")
         validate_id(self.simulation_id)
+        if not isinstance(self.contact_type, str) or self.contact_type not in CONTACT_TYPES:
+            raise ContractError("unsupported simulation contact type")
         if not self.display_name.strip():
             raise ContractError("simulation name required")
         if self.member_ref not in domain.demo()["trace_members"]:
@@ -54,7 +57,7 @@ class Simulation:
 
     def summary(self) -> dict:
         return {key: getattr(self, key) for key in (
-            "simulation_id", "display_name", "channel", "accessibility_mode",
+            "simulation_id", "display_name", "channel", "accessibility_mode", "contact_type",
         )}
 
 

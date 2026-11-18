@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from governedgraph.common import domain
 from governedgraph.common.config import DATA_DIR
-from governedgraph.common.contracts import ContractError, OutcomeSubmission, ResponseReference, _strict
+from governedgraph.common.contracts import CONTACT_TYPES, ContractError, OutcomeSubmission, ResponseReference, _strict
 from governedgraph.voice.voice_demo import run_live_simulator, run_simulator
 from governedgraph.agents.live_persona import connect_live_persona
 from governedgraph.agents.persona_simulator import ScriptedPersona
@@ -44,10 +44,15 @@ class SessionRequest:
     script: dict | None = None
     benchmark_model: str = "gpt-counsellor"
     simulation_id: str | None = None
+    contact_type: str = "first_contact"
 
     def __post_init__(self):
+        if not isinstance(self.contact_type, str) or self.contact_type not in CONTACT_TYPES:
+            raise ContractError("unsupported contact type")
         if self.mode not in ("presenter", "simulator", "benchmark", "chat"):
             raise ContractError("unknown voice mode")
+        if self.mode == "benchmark" and self.contact_type != "first_contact":
+            raise ContractError("benchmark contact type is fixed")
         if self.benchmark_model not in ("gpt-counsellor", "gpt-compact"):
             raise ContractError("unknown pinned voice candidate")
         if self.mode != "benchmark" and self.benchmark_model != "gpt-counsellor":
@@ -56,11 +61,14 @@ class SessionRequest:
             if self.simulation_id is not None:
                 if not isinstance(self.simulation_id, str) or self.script is not None:
                     raise ContractError("select a synthetic simulation without custom utterances")
-                select_simulation(self.simulation_id)
+                if select_simulation(self.simulation_id).contact_type != self.contact_type:
+                    raise ContractError("persona and selected contact type must match")
             else:
                 if not isinstance(self.script, dict):
                     raise ContractError("simulator utterances required")
                 VoiceScriptRequest.from_dict(self.script)
+                if self.contact_type != "first_contact":
+                    raise ContractError("second contact requires a selected synthetic persona")
         elif self.script is not None:
             raise ContractError("presenter sessions accept audio only")
         if self.mode != "simulator" and self.simulation_id is not None:
@@ -120,9 +128,10 @@ def reply_metadata(reply) -> dict:
             **({"learning_feedback": reply.learning_feedback} if reply.learning_feedback is not None else {})}
 
 
-async def serve_chat(socket: WebSocket, channel: OrchestratorChannel):
+async def serve_chat(socket: WebSocket, channel: OrchestratorChannel, *, contact_type: str = "first_contact"):
     """Same authorized endpoints, without opening a microphone or speech connection."""
-    started = await channel.start(channel="chat")
+    started = await channel.start(channel="chat",
+                                  **({"contact_type": contact_type} if contact_type != "first_contact" else {}))
     await socket.send_json({"kind": "caption", "role": "counsellor", "text": started.text})
     await socket.send_json({"kind": "chat_ready", "journey_id": started.journey_id})
     seen: dict[str, ChatMessage] = {}
@@ -488,7 +497,8 @@ async def serve(socket: WebSocket, claims: dict, *, request: SessionRequest | No
                 if request.mode == "chat":
                     async with httpx.AsyncClient(base_url=os.environ["GOVERNEDGRAPH_ORCHESTRATOR_URL"].rstrip("/") + "/",
                                                  timeout=120, follow_redirects=False) as channel:
-                        await serve_chat(socket, channel_factory(channel, lambda: token))
+                        await serve_chat(socket, channel_factory(channel, lambda: token),
+                                         contact_type=request.contact_type)
                     return
                 if request.mode == "benchmark":
                     from governedgraph.voice.benchmark import run_benchmark
@@ -529,6 +539,7 @@ async def serve(socket: WebSocket, claims: dict, *, request: SessionRequest | No
                                             bridge, CaptionedSpeech(actor, audio, "persona"), live,
                                             channel=simulation.channel,
                                             accessibility_mode=simulation.accessibility_mode,
+                                            contact_type=simulation.contact_type,
                                             takeover=lambda: audio.takeover_requested,
                                         )
                                     else:
@@ -549,7 +560,7 @@ async def serve(socket: WebSocket, claims: dict, *, request: SessionRequest | No
                                         await run_voice_turns(bridge, audio, replies)
                             else:
                                 replies = []
-                                await bridge.start()
+                                await bridge.start(contact_type=request.contact_type)
                                 await run_voice_turns(bridge, audio, replies)
                             if audio.handover_requested and not any(reply.escalated for reply in replies):
                                 reply = await bridge.channel.turn(bridge.journey_id, "I want a human advisor",

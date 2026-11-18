@@ -39,6 +39,7 @@ from governedgraph.strategy_service.overrides import (
 from governedgraph.strategy_service.snapshot import (
     RankingSnapshot, SignatureUnavailable, Signer, default_signer, verify_expert_snapshot, verify_snapshot,
 )
+from governedgraph.strategy_service.source_upgrade import load_upgrade
 from governedgraph.strategy_service.state import BlobStateStore, StateConflict, StateStore, StateUnavailable
 
 log = logging.getLogger("governedgraph.strategy_service")
@@ -71,6 +72,7 @@ class StrategyService:
         self.catalogue = catalogue or Catalogue.load()
         self.priors = priors or load_json(DATA_DIR / "catalogue" / "expert_priors_v1.json")
         self._initial_catalogue, self._initial_priors = self.catalogue, self.priors
+        self._source_compatibility = catalogue is None
         self.catalogue_release: dict | None = None
         self.catalogue_pending: dict | None = None
         self.thresholds = load_json(DATA_DIR / "fairness" / "thresholds_v1.json")
@@ -439,6 +441,13 @@ class StrategyService:
 
     def _catalogue_for(self, state: dict) -> tuple[Catalogue, dict]:
         if "catalogue_release" not in state:
+            versions = {snapshot.get("catalogue_version") for field in ("current", "last_good", "static")
+                        if isinstance(snapshot := state.get(field), dict)}
+            if self._source_compatibility and versions and versions != {self._initial_catalogue.version}:
+                upgrade = load_upgrade()
+                predecessor = upgrade.predecessor_for(state) if upgrade is not None else None
+                if predecessor is not None:
+                    return predecessor
             return self._initial_catalogue, self._initial_priors
         release = CatalogueRelease.from_dict(state["catalogue_release"])
         if not release.verify(self.signer):

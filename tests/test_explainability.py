@@ -60,7 +60,7 @@ class Primary:
 
 
 @pytest.fixture
-def runtime(tmp_path, monkeypatch):
+def runtime(tmp_path, monkeypatch, isolated_conversations):
     monkeypatch.setattr(settings.__class__, "run_dir", property(lambda self: tmp_path))
     strategies = StrategyService(state_dir=tmp_path / "strategy", control_share=0)
     run_cycle(strategies)
@@ -71,7 +71,7 @@ def runtime(tmp_path, monkeypatch):
 
     service = OrchestratorService(FileJourneyStore(tmp_path / "journeys"),
                                   FileJourneyPublisher(tmp_path / "queues"),
-                                  factory, audit_store=primary)
+                                  factory, audit_store=primary, continuity=isolated_conversations)
     return service, primary
 
 

@@ -16,7 +16,7 @@ PROMPT_NAMES = frozenset({"counsellor", "intent", "understanding", "answer-revie
 MESSAGE_KEYS = frozenset({
     "audit_unavailable", "advice_declined", "safety_declined", "component_failure", "conversation_limit",
     "handover_arranged", "clarify_question", "advice_escalation_summary", "journey_closed",
-    "journey_unavailable", "audit_paused", "conversation_unavailable",
+    "journey_unavailable", "audit_paused", "conversation_unavailable", "answer_unavailable",
 })
 DEMO_KEYS = frozenset({
     "member_ref", "other_member_ref", "trace_members", "persona", "persona_voices", "warmup_utterance",

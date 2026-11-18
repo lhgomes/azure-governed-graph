@@ -70,6 +70,11 @@ framework code. Replace them for your domain, keep the boundary rules in the pro
 gates. `tests/test_domain_pack.py` fails if sample-domain wording appears in `src/governedgraph`, and Foundry agent
 definitions are recreated from the pack, so a prompt change produces a new agent version for approval (Tier 2).
 Evaluation personas and datasets also belong to your pack.
+The fixed `messages.answer_unavailable` acknowledgment is required for internal
+answer failures; it must not ask the member to repeat a question already routed
+for explanation or claim that the question itself was unsafe. The runtime
+appends the approved human-help offer. Keep `messages.clarify_question` for
+genuine intent clarification.
 Sample-specific evaluation code and cases belong to the sample, not the framework's deployment script. The reference
 sample keeps domain tests and evaluation cases under its own directory. Its
 `deployment.json` declares domain/approved composition inputs only, never test or proof policy. Framework B1-B10 tests

@@ -23,6 +23,7 @@ from governedgraph.common.contracts import (
     StrategyResponse,
 )
 from governedgraph.common.tracing import traceparent
+from governedgraph.agents.conversation_context import ConversationMessage, reference_messages
 from governedgraph.observability import operation
 from governedgraph.guardrails.prompt_safety import ContentSafetyError
 from governedgraph.orchestrator.state_machine import Journey
@@ -88,6 +89,13 @@ class CounsellorTools:
         self.response_id = ""
         self.trace_parent = traceparent()
         self.related_answer_context: DecisionContext | None = None
+        self.conversation_history: tuple[ConversationMessage, ...] = ()
+        self.conversation_screened = False
+
+    def conversation_context(self) -> list[dict[str, str]]:
+        if self.conversation_history and not self.conversation_screened:
+            raise ContentSafetyError("customer conversation has not been screened")
+        return reference_messages(self.conversation_history)
 
     # ---- tool: get_member_values (read-only, B1) ----
     def get_member_values(self) -> str:

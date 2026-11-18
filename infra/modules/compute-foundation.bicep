@@ -4,6 +4,7 @@ param tags object
 param token string
 param logAnalyticsId string
 param infrastructureSubnetId string
+param privateEndpointSubnetId string
 param virtualNetworkId string
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
@@ -13,11 +14,12 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
   sku: { name: 'Basic' }
   properties: { adminUserEnabled: false }
 }
-resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
+resource cae 'Microsoft.App/managedEnvironments@2025-07-01' = {
   name: 'cae-gg-${token}'
   location: location
   tags: tags
   properties: {
+    publicNetworkAccess: 'Disabled'
     vnetConfiguration: { internal: true, infrastructureSubnetId: infrastructureSubnetId }
     workloadProfiles: [ { name: 'Consumption', workloadProfileType: 'Consumption' } ]
     appLogsConfiguration: { destination: 'azure-monitor' }
@@ -31,13 +33,16 @@ resource diagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' 
     logs: [ { categoryGroup: 'allLogs', enabled: true } ]
   }
 }
-module privateDns 'private-dns.bicep' = {
-  name: 'container-apps-dns'
+module privateIngress 'container-apps-ingress.bicep' = {
+  name: 'container-apps-ingress'
   params: {
-    zoneName: cae.properties.defaultDomain
-    staticIp: cae.properties.staticIp
+    location: location
+    tags: tags
+    token: token
+    privateEndpointSubnetId: privateEndpointSubnetId
     virtualNetworkId: virtualNetworkId
   }
+  dependsOn: [ cae ]
 }
 output registryName string = acr.name
 output registryLoginServer string = acr.properties.loginServer

@@ -231,6 +231,7 @@ module compute 'modules/compute.bicep' = {
       AZURE_AI_INTENT_AGENT_VERSION: intentAgentVersion
       AZURE_AI_UNDERSTANDING_AGENT_VERSION: understandingAgentVersion
       AZURE_AI_REVIEW_AGENT_VERSION: reviewAgentVersion
+      AZURE_AI_DECISION_DEPLOYMENT: ai.outputs.decisionDeployment
       AZURE_AI_PERSONA_VERSION: personaAgentVersion
       GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS: traceSyntheticConversations && environmentName == 'gg-dev' && deployVoiceDemo ? 'true' : 'false'
       GOVERNEDGRAPH_VOICE_DRAFT_MODEL: voiceDraftModel
@@ -415,6 +416,7 @@ output AZURE_LOCATION string = location
 output AZURE_SEARCH_LOCATION string = searchLocation
 output AZURE_AI_PROJECT_ENDPOINT string = ai.outputs.projectEndpoint
 output AZURE_AI_PROJECT_RESOURCE_ID string = ai.outputs.projectResourceId
+output AZURE_AI_DECISION_DEPLOYMENT string = ai.outputs.decisionDeployment
 output CONTENT_SAFETY_ENDPOINT string = ai.outputs.contentSafetyEndpoint
 output AZURE_AI_MODEL_DEPLOYMENT string = 'gpt-counsellor'
 output AZURE_SEARCH_ENDPOINT string = data.outputs.searchEndpoint

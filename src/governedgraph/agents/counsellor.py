@@ -3,8 +3,9 @@
 Implements the runtime sequence described in docs/architecture.md using a pinned
 Foundry prompt agent with journey-bound function tools and placeholder-only drafts.
 Post-processing: bind figures by reference -> numeric-fidelity gate ->
-steering check -> explainability record. On any gate failure: template-only
-rendering, and escalate if that also fails.
+steering check -> explainability record. A placeholder-contract rejection may use
+the single bounded repair before independent review. Otherwise release only an
+approved task-specific fallback or an explicit answer-failure acknowledgment with human help.
 """
 from __future__ import annotations
 
@@ -231,6 +232,7 @@ class Counsellor:
         self.tools.trace.decision_evidence = []
         self.tools.trace.turn_trace = []
         self.tools.trace.rate_limit_wait = 0.0
+        self.tools.conversation_screened = False
         self._turn_exclusions: set[str] = set()
         self._prefetched = False
         try:
@@ -352,13 +354,24 @@ class Counsellor:
             raise DependencyFailure("selected strategy no longer served")
         with t.trace.measure("post_processing"):
             text, fid, reason = self._post_process(draft, strategy)
+        repaired = reason == "placeholder_contract"
+        if repaired:
+            log.warning("answer_output_repair", extra={
+                "journey_id": self.journey.journey_id, "failure_domain": reason,
+            })
+            with t.trace.measure("foundry_review"):
+                draft = dependency("model", self._foundry_composer().revise, t, utterance, strategy,
+                                   AnswerDraft.from_dict(json.loads(draft)), ["placeholder_contract"])
+            with t.trace.measure("post_processing"):
+                text, fid, reason = self._post_process(draft, strategy)
+            t.trace.note("answer_repair", "unusable" if reason else "revised")
         if reason:
             return self._unanswered(reason)
 
         last_explanation = None
         if t.trace.composition_source == "foundry":
             with t.trace.measure("foundry_review"):
-                draft, review = self._review_answer(utterance, strategy, draft)
+                draft, review = self._review_answer(utterance, strategy, draft, allow_repair=not repaired)
             with t.trace.measure("post_processing"):
                 text, fid, reason = self._post_process(draft, strategy)
             if reason:
@@ -387,16 +400,16 @@ class Counsellor:
         return TurnResult(text, self.journey.state.value, strategy.strategy_id, fidelity=fid,
                           ranked=[x.strategy_id for x in r.ranked], suspended=r.suspended, arm=r.arm, snapshot_id=r.snapshot_id)
 
-    def _review_answer(self, utterance: str, strategy, raw_draft: str) -> tuple[str, AnswerReview]:
-        from governedgraph.agents.decision_agents import FoundryDecisionAgent
+    def _review_answer(self, utterance: str, strategy, raw_draft: str, *,
+                       allow_repair: bool = True) -> tuple[str, AnswerReview]:
+        from governedgraph.agents.decision_agents import review_with_decision_model
 
-        judge = self.decision_agents.get("answer-review") or dependency(
-            "answer_review_agent", FoundryDecisionAgent.shared, "answer-review",
-        )
+        judge = self.decision_agents.get("answer-review")
+        review_draft = judge.judge if judge is not None else review_with_decision_model
         draft = AnswerDraft.from_dict(json.loads(raw_draft))
-        review = dependency("answer_review_agent", judge.judge, self.tools, utterance, strategy, draft)
+        review = dependency("answer_review_agent", review_draft, self.tools, utterance, strategy, draft)
         self.tools.trace.note("answer_review", review.verdict, review.issues)
-        if review.verdict != "pass" and "advice" not in review.issues:
+        if allow_repair and review.verdict == "revise" and "advice" not in review.issues:
             log.warning("answer_review_repair", extra={
                 "journey_id": self.journey.journey_id, "verdict": review.verdict, "issues": review.issues,
             })
@@ -409,7 +422,7 @@ class Counsellor:
             self.tools.trace.note("answer_repair", "revised")
             draft = AnswerDraft.from_dict(json.loads(revised))
             raw_draft = revised
-            review = dependency("answer_review_agent", judge.judge, self.tools, utterance, strategy, draft)
+            review = dependency("answer_review_agent", review_draft, self.tools, utterance, strategy, draft)
             self.tools.trace.note("answer_review", review.verdict, review.issues)
         if review.verdict != "pass":
             log.warning("answer_review_nonpass", extra={
@@ -451,6 +464,7 @@ class Counsellor:
 
         template = _task_template(self.tools, strategy)
         approved = self.tools.trace.content_texts
+        failure_reason = "numeric-fidelity or steering gate failed"
         if self.tools.trace.composition_source == "foundry":
             try:
                 answer = AnswerDraft.from_dict(json.loads(draft))
@@ -473,6 +487,7 @@ class Counsellor:
             if index == 0 and self.tools.trace.composition_source == "foundry":
                 unbound = re.sub(r"\{\{(?:value|asof):[^{}]+\}\}", "", candidate)
                 if re.search(r"\d", numeric_fidelity.ORDINAL.sub("", unbound)):
+                    failure_reason = "placeholder_contract"
                     log.warning("model_placeholder_contract_blocked", extra={"journey_id": self.journey.journey_id})
                     self.tools.trace.note("output_gate", "blocked", ["placeholder_contract"])
                     numeric_block()
@@ -504,23 +519,19 @@ class Counsellor:
                 self.tools.trace.note("output_gate", "blocked", ["steers_choice"])
         if not template:
             self.tools.trace.note("output_gate", "no_approved_fallback")
-        return "", numeric_fidelity.FidelityResult(False, [], ["<blocked>"]), "numeric-fidelity or steering gate failed"
+        return "", numeric_fidelity.FidelityResult(False, [], ["<blocked>"]), failure_reason
 
     def _unanswered(self, reason: str) -> TurnResult:
-        """No safe, relevant answer: ask the member to rephrase once, then offer an advisor (B9 stays reachable)."""
+        """A failed answer is a host failure, not a request for the member to repeat their question."""
         log.warning("answer_unavailable_without_relevant_fallback",
                     extra={"journey_id": self.journey.journey_id, "failure_domain": reason})
-        streak = self.journey.unanswered_streak
-        if streak == 0:
-            offer, text = "", message("clarify_question")
-        else:
-            offer = self._template_for(self.catalogue.get(ESCALATION_STRATEGY))
-            text = message("safety_declined") + offer
+        offer = self._template_for(self.catalogue.get(ESCALATION_STRATEGY))
+        text = message("answer_unavailable") + offer
         fidelity = numeric_fidelity.check(text, None, [])
-        if (streak and not offer) or not fidelity.passed or response_steers_choice(text) or "{{" in text or "}}" in text:
+        if not offer or not fidelity.passed or response_steers_choice(text) or "{{" in text or "}}" in text:
             return self._escalate("no safe answer or advisor offer available", "safety")
-        self.journey.unanswered_streak = min(streak + 1, 100)
-        self.tools.trace.note("outcome", "follow_up_question" if streak == 0 else "advisor_offer")
+        self.journey.unanswered_streak = min(self.journey.unanswered_streak + 1, 100)
+        self.tools.trace.note("outcome", "advisor_offer")
         self.tools.trace.composition_source = "unanswered"
         self.tools.write_explainability_record(ESCALATION_STRATEGY, response_kind="acknowledgment")
         self.journey.last_explanation = None

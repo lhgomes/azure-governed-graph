@@ -56,6 +56,7 @@ def test_the_shipped_pack_loads_and_framework_routes_cannot_be_removed(pack):
 @pytest.mark.parametrize("mutate", [
     lambda body: body.pop("messages"),
     lambda body: body["messages"].pop("handover_arranged"),
+    lambda body: body["messages"].pop("answer_unavailable"),
     lambda body: body.update(explanation_concepts=[]),
     lambda body: body.update(advice_patterns=["("]),
     lambda body: body["answer_goals"]["payment_continuity"].update(excluded=["not_a_concept"]),
