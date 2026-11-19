@@ -205,16 +205,15 @@ after the proof without automatically releasing its protective freeze.
 An approved P2 image rollout must update both job images and the Strategy monitor
 pin. Image mismatch is a closed audit gate, not permission to use an older audit.
 
-### P2 Azure ML acceptance
+### P2 native Container Apps acceptance
 
-The reference runtime uses scheduled Container Apps Jobs. Retained Azure ML
-component packaging and manual cycle tools are operator investigation paths,
-not a second automatically accepted learning runtime.
+The reference runtime uses scheduled Container Apps Jobs. The manual cycle tool
+is retained for explicit operator investigation and is not an automatic learning
+runtime. Both paths use the same guarded components and dedicated artifact container.
 
 P2 images exclude member, cohort and aggregate fixtures. Governed Azure inputs
-are required; only fairness reads the cohort zone. The ML platform has dedicated
-dependencies separate from signing keys. Grants require the reviewed scope;
-do not attach P2 to a workspace identity or broaden shared-store access.
+are required; only fairness reads the cohort zone. The pipeline and fairness jobs have separate managed identities and narrowly
+scoped permissions. Do not broaden shared-store access or grant fairness signing.
 
 Manual runs such as `scripts/run_p2_container_jobs.py` require explicit authorization
 and an immutable image. Every stage must retain create-only verified artifacts.

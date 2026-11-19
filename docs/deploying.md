@@ -16,7 +16,7 @@ This is a reference topology for **Azure Public**, not a one-command hosted demo
 | Regions and quotas | The bundled `gg-dev` composition references `swedencentral` for the primary deployment and `francecentral` for Content Safety. Verify allowed data movement, each model's regional availability, quota and service limits before deploying or changing the template. |
 | Toolchain | Python **3.14** and pinned `requirements-azure.txt` in an **approved Azure-hosted delivery environment**, plus Azure CLI, Azure Developer CLI and Bicep. `pyproject.toml`'s broader Python metadata is not a guarantee that earlier Python versions are supported by this Azure delivery path. |
 | Private input | Create `.azure/private-delivery.json` from the placeholder example below; provide subscription, on-call destination and composition. The operator ID is optional and defaults to the signed-in user in the selected subscription's tenant. Keep actual identities and all receipts outside Git. The script selects/generates resource-group and naming-seed information as described below. |
-| Budget and cleanup | Estimate recurring charges and set a budget. The sample can provision Foundry model deployments, AI Search, Container Apps, ACR, APIM, Key Vault, Storage, Service Bus, Azure ML, networking, Content Safety and monitoring. Live inference, voice, evaluations, retained telemetry and idle SKUs may all cost money. Read the teardown section before provisioning. |
+| Budget and cleanup | Estimate recurring charges and set a budget. The sample can provision Foundry model deployments, AI Search, Container Apps, ACR, APIM, Key Vault, Storage, Service Bus, networking, Content Safety and monitoring. Live inference, voice, evaluations, retained telemetry and idle SKUs may all cost money. Read the teardown section before provisioning. |
 
 Prices are deployment-dependent: **no cost or latency figure in the repository should be treated as an Azure quote**. Use the [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) and your subscription's actual regional quotas/SKUs. The default reference example and its sample member data are synthetic; do not substitute real members or production records without a separate security, privacy and governance assessment.
 
@@ -40,7 +40,7 @@ az provider list --subscription "$SUBSCRIPTION_ID" \
 The current topology uses `Microsoft.ApiManagement`, `Microsoft.App`,
 `Microsoft.Authorization`, `Microsoft.CognitiveServices`,
 `Microsoft.ContainerRegistry`, `Microsoft.Insights`, `Microsoft.KeyVault`,
-`Microsoft.MachineLearningServices`, `Microsoft.ManagedIdentity`,
+`Microsoft.ManagedIdentity`,
 `Microsoft.Network`, `Microsoft.OperationalInsights`, `Microsoft.Resources`,
 `Microsoft.Search`, `Microsoft.ServiceBus` and `Microsoft.Storage`.
 
@@ -57,29 +57,12 @@ az provider show --subscription "$SUBSCRIPTION_ID" \
   --namespace Microsoft.Web --query registrationState --output tsv
 ```
 
-The following are **conditional, not additional confirmed foundation
-requirements**. Run only the commands appropriate to an approved topology or
-a provider-specific deployment error:
+The deployment requires only the resource providers used by the foundation.
+Register another provider only if a selected workload explicitly requires it.
+Registration does not certify quota, regional availability, RBAC or readiness.
 
-```bash
-# If Microsoft.Compute registration is required for the selected ML compute.
-az provider register --subscription "$SUBSCRIPTION_ID" \
-  --namespace Microsoft.Compute --wait
-
-# Only for a workload requiring Azure Batch registration.
-az provider register --subscription "$SUBSCRIPTION_ID" \
-  --namespace Microsoft.Batch --wait
-```
-
-Azure ML compute instances with integrated notebooks also require
-`Microsoft.Notebooks`; this is distinct from the current `AmlCompute` clusters.
-Use the same registration command with the required namespace for any other
-missing provider. Registration is not a quota, regional availability, RBAC,
-deployment-readiness or evaluation check.
-
-See Microsoft's guidance on [resource-provider registration](https://learn.microsoft.com/azure/azure-resource-manager/management/resource-providers-and-types),
-[APIM outbound VNet integration](https://learn.microsoft.com/azure/api-management/integrate-vnet-outbound)
-and [Azure ML provider prerequisites](https://learn.microsoft.com/azure/machine-learning/how-to-manage-workspace-cli#troubleshoot-resource-provider-errors).
+See Microsoft's guidance on [resource-provider registration](https://learn.microsoft.com/azure/azure-resource-manager/management/resource-providers-and-types)
+and [APIM outbound VNet integration](https://learn.microsoft.com/azure/api-management/integrate-vnet-outbound).
 
 #### Network feature registration failure
 
@@ -461,7 +444,7 @@ permissions are reused; delivery never grants access to an unrelated CLI identit
 or changes the global account. Standalone agent provisioning requires
 `AZURE_SUBSCRIPTION_ID`; `scripts.azd_env export --task agents` includes it.
 
-Delivery binds all six agent names explicitly to the workload contract,
+Delivery binds all four required hosted agent names explicitly to the workload contract,
 including `gg-counsellor` and `gg-fairness-explainability`. Ambient agent-name
 settings in the invoking shell cannot redirect deployment planning, version
 creation or fairness endpoint pinning. standalone provisioning still honors its
@@ -543,14 +526,14 @@ cannot declare tests, evaluation policy, learning proofs or operator recovery.
 
 1. **`infra/main.bicep`: foundation once.** Networking, identities, registry,
    Container Apps environment, storage, monitoring, signing keys, Search,
-   Foundry project/models, APIM parent and dedicated Azure ML dependencies/RBAC.
+   Foundry project/models, APIM parent and resource-scoped RBAC.
    No hello-world images, member routes or prompt-agent ARM resources.
 2. **Immutable images.** `Dockerfile` and `Dockerfile.p2` build framework
    runtime and P2 respectively. The extension's matching Dockerfiles build
    `runtime`/`probe` and `p2`/`fixtures` from their own framework digest references.
    Separate dependency families keep runtime and learning SDKs isolated. Identical
-   extension runtime images serve all five applications. P2/fixtures use the
-   ML registry; runtime/probe use the application registry. Each distinct target
+   extension runtime images serve all five applications. All images use the same
+   application registry with role-scoped managed identity pull access. Each distinct target
    is built once, or its source-keyed immutable image is reused.
 3. **Bounded bootstrap.** Exact prompt definitions are created/reused with
    `AIProjectClient.agents.create_version`, DefaultAzureCredential and pinned
@@ -571,9 +554,10 @@ cannot declare tests, evaluation policy, learning proofs or operator recovery.
    images, approved writer record, actual agent pins and complete domain inputs.
    Native fairness and learning schedules run at the existing four-hour cadence
    from the first release, using the guarded lease/same-cycle-audit runtime.
-   ML datastore names are read without secrets; Bicep grants only verified
-   dedicated-container access, including the scheduler's `azureml` container.
-   ML-owned dependencies and their automatic permissions are retained.
+   Bicep creates the dedicated `p2-artifacts` container in private content storage.
+   Only the two isolated job identities receive artifact-container access; the
+   independent fairness audit, cohort and signing permissions are unchanged.
+   The pipeline reads learning aggregates through a container-scoped reader role.
    The synthetic values adapter has its own identity with registry pull only;
    it never inherits the orchestrator's key/storage/Foundry permissions.
    Optional developer Blob access is limited to the approved-content container;

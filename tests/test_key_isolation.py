@@ -7,13 +7,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from governedgraph.dev import check_key_isolation, issue_member_token, revoke_legacy_key_vault
+from governedgraph.dev import check_key_isolation, issue_member_token
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PRINCIPAL = "00000000-0000-4000-8000-0000000000d4"
 VAULT = "/subscriptions/synthetic/resourceGroups/dev/providers/Microsoft.KeyVault/vaults/synthetic"
-OLD = VAULT + "/providers/Microsoft.Authorization/roleAssignments/00000000-0000-4000-8000-0000000000e5"
 
 
 def test_b1_local_member_issuer_uses_explicit_cli_credential(monkeypatch):
@@ -113,7 +112,6 @@ def test_b3_all_key_vault_assignments_are_key_scoped_not_vault_scoped():
     assert "scope: registry" in block(source, "devIssuerPull")
     assert "principalId: devIssuerPrincipalId" in block(source, "devIssuerPull")
     assert "resource devKv " not in source
-    assert "vaultMetadataReader" not in (ROOT / "infra/modules/learning.bicep").read_text()
 
 
 def test_developer_storage_access_is_content_container_scoped():
@@ -146,48 +144,6 @@ def test_b3_key_scope_changes_preserve_existing_key_notification_policy():
     for name in ("signingKey", "devMemberKey"):
         assert "rotationPolicy: signingKeyRotationPolicy" in block(source, name)
         assert "keyOps: [ 'sign', 'verify' ]" in block(source, name)
-
-
-def test_b3_legacy_vault_cleanup_is_read_only_and_preserves_keys_and_ancestors(monkeypatch):
-    rows = [
-        {"id": OLD, "scope": VAULT, "principalId": PRINCIPAL},
-        {"id": "key-role", "scope": VAULT + "/keys/ranking-snapshot-signing"},
-        {"id": "owner", "scope": "/subscriptions/synthetic"},
-        {"id": "other-vault", "scope": VAULT + "-other"},
-    ]
-    cli = MagicMock(return_value=rows)
-    monkeypatch.setattr(revoke_legacy_key_vault, "az", cli)
-    assert revoke_legacy_key_vault.revoke(VAULT) == [OLD]
-    assert cli.call_count == 1
-    revoke_legacy_key_vault.revoke(VAULT, approved_assignment_ids=(OLD,), apply=True)
-    assert cli.call_args.args == ("role", "assignment", "delete", "--ids", OLD)
-    assert cli.call_count == 3
-
-
-@pytest.mark.parametrize("approved", [(), (OLD + "-bad",), (OLD.replace("/synthetic/", "/other/"),)])
-def test_b3_legacy_vault_cleanup_requires_exact_reviewed_ids(monkeypatch, approved):
-    cli = MagicMock(return_value=[{"id": OLD, "scope": VAULT}])
-    monkeypatch.setattr(revoke_legacy_key_vault, "az", cli)
-    with pytest.raises(ValueError):
-        revoke_legacy_key_vault.revoke(VAULT, approved_assignment_ids=approved, apply=True)
-    assert cli.call_count == 1
-
-
-def test_b3_legacy_vault_cleanup_stops_if_an_unreviewed_grant_appears(monkeypatch):
-    cli = MagicMock(return_value=[{"id": OLD, "scope": VAULT},
-                                 {"id": "unexpected", "scope": VAULT}])
-    monkeypatch.setattr(revoke_legacy_key_vault, "az", cli)
-    with pytest.raises(ValueError, match="every current"):
-        revoke_legacy_key_vault.revoke(VAULT, approved_assignment_ids=(OLD,), apply=True)
-    assert cli.call_count == 1
-
-
-def test_b3_legacy_vault_cleanup_rejects_broad_scope_before_cli(monkeypatch):
-    cli = MagicMock()
-    monkeypatch.setattr(revoke_legacy_key_vault, "az", cli)
-    with pytest.raises(ValueError, match="exact Key Vault"):
-        revoke_legacy_key_vault.revoke("/subscriptions/synthetic", apply=True)
-    cli.assert_not_called()
 
 
 @pytest.fixture

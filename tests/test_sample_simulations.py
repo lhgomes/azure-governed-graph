@@ -259,8 +259,7 @@ def test_sample_build_hash_tracks_persona_and_projection_sources(monkeypatch, da
         return {"image": registry + "/" + target}
 
     monkeypatch.setattr(deploy, "build", build)
-    deploy.image_artifacts(None, {"compute": {"registryName": "runtime"},
-                                 "learning": {"mlRegistryId": "/ml"}}, COMPOSITION,
+    deploy.image_artifacts(None, {"compute": {"registryName": "runtime"}}, COMPOSITION,
                            subscription="selected-subscription")
     checked_targets = set()
     for target, dockerfile, paths in builds:

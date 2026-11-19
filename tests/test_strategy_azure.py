@@ -1012,30 +1012,6 @@ def test_b8_redeploy_does_not_accept_dev_recovery_access_in_other_environments(r
         module.configure("other-env", *principals, apply=True)
 
 
-def test_b8_storage_cleanup_targets_only_superseded_account_grants(monkeypatch):
-    from governedgraph.strategy_service import revoke_legacy_storage
-
-    role = "ba92f5b4-2d11-453d-a403-e96b0029c9fe"
-    rows = [
-        {"id": "old-runtime", "scope": "/storage", "principalId": "runtime", "roleDefinitionId": "/roles/" + role},
-        {"id": "old-p2", "scope": "/storage", "principalId": "p2", "roleDefinitionId": "/roles/" + role},
-        {"id": "new-scoped", "scope": "/storage/container", "principalId": "runtime", "roleDefinitionId": "/roles/" + role},
-        {"id": "other-user", "scope": "/storage", "principalId": "operator", "roleDefinitionId": "/roles/" + role},
-    ]
-    calls = []
-
-    def cli(*args):
-        calls.append(args)
-        return rows if args[:3] == ("role", "assignment", "list") else None
-
-    monkeypatch.setattr(revoke_legacy_storage, "az", cli)
-    assert revoke_legacy_storage.revoke("/storage", "runtime", "p2") == ["old-runtime", "old-p2"]
-    assert len(calls) == 1
-    revoke_legacy_storage.revoke("/storage", "runtime", "p2", apply=True)
-    assert calls[-2:] == [("role", "assignment", "delete", "--ids", "old-runtime"),
-                          ("role", "assignment", "delete", "--ids", "old-p2")]
-
-
 def test_b3_b7_infra_isolates_state_and_cohort_permissions():
     root = Path(__file__).resolve().parents[1]
     source = (root / "infra/modules/rbac.bicep").read_text()
@@ -1047,7 +1023,7 @@ def test_b3_b7_infra_isolates_state_and_cohort_permissions():
     cohort = source.split("resource fairnessCohort ", 1)[1].split("\nresource ", 1)[0]
     assert "scope: cohortContainer" in cohort and "principalId: fairnessPrincipalId" in cohort
     assert "scope: cohortContainer" not in source.split("resource pipelineAuditRead ", 1)[1]
-    learning = (root / "infra/modules/learning.bicep").read_text()
-    assert "scope: artifactContainers[i]" in learning
+    learning = (root / "infra/modules/p2-access.bicep").read_text()
+    assert "scope: artifacts" in learning
     assert "scope: aggregates" in learning
     assert "fileServices" not in learning
