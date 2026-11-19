@@ -72,11 +72,11 @@ def environment(runner, inputs, composition) -> None:
     for key, value in values.items():
         runner.run(["azd", "env", "set", key, value, "--environment", inputs.environment])
     os.environ.update(values)
-    sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
 
 
 def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> dict:
-    from governedgraph.strategy_service.provision_auth import GraphError
+    sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
+    from governedgraph.strategy_service.provision_auth import GraphError, graph
 
     stage(runner, "environment", target={"subscription": inputs.subscription, "resource_group": inputs.resource_group,
                                        "naming_seed": inputs.naming_seed, "location": inputs.location,
@@ -87,7 +87,7 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
         print("Resolving delivery operator from the signed-in user...", flush=True)
         os.environ["AZURE_SUBSCRIPTION_ID"] = inputs.subscription
         try:
-            inputs = replace(inputs, operator_id=signed_in_user())
+            inputs = replace(inputs, operator_id=signed_in_user(call=graph))
         except (GraphError, ValueError) as error:
             raise DeliveryError(
                 "Cannot resolve operator_id in the selected subscription's tenant; "

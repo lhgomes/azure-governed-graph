@@ -497,6 +497,8 @@ Subscription, on-call destination and composition are required.
 deploying user's tenant-local object ID live through Microsoft Graph `/me`.
 The lookup uses the selected subscription's tenant, not the ambient CLI
 subscription, and runs before environment writes or foundation provisioning.
+The delivery entry point adds the repository's source paths before importing
+framework helpers; no separate editable package installation is required.
 `--plan` never performs this lookup. A supplied UUID remains unchanged; a stale
 or incorrect supplied ID is not silently replaced. To use discovery instead,
 remove that field from the private file.

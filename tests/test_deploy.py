@@ -476,9 +476,47 @@ def test_normal_delivery_preserves_baseline_order_and_never_loads_catalogue_migr
     ]
 
 
+def test_deploy_bootstraps_source_imports_in_an_isolated_interpreter():
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent("""
+        import sys
+        from types import SimpleNamespace
+
+        sys.path.insert(0, sys.argv[1])
+        from scripts import deploy
+
+        def stop_before_writes(*_):
+            raise RuntimeError("reached environment setup")
+
+        deploy.environment = stop_before_writes
+        deploy.stage = lambda *_args, **_kwargs: None
+        inputs = SimpleNamespace(
+            subscription="00000000-0000-0000-0000-000000000001",
+            resource_group="rg-gg-dev-synthetic",
+            naming_seed="00000000-0000-0000-0000-000000000002",
+            location="swedencentral",
+            operator_id="00000000-0000-0000-0000-000000000003",
+        )
+        try:
+            deploy.deploy(None, inputs, SimpleNamespace(name="synthetic"))
+        except RuntimeError as error:
+            assert str(error) == "reached environment setup", str(error)
+        else:
+            raise AssertionError("deployment did not reach environment setup")
+    """)
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", script, str(delivery.ROOT)],
+        cwd=delivery.ROOT, capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize("operator_id", [None, ""])
 def test_missing_operator_resolves_in_selected_tenant_before_foundation(delivery_flow, monkeypatch, operator_id):
-    from scripts import configure_admin_console
+    from governedgraph.strategy_service import provision_auth
 
     raw = delivery_flow.raw
     if operator_id is None:
@@ -491,10 +529,11 @@ def test_missing_operator_resolves_in_selected_tenant_before_foundation(delivery
     resolved = "00000000-0000-0000-0000-000000000004"
     monkeypatch.setenv("AZURE_SUBSCRIPTION_ID", "different-subscription")
 
-    def signed_in_user():
+    def graph(method, path):
+        assert (method, path) == ("GET", "me?$select=id")
         assert deploy.os.environ["AZURE_SUBSCRIPTION_ID"] == inputs.subscription
         delivery_flow.calls.append("operator")
-        return resolved
+        return {"id": resolved}
 
     original_environment = deploy.environment
     original_provision = deploy.provision
@@ -509,7 +548,7 @@ def test_missing_operator_resolves_in_selected_tenant_before_foundation(delivery
             assert values["principalId"] == resolved
         return original_provision(runner, selected, template, values)
 
-    monkeypatch.setattr(configure_admin_console, "signed_in_user", signed_in_user)
+    monkeypatch.setattr(provision_auth, "graph", graph)
     monkeypatch.setattr(deploy, "environment", environment)
     monkeypatch.setattr(deploy, "provision", provision)
     monkeypatch.setattr(deploy, "readiness", lambda *_: None)
@@ -528,16 +567,17 @@ def test_missing_operator_resolves_in_selected_tenant_before_foundation(delivery
 ])
 def test_operator_lookup_failure_stops_before_environment_writes_or_provisioning(
         delivery_flow, monkeypatch, error):
-    from scripts import configure_admin_console
+    from governedgraph.strategy_service import provision_auth
 
     delivery_flow.raw.pop("operator_id")
     delivery_flow.path.write_text(json.dumps(delivery_flow.raw))
     inputs = delivery.Inputs.load(delivery_flow.path)
 
-    def unavailable():
+    def unavailable(method, path):
+        assert (method, path) == ("GET", "me?$select=id")
         raise error
 
-    monkeypatch.setattr(configure_admin_console, "signed_in_user", unavailable)
+    monkeypatch.setattr(provision_auth, "graph", unavailable)
     runner = SimpleNamespace(run=lambda *_: pytest.fail("identity failure must not write or provision"))
     with pytest.raises(delivery.DeliveryError, match="Cannot resolve operator_id"):
         deploy.deploy(runner, inputs, COMPOSITION)
