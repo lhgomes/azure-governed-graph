@@ -51,10 +51,10 @@ def test_hosted_voice_reuses_http_auth_and_forwards_token_only_in_memory(host, m
 
 def test_hosted_voice_is_disabled_outside_dev_and_requires_step_up(monkeypatch):
     async def scenario():
-        monkeypatch.setattr(hosted, "settings", SimpleNamespace(is_azure=False))
+        monkeypatch.setattr(hosted, "settings", SimpleNamespace(environment_name="gg-other"))
         with pytest.raises(PermissionError):
             await run_hosted(VoiceScriptRequest(**SCRIPT), "synthetic", MemberIdentity("MBR-7Q2K", True))
-        monkeypatch.setattr(hosted, "settings", SimpleNamespace(is_azure=True, environment_name="gg-dev"))
+        monkeypatch.setattr(hosted, "settings", SimpleNamespace(environment_name="gg-dev"))
         monkeypatch.setenv("GOVERNEDGRAPH_ENABLE_VOICE_PROOF", "true")
         for identity in (MemberIdentity("MBR-OTHER", True), MemberIdentity("MBR-7Q2K", False)):
             with pytest.raises(PermissionError):
@@ -119,7 +119,7 @@ def test_runtime_identity_synthesizes_but_profiles_and_member_tokens_never_leave
     monkeypatch.setattr("governedgraph.strategy_service.service.assign_arm", lambda *args: arm)
     monkeypatch.setattr(hosted.OrchestratorChannel, "turn", turn)
     monkeypatch.setattr(hosted, "settings", SimpleNamespace(
-        is_azure=True, environment_name="gg-dev", strategy_runtime_id="runtime-principal"))
+        environment_name="gg-dev", strategy_runtime_id="runtime-principal"))
     monkeypatch.setattr(azure.identity.aio, "ManagedIdentityCredential", Credential)
     monkeypatch.setattr(hosted, "open_speech", speech)
     monkeypatch.setattr("governedgraph.voice.warmup.warm_runtime", lambda: None)

@@ -34,6 +34,7 @@ def build_index():
         *[SimpleField(name=name, type="Edm.String") for name in ("approval_ref", "source_id", "watermark")],
         SearchableField(name="title", type="Edm.String"),
         SearchableField(name="body", type="Edm.String"),
+        SearchableField(name="answers", type="Edm.String"),
         SearchField(name="body_vector", type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
                     searchable=True, hidden=True, vector_search_dimensions=VECTOR_DIMENSIONS,
                     vector_search_profile_name="approved-content-vector"),
@@ -53,7 +54,7 @@ def build_index():
         semantic_search=SemanticSearch(configurations=[SemanticConfiguration(
             name="default", prioritized_fields=SemanticPrioritizedFields(
                 title_field=SemanticField(field_name="title"),
-                content_fields=[SemanticField(field_name="body")]))]),
+                content_fields=[SemanticField(field_name="body"), SemanticField(field_name="answers")]))]),
     )
 
 
@@ -166,7 +167,8 @@ class AzureContentPublisher:
             time.sleep(2)
         raise TimeoutError("approved content indexer did not finish; do not start another publication yet")
 
-    def publish(self, seed: list[ContentDocument], candidate: ContentDocument | None = None) -> None:
+    def publish(self, seed: list[ContentDocument],
+                candidate: ContentDocument | list[ContentDocument] | None = None) -> None:
         from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 
         payload = "\n".join(json.dumps(doc.index_document()) for doc in seed)
@@ -176,8 +178,8 @@ class AzureContentPublisher:
             log.info("using_existing_approved_content_feed")
         with self.blob.acquire_lease(lease_duration=-1) as lease:
             docs = load_corpus(self.blob.download_blob(lease=lease).content_as_text(), indexed=True)
-            if candidate is not None:
-                docs = approve_version(docs, candidate)
+            for approved in ([] if candidate is None else candidate if isinstance(candidate, list) else [candidate]):
+                docs = approve_version(docs, approved)
             try:
                 result = self.indexers.get_indexer_status(self.indexer_name).last_result
             except ResourceNotFoundError:

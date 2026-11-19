@@ -387,20 +387,24 @@ def model_tools():
     return tools
 
 
-def test_semantic_routing_receives_customer_history_but_no_historical_figures(model_tools):
-    from governedgraph.agents.decision_agents import DecisionContext, FoundryDecisionAgent
+def test_semantic_routing_receives_customer_history_but_no_historical_figures(model_tools, monkeypatch):
+    from governedgraph.agents import decision_agents, decision_model
+    from governedgraph.agents.decision_agents import DecisionContext
 
-    client = Mock()
-    client.responses.create.return_value = SimpleNamespace(
-        id="resp-intent-synthetic", status="completed", output=[],
-        output_text=json.dumps({"reason": "payment_continuity", "response_language": "en"}),
-    )
-    decision = FoundryDecisionAgent("intent", client=client, agent_version="1").run(
-        model_tools, "What about that amount now?", DecisionContext("resolved", "unclassified", None))
-    payload = json.loads(client.responses.create.call_args.kwargs["input"][0]["content"])
-    assert payload["conversation_context"][0]["text"] == "Please explain my synthetic letter."
-    assert "1,111.00" not in json.dumps(payload)
-    assert decision.reason == "payment_continuity" and client.responses.create.call_args.kwargs["store"] is False
+    requests = []
+
+    def choose(_tools, state, questions):
+        requests.append(state)
+        return {"reason": "payment_continuity"} if "reason" in questions else {"response_language": "en"}
+
+    monkeypatch.setattr(decision_model, "choose", choose)
+    decision = decision_agents.run_decision(
+        "intent", model_tools, "What about that amount now?", DecisionContext("resolved", "unclassified", None))
+    state = next(item for item in requests if "Customer: Please explain my synthetic letter." in item)
+    assert state.endswith("Customer message: What about that amount now?")
+    assert len(requests) == 2 and "Earlier" not in "".join(item for item in requests if item is not state)
+    assert "1,111.00" not in "".join(requests)
+    assert decision.reason == "payment_continuity"
 
 
 def test_writer_uses_customer_history_and_new_authoritative_values_not_a_cached_figure(model_tools):

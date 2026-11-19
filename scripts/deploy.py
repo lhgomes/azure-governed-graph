@@ -156,7 +156,6 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
         "adminImage": images["runtime"]["image"], "p2ContainerImage": images["p2"]["image"],
         "counsellorAgentVersion": pins["counsellor"]["agent_version"],
         "voiceCompactAgentVersion": pins["voice-compact"]["agent_version"],
-        "understandingAgentVersion": pins["understanding"]["agent_version"],
         "writerApproval": approval,
         "personaAgentVersion": persona_version,
         "memberTokenIssuer": ISSUER, "memberTokenPublicJwk": public_key, "onCallEmail": inputs.on_call_email,

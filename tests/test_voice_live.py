@@ -14,8 +14,9 @@ from governedgraph.agents.counsellor import DISCLOSURE, Counsellor
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import ContractError
 from governedgraph.common.member_auth import MemberIdentity
-from governedgraph.voice.voice_demo import PresenterAudio, run_presenter, run_simulator, text_fallback
-from governedgraph.learning.run_cycle import run_cycle
+from governedgraph.voice.voice_demo import run_simulator
+from counsellor_doubles import install
+from strategy_doubles import run_cycle
 from governedgraph.orchestrator import api
 from governedgraph.orchestrator.messaging import FileJourneyPublisher
 from governedgraph.orchestrator.service import OrchestratorService
@@ -26,7 +27,7 @@ from governedgraph.voice.voice_live_bridge import (
     AudioFailure, CUSTOM_VOCABULARY, OrchestratorChannel, PERSONA_VOICES, VoiceBridge,
     VoiceError, VoiceReply, validate_pcm,
 )
-from governedgraph.strategy_service.service import StrategyService
+from strategy_doubles import local_strategy_service
 
 
 class Speech:
@@ -68,7 +69,8 @@ class Device:
 @pytest.fixture
 def host(tmp_path, monkeypatch, isolated_conversations):
     monkeypatch.setattr(settings.__class__, "run_dir", property(lambda self: tmp_path))
-    strategies = StrategyService(state_dir=tmp_path / "strategy", control_share=0)
+    install(monkeypatch, tmp_path)
+    strategies = local_strategy_service(tmp_path / "strategy", control_share=0)
     run_cycle(strategies)
     created = []
 
@@ -336,7 +338,7 @@ def test_voice_p95_is_nearest_rank_and_small_demo_is_not_slo_certification():
     assert not bridge.metrics()["target_met"] and not bridge.metrics()["slo_certified"]
 
 
-def test_voice_simulator_and_presenter_share_the_authenticated_bridge(host):
+def test_voice_simulator_and_advisor_request_share_the_authenticated_bridge(host):
     async def scenario():
         async with httpx.AsyncClient(transport=host.transport, base_url="https://channel/") as client:
             speech = Speech(["Explain my transition letter", "It stays the same and can go up or down each year."])
@@ -350,7 +352,8 @@ def test_voice_simulator_and_presenter_share_the_authenticated_bridge(host):
             assert "not acoustic latency" in result.label
             presenter = VoiceBridge(OrchestratorChannel(client, lambda: "synthetic"),
                                     Speech("I want a human advisor"), Device())
-            assert (await run_presenter(presenter)).replies[0].escalated
+            await presenter.start()
+            assert (await presenter.turn(b"\0\0")).escalated
     asyncio.run(scenario())
 
 
@@ -374,15 +377,6 @@ def test_voice_simulator_preserves_turn_bound_and_runtime_terminal_states(state,
     asyncio.run(scenario())
 
 
-def test_voice_text_fallback_forces_local_mode_without_a_token_file(monkeypatch):
-    monkeypatch.setenv("GOVERNEDGRAPH_MODE", "azure")
-    run = Mock(return_value=SimpleNamespace(returncode=0))
-    monkeypatch.setattr("governedgraph.voice.voice_demo.subprocess.run", run)
-    assert text_fallback() == 0
-    assert run.call_args.kwargs["env"]["GOVERNEDGRAPH_MODE"] == "local"
-    assert run.call_args.args[0][-1] == "pension_wtp.demo.run_demo"
-
-
 def test_voice_rejects_redirects_untrusted_endpoints_and_unbounded_audio():
     async def scenario():
         async with httpx.AsyncClient(base_url="https://channel/", follow_redirects=True) as client:
@@ -399,8 +393,6 @@ def test_voice_rejects_redirects_untrusted_endpoints_and_unbounded_audio():
     for pcm in (b"", b"\0", b"\0\0" * (24000 * 121)):
         with pytest.raises(AudioFailure):
             validate_pcm(pcm)
-    with pytest.raises(ValueError):
-        PresenterAudio(capture_seconds=21)
 
 
 def test_voice_live_proof_rejects_developer_or_pipeline_identity_before_issuing_any_token(monkeypatch):

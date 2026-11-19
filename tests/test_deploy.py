@@ -1235,14 +1235,14 @@ def test_standalone_agent_apply_uses_the_exported_subscription(monkeypatch):
     from scripts import create_agents
 
     monkeypatch.setenv("AZURE_SUBSCRIPTION_ID", "selected-subscription")
-    monkeypatch.setattr(sys, "argv", ["create_agents", "--apply", "--role", "intent"])
+    monkeypatch.setattr(sys, "argv", ["create_agents", "--apply", "--role", "fairness"])
     project = object()
     def scoped_client(endpoint, *, subscription):
         assert endpoint == create_agents.settings.project_endpoint
         assert subscription == "selected-subscription"
         return nullcontext(project)
     def provision(selected, *, apply, role):
-        assert selected is project and apply is True and role == "intent"
+        assert selected is project and apply is True and role == "fairness"
         return {"action": "ILLUSTRATIVE - synthetic data"}
     monkeypatch.setattr(create_agents, "project_client", scoped_client)
     monkeypatch.setattr(create_agents, "provision", provision)
@@ -1267,6 +1267,27 @@ def test_bootstrap_reuses_a_single_active_execution_and_rejects_ambiguous_metada
             delivery.run_job(Runner(), inputs, "bootstrap", sleep=lambda _: None)
 
 
+@pytest.mark.parametrize("crashes, completes", [(3, True), (4, False)])
+def test_bootstrap_polling_survives_a_few_cli_crashes_without_starting_a_replacement(crashes, completes):
+    polls = []
+
+    class Runner:
+        def run(self, args):
+            assert "start" not in args
+            if "list" in args:
+                return json.dumps([{"name": "active-execution", "properties": {"status": "Running"}}])
+            polls.append(args)
+            if len(polls) <= crashes:
+                raise delivery.CommandError(args, 1, "JSONDecodeError in the Azure CLI")
+            return "Succeeded"
+    inputs = SimpleNamespace(subscription="synthetic", resource_group="rg-gg-dev")
+    if completes:
+        assert delivery.run_job(Runner(), inputs, "bootstrap", sleep=lambda _: None) == "active-execution"
+    else:
+        with pytest.raises(delivery.CommandError):
+            delivery.run_job(Runner(), inputs, "bootstrap", sleep=lambda _: None)
+
+
 @pytest.mark.parametrize("catalogue_upgrade", [False, True])
 def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
         monkeypatch, capsys, catalogue_upgrade, synthetic_upgrade_composition):
@@ -1283,7 +1304,8 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
               for target in ("runtime", "p2", "fixtures", "probe")}
     inputs = SimpleNamespace(environment="gg-dev", subscription="synthetic", resource_group="rg-gg-dev-test",
                              naming_seed="synthetic", location="swedencentral", search_location="swedencentral",
-                             operator_id="synthetic", on_call_email="synthetic@example.invalid", voice_demo=True)
+                             operator_id="synthetic", on_call_email="synthetic@example.invalid", voice_demo=True,
+                             decision_deployment="synthetic-decision")
     def provision(_runner, _inputs, template, values):
         calls.append((template, values))
         return {"foundation": foundation} if template.endswith("main.bicep") else (

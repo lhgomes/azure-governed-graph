@@ -4,7 +4,6 @@ param projectEndpoint string
 param runtimeClientId string
 param mainAgentVersion string
 param compactAgentVersion string
-param understandingAgentVersion string
 @maxLength(3000)
 param writerApprovalJson string = ''
 @minValue(1000)
@@ -18,9 +17,8 @@ var configuration = {
   'model-runtime-client-id': runtimeClientId
   'model-main-agent-version': mainAgentVersion
   'model-compact-agent-version': compactAgentVersion
-  'model-understanding-agent-version': understandingAgentVersion
 }
-var agentsReady = !empty(mainAgentVersion) && !empty(compactAgentVersion) && !empty(understandingAgentVersion)
+var agentsReady = !empty(mainAgentVersion) && !empty(compactAgentVersion)
 
 resource values 'Microsoft.ApiManagement/service/namedValues@2024-05-01' = [for item in items(configuration): if (!empty(item.value)) {
   parent: apim

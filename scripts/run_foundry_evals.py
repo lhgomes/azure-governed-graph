@@ -20,7 +20,6 @@ ROOT = Path(__file__).resolve().parents[1]
 PIN_KEYS = {
     "gg-counsellor": "AZURE_AI_AGENT_VERSION",
     "gg-counsellor-voice-compact": "AZURE_AI_VOICE_COMPACT_VERSION",
-    "gg-understanding-agent": "AZURE_AI_UNDERSTANDING_AGENT_VERSION",
 }
 
 
@@ -37,7 +36,6 @@ def validate(values: dict[str, str]) -> None:
 def run(project, values: dict[str, str], output: Path) -> int:
     # Import the domain only after main has selected the sample and local adapters.
     from governedgraph.agents.counsellor import INSTRUCTIONS
-    from governedgraph.agents.decision_agents import FoundryDecisionAgent, agent_definition as decision_definition, deployment_for
     from governedgraph.agents.foundry_runtime import FoundryComposer, agent_definition
     from governedgraph.agents.persona_simulator import ScriptedPersona
     from governedgraph.common.config import settings
@@ -52,9 +50,7 @@ def run(project, values: dict[str, str], output: Path) -> int:
         "gg-counsellor": values.get("AZURE_AI_MODEL_DEPLOYMENT", "gpt-counsellor"),
         "gg-counsellor-voice-compact": values.get("AZURE_AI_COMPACT_DEPLOYMENT", "gpt-compact"),
     }
-    roles = ("understanding",)
     expected = {name: agent_definition(INSTRUCTIONS, model=model).as_dict() for name, model in writers.items()}
-    expected.update({f"gg-{role}-agent": decision_definition(role).as_dict() for role in roles})
     for name, definition in expected.items():
         version = values[PIN_KEYS[name]]
         deployed = project.agents.get_version(name, version)
@@ -63,7 +59,7 @@ def run(project, values: dict[str, str], output: Path) -> int:
     report = {
         "label": "SIMULATED - ILLUSTRATIVE - synthetic data",
         "environment": "gg-dev", "project_endpoint": values["AZURE_AI_PROJECT_ENDPOINT"],
-        "mode": "local deterministic adapters; real pinned Foundry writers, understanding agent and Decision API; NOT live proof",
+        "mode": "local deterministic adapters; real pinned Foundry writers and Decision API; NOT live proof",
         "actor_source": "fixed synthetic fixtures; not generated personas",
         "human_calibration": "not established", "automatic_promotion": False,
         "versions": {name: values[key] for name, key in PIN_KEYS.items()},
@@ -75,11 +71,6 @@ def run(project, values: dict[str, str], output: Path) -> int:
     with output.open("x") as stream:
         stream.write(json.dumps(report, indent=2) + "\n")
     with project.get_openai_client(max_retries=0, timeout=30) as client:
-        recorders = {deployment_for(role): UsageRecorder(client) for role in roles}
-        decisions = {role: FoundryDecisionAgent(
-            role, client=recorders[deployment_for(role)], agent_version=values[PIN_KEYS[f"gg-{role}-agent"]],
-        ) for role in roles}
-
         def save_row(row):
             report["rows"][row["candidate"]].append(row)
             output.write_text(json.dumps(report, indent=2) + "\n")
@@ -92,7 +83,7 @@ def run(project, values: dict[str, str], output: Path) -> int:
             directory.mkdir()
             try:
                 collect_candidate(model, composer, lambda scenario: ScriptedPersona(asdict(scenario)), directory,
-                                  on_row=save_row, decision_agents=decisions, supporting_recorders=recorders)
+                                  on_row=save_row, decision_agents={}, supporting_recorders={})
             finally:
                 shutil.rmtree(directory)
         score_report(project, report, output, writers["gg-counsellor"], {})

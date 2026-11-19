@@ -31,7 +31,9 @@ def escalation():
 
 
 def test_b9_synthetic_http_handover_reuses_original_and_is_read_only(monkeypatch, tmp_path):
-    monkeypatch.setattr(settings.__class__, "run_dir", property(lambda self: tmp_path))
+    monkeypatch.setattr(api, "settings", replace(settings, contact_centre_storage_url="synthetic-storage"))
+    monkeypatch.setattr(api, "BlobRecordStore", lambda _url, _container, decode: FileRecordStore(
+        tmp_path / "handovers", decode))
     api.app.dependency_overrides[api.require_runtime] = lambda: None
     try:
         with TestClient(api.app) as client:

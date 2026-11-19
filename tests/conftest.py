@@ -19,3 +19,38 @@ def isolated_conversations():
     def session(*args, **kwargs):
         yield SimpleNamespace(messages=(), prepare=lambda *_: None)
     return SimpleNamespace(session=session)
+
+
+@pytest.fixture
+def local_counsellor(monkeypatch, tmp_path):
+    """Deterministic Counsellor doubles for guardrail-pipeline tests; Azure boundaries are replaced in-process."""
+    import counsellor_doubles
+
+    counsellor_doubles.install(monkeypatch, tmp_path)
+
+
+@pytest.fixture(scope="session")
+def built_simulations(tmp_path_factory):
+    """Data directory whose demo/simulations.json is projected from the sample personas, as the image build does."""
+    import subprocess
+
+    from governedgraph.common.config import DATA_DIR
+
+    directory = tmp_path_factory.mktemp("sample-data")
+    (directory / "demo").mkdir()
+    result = subprocess.run(
+        [sys.executable, str(DATA_DIR.parent / "demo" / "build_simulations.py"),
+         "--output", str(directory / "demo" / "simulations.json")],
+        env={**os.environ, "PYTHONPATH": os.pathsep.join([str(ROOT / "src"), str(ROOT / "examples")])},
+        capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    return directory
+
+
+@pytest.fixture
+def sample_simulations(monkeypatch, built_simulations):
+    """Point the simulation loader at the build-time projection instead of an image-only file."""
+    from governedgraph.voice import simulations
+
+    monkeypatch.setattr(simulations, "DATA_DIR", built_simulations)
+    return built_simulations

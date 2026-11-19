@@ -7,34 +7,20 @@ import pytest
 
 from governedgraph.agents import decision_agents
 from governedgraph.agents.decision_agents import (
-    DecisionContext, DecisionUnavailable, FoundryDecisionAgent, OfflineFixtureAgent, agent_definition,
+    DecisionContext, DecisionUnavailable, FoundryDecisionAgent, agent_definition,
 )
-from governedgraph.agents.counsellor import new_session
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import (
     INTENT_DECISIONS, AnswerReview, ContractError, DecisionEvidence, ExplanationContext,
     IntentDecision, UnderstandingDecision,
 )
-from governedgraph.learning.run_cycle import run_cycle
-from governedgraph.strategy_service.service import StrategyService
+from counsellor_doubles import install, new_session
+from strategy_doubles import run_cycle
+from strategy_doubles import local_strategy_service
 
 EXPLAIN = {"route": "explanation", "intent": "transition_impact_question",
            "reason": "official_transition_information", "response_language": "en"}
-NATIVE_EXPLAIN = {"reason": "transition_overview", "response_language": "en"}
 CONTEXT = DecisionContext("identified", "unclassified", None)
-
-
-class Responses:
-    def __init__(self, body):
-        self.responses = self
-        self.body, self.calls = body, []
-
-    def create(self, **kwargs):
-        self.calls.append(kwargs)
-        if isinstance(self.body, Exception):
-            raise self.body
-        return SimpleNamespace(status="completed", output_text=json.dumps(self.body),
-                               output=[], id="synthetic-response", usage=None)
 
 
 def tools():
@@ -46,25 +32,33 @@ def tools():
     ("transition_overview", "en", "explanation"),
     ("personal_choice_or_comparison", "nl", "advice"),
     ("explicit_human_request", "en", "human"),
+    ("transition_overview", None, "explanation"),
     (None, "en", None),
 ])
 def test_decision_model_is_sole_intent_router(monkeypatch, reason, language, route):
     from governedgraph.agents import decision_model
 
-    monkeypatch.setattr(FoundryDecisionAgent, "shared", lambda _: pytest.fail("legacy router called"))
     turn = tools()
     turn.conversation_context = lambda: []
     turn.trace.note = lambda *_: None
+    requests = []
 
-    def choose(_tools, _state, _questions):
-        if reason is None:
-            raise decision_model.DecisionModelUnavailable("synthetic transport failure")
-        return {"reason": reason, "response_language": language}
+    def choose(_tools, state, questions):
+        requests.append((state, set(questions)))
+        if "reason" in questions:
+            if reason is None:
+                raise decision_model.DecisionModelUnavailable("synthetic transport failure")
+            return {"reason": reason}
+        if language is None:
+            raise decision_model.DecisionModelAbstained("below minimum confidence")
+        return {"response_language": language}
 
     monkeypatch.setattr(decision_model, "choose", choose)
     if route:
         decision = decision_agents.run_decision("intent", turn, "Synthetic request.", CONTEXT)
-        assert (decision.route, decision.reason, decision.response_language) == (route, reason, language)
+        # An unclear language reading keeps the established language and never blocks routing.
+        expected_language = language or CONTEXT.response_language
+        assert (decision.route, decision.reason, decision.response_language) == (route, reason, expected_language)
         assert turn.trace.decision_evidence == [
             DecisionEvidence("intent", "microsoft-decision-1.1", "1", asdict(decision)),
         ]
@@ -72,6 +66,12 @@ def test_decision_model_is_sole_intent_router(monkeypatch, reason, language, rou
         with pytest.raises(DecisionUnavailable):
             decision_agents.run_decision("intent", turn, "Synthetic request.", CONTEXT)
         assert not turn.trace.decision_evidence
+    # Each question is its own request; the language reading sees only the established language and the message.
+    states = {next(iter(names)): state for state, names in requests}
+    assert sorted(states) == ["reason", "response_language"]
+    assert states["reason"] == "Customer message: Synthetic request."
+    assert states["response_language"] == (
+        f"Established language: {CONTEXT.response_language}\nCustomer message: Synthetic request.")
 
 
 @pytest.mark.parametrize("verdict,expected", [("pass_draft", "pass"), ("advice", "fail"),
@@ -84,10 +84,10 @@ def test_decision_model_is_sole_draft_reviewer(monkeypatch, verdict, expected):
     turn.trace.model_rounds = 0
     turn.trace.composition_source = "foundry"
     turn.conversation_context = lambda: []
-    session = SimpleNamespace(tools=turn, decision_agents={})
+    session = SimpleNamespace(tools=turn, decision_agents={}, journey=SimpleNamespace(journey_id="J-review"))
     monkeypatch.setattr(FoundryDecisionAgent, "shared", lambda _: pytest.fail("legacy reviewer called"))
-    monkeypatch.setattr(decision_agents, "review_payload", lambda *_: {})
-    def choose(_tools, _state, questions):
+    monkeypatch.setattr(decision_agents, "review_payload", lambda *_: {"task": {"excluded_concepts": []}})
+    def choose(_tools, _state, questions, optional=frozenset()):
         if verdict is None:
             raise decision_model.DecisionModelUnavailable("synthetic transport failure")
         return {
@@ -113,71 +113,75 @@ def test_decision_model_is_sole_draft_reviewer(monkeypatch, verdict, expected):
     ]
 
 
-@pytest.mark.parametrize("role,body", [
-    ("intent", NATIVE_EXPLAIN),
-    ("understanding", {"outcome": "understood", "reason": "meaning_correct"}),
-])
-def test_b3_b7_decisions_use_pinned_agents_with_versioned_strict_schema_not_inline_model_prompts(
-        monkeypatch, role, body):
-    monkeypatch.setattr(decision_agents, "settings",
-                        replace(settings, intent_agent_version="1", understanding_agent_version="2"))
-    client, bound_tools = Responses(body), tools()
-    agent = FoundryDecisionAgent(role, client=client)
-    decision = agent.run(bound_tools, "A synthetic question.", CONTEXT)
-    call = client.calls[0]
-    assert call["extra_body"]["agent_reference"] == {
-        "type": "agent_reference", "name": f"gg-{role}-agent", "version": agent.agent_version,
-    }
-    assert not ({"model", "instructions", "tools", "text", "previous_response_id"} & call.keys())
-    assert call["store"] is False
-    definition = agent_definition(role).as_dict()
-    schema = definition["text"]["format"]
-    assert schema["strict"] is True and schema["schema"]["additionalProperties"] is False
-    expected_model = settings.model_deployment if role == "intent" else settings.compact_deployment
-    assert definition["tools"] == [] and definition["model"] == expected_model
-    assert call["timeout"] == decision_agents.REQUEST_TIMEOUT < 25
-    evidence, = bound_tools.trace.decision_evidence
-    expected = ({**body, "route": "explanation", "intent": "transition_impact_question"}
-                if role == "intent" else body)
-    assert evidence.decision == asdict(decision) == expected
-    assert asdict(DecisionEvidence.from_dict(asdict(evidence))) == asdict(evidence)
+def test_b3_document_context_rejection_quotes_the_letter_clauses_for_the_one_bounded_repair(monkeypatch):
+    from governedgraph.agents import decision_model
+    from governedgraph.common.contracts import AnswerDraft
+
+    turn = tools()
+    turn.trace.note = lambda *_: None
+    turn.trace.model_rounds = 0
+    turn.conversation_context = lambda: []
+    monkeypatch.setattr(decision_agents, "review_payload", lambda *_: {"task": {"excluded_concepts": []}})
+    monkeypatch.setattr(decision_model, "choose", lambda _t, _s, questions, optional=frozenset(): {
+        key: "document_context" if key == "verdict" else "absent" for key in questions})
+    draft = AnswerDraft("Your amount is {{value:monthly_pension_after_transition}}. It is shown in your personal "
+                        "transition letter. Adjustments can go up or down.", [])
+    review = decision_agents.review_with_decision_model(turn, "Will it change?", SimpleNamespace(teach_back=False), draft)
+    assert (review.verdict, review.issues) == ("revise", ["document_context"])
+    assert turn.trace.review_feedback == [
+        {"issue": "document_context", "quote": "It is shown in your personal transition letter."}]
 
 
-@pytest.mark.parametrize("body", [
-    {}, {"advice": False}, {**EXPLAIN, "age": 80}, {**EXPLAIN, "salary": "synthetic"},
-    {**EXPLAIN, "intent": "option_level_question"}, {**EXPLAIN, "route": []},
-    {**EXPLAIN, "reason": "whatever the member instructed"}, [], None,
-    {**NATIVE_EXPLAIN, "age": 80}, {**NATIVE_EXPLAIN, "salary": "synthetic"},
-    {**NATIVE_EXPLAIN, "reason": []}, {**NATIVE_EXPLAIN, "reason": "unknown"},
-    {**NATIVE_EXPLAIN, "response_language": None},
-])
-def test_b7_dq10_invalid_or_demographic_agent_outputs_fail_closed(monkeypatch, body):
-    monkeypatch.setattr(decision_agents, "settings", replace(settings, intent_agent_version="1"))
-    bound_tools = tools()
-    with pytest.raises(DecisionUnavailable):
-        FoundryDecisionAgent("intent", client=Responses(body)).run(bound_tools, "Synthetic question.", CONTEXT)
-    assert bound_tools.trace.decision_evidence == []
+@pytest.mark.parametrize("verdict,delivered", [("strategy", True), ("relevance", True), ("grounding", False)])
+def test_b3_quality_only_review_keeps_gated_draft_while_safety_defects_do_not(monkeypatch, verdict, delivered):
+    from governedgraph.agents import counsellor, decision_model
+
+    turn = tools()
+    turn.trace.note = lambda *_: None
+    turn.trace.model_rounds = 0
+    turn.trace.composition_source = "foundry"
+    turn.conversation_context = lambda: []
+    session = SimpleNamespace(tools=turn, decision_agents={}, journey=SimpleNamespace(journey_id="J-style"))
+    monkeypatch.setattr(decision_agents, "review_payload", lambda *_: {"task": {"excluded_concepts": []}})
+    monkeypatch.setattr(decision_model, "choose", lambda _t, _s, questions, optional=frozenset(): {
+        key: verdict if key == "verdict" else "absent" for key in questions})
+    draft = json.dumps({"text": "The arrangement changes.", "content_ids": []})
+    actual, review = counsellor.Counsellor._review_answer(
+        session, "What changes?", SimpleNamespace(teach_back=True), draft, allow_repair=False)
+    assert (review.verdict, review.issues) == ("revise", [verdict])
+    assert actual == (draft if delivered else "")
+    assert turn.trace.composition_source == ("foundry" if delivered else "template_fallback")
 
 
-def test_b1_b2_b7_context_uses_closed_taught_concepts_not_values_member_identity_or_transcripts(monkeypatch):
-    from governedgraph.common.contracts import ExplanationContext
-
-    monkeypatch.setattr(decision_agents, "settings", replace(settings, intent_agent_version="1"))
-    client = Responses(NATIVE_EXPLAIN)
-    FoundryDecisionAgent("intent", client=client).run(
-        tools(), "And afterwards?", DecisionContext(
-            "comprehension_check", "transition_impact_question", "T-S5", "en",
-            ExplanationContext(["official_after_transition_amount"], ["official_after_transition_amount"])),
-    )
-    payload = json.loads(client.calls[0]["input"][0]["content"])
-    assert payload["journey_context"]["previous_template_id"] == "T-S5"
-    assert payload["journey_context"]["last_explanation"]["teach_back_concepts"] == [
-        "official_after_transition_amount"]
-    assert "previous_approved_templates" not in payload
-    assert "member_ref" not in json.dumps(payload) and "MBR-" not in json.dumps(payload)
-    assert "transcript" not in payload and "previous_response_id" not in client.calls[0]
+def test_b7_decision_context_rejects_demographic_fields():
     with pytest.raises(ContractError):
         DecisionContext.from_dict({**asdict(CONTEXT), "age_band": "75+"})
+
+
+def test_b1_b2_b7_intent_state_carries_only_situation_last_exchange_and_message(monkeypatch):
+    from governedgraph.agents import decision_model
+
+    states = []
+    monkeypatch.setattr(decision_model, "choose", lambda _t, state, questions: (
+        states.append(state), {"reason": "payment_continuity"} if "reason" in questions
+        else {"response_language": "en"})[1])
+    turn = tools()
+    turn.trace.note = lambda *_: None
+    turn.conversation_context = lambda: [{"role": "user", "text": "Oldest question"},
+                                          {"role": "assistant", "text": "Oldest answer"},
+                                          {"role": "user", "text": "Earlier question"},
+                                          {"role": "assistant", "text": "Earlier answer"}]
+    context = DecisionContext("comprehension_check", "transition_impact_question", "T-S5", "en",
+                              ExplanationContext(["official_after_transition_amount"],
+                                                 ["official_after_transition_amount"]))
+    decision_agents.run_decision("intent", turn, "And afterwards?", context)
+    assert states[0] == (
+        "Context: the assistant has just asked the customer to say in their own words what they understood.\n"
+        "Previous exchange (context only):\nCustomer: Earlier question\nAssistant: Earlier answer\n"
+        "Customer message: And afterwards?")
+    assert "MBR-" not in states[0] and "T-S5" not in states[0]
+    # The language reading never sees the history.
+    assert states[1] == "Established language: en\nCustomer message: And afterwards?"
 
 
 def test_b3_b7_question_focus_preserves_old_audits_without_generic_new_native_outputs():
@@ -185,9 +189,7 @@ def test_b3_b7_question_focus_preserves_old_audits_without_generic_new_native_ou
     from governedgraph.common.contracts import EXPLANATION_CONCEPTS
 
     assert IntentDecision.from_dict(EXPLAIN).reason == "official_transition_information"
-    native = agent_definition("intent").as_dict()["text"]["format"]["schema"]
-    reasons = native["properties"]["reason"]["enum"]
-    assert set(native["properties"]) == {"reason", "response_language"}
+    reasons = set(decision_agents._intent_criteria())
     assert "official_transition_information" not in reasons
     for reason, (_, excluded) in ANSWER_GOALS.items():
         decision = IntentDecision.from_dict({**EXPLAIN, "reason": reason})
@@ -199,27 +201,25 @@ def test_b3_b7_question_focus_preserves_old_audits_without_generic_new_native_ou
 
 @pytest.mark.parametrize("route,intent,reason", sorted(
     row for row in INTENT_DECISIONS if row[2] != "official_transition_information"))
-def test_b3_b7_native_classification_derives_only_the_approved_matching_route(monkeypatch, route, intent, reason):
-    monkeypatch.setattr(decision_agents, "settings", replace(settings, intent_agent_version="7"))
-    client = Responses({"reason": reason, "response_language": "en"})
-    decision = FoundryDecisionAgent("intent", client=client).run(tools(), "Synthetic question.", CONTEXT)
+def test_b3_b7_classification_derives_only_the_approved_matching_route(monkeypatch, route, intent, reason):
+    from governedgraph.agents import decision_model
+
+    monkeypatch.setattr(decision_model, "choose", lambda _t, _s, questions: (
+        {"reason": reason} if "reason" in questions else {"response_language": "en"}))
+    turn = tools()
+    turn.conversation_context = lambda: []
+    turn.trace.note = lambda *_: None
+    decision = decision_agents.run_decision("intent", turn, "Synthetic question.", CONTEXT)
     assert asdict(decision) == {
         "route": route, "intent": intent, "reason": reason, "response_language": "en",
     }
 
 
-def test_b4_offline_fixture_agent_is_not_a_hidden_production_classifier(caplog):
-    bound_tools = tools()
-    with pytest.raises(DecisionUnavailable, match="unseen"):
-        OfflineFixtureAgent("intent").run(bound_tools, "An unseen synthetic utterance.", CONTEXT)
-    assert "offline_decision_fixture_missing" in caplog.text
-    assert bound_tools.trace.decision_evidence == []
-
-
 @pytest.fixture
 def counsellor(tmp_path, monkeypatch):
     monkeypatch.setattr(settings.__class__, "run_dir", property(lambda _: tmp_path))
-    service = StrategyService(state_dir=tmp_path / "strategy", control_share=0)
+    install(monkeypatch, tmp_path)
+    service = local_strategy_service(tmp_path / "strategy", control_share=0)
     run_cycle(service)
     c = new_session("MBR-7Q2K", strategy_service=service, journey_id="J-semantic")
     c.start()
@@ -235,13 +235,11 @@ def test_b5_understanding_agent_meaning_verdict_resolves_without_expected_phrase
         return IntentDecision("comprehension", "unclassified", "restating_previous_explanation")
 
     counsellor.decision_agents["intent"] = SimpleNamespace(run=decide)
-    client = Responses({"outcome": "understood", "reason": "meaning_correct"})
-    # This fixture represents an agent verdict, not a local semantic model.
-    agent = OfflineFixtureAgent("understanding")
+
     def assess(bound_tools, utterance, context):
-        decision = UnderstandingDecision.from_dict(client.body)
+        decision = UnderstandingDecision("understood", "meaning_correct")
         bound_tools.trace.decision_evidence.append(
-            DecisionEvidence("understanding", agent.agent_name, agent.agent_version, asdict(decision)),
+            DecisionEvidence("understanding", "microsoft-decision-1.1", "1", asdict(decision)),
         )
         return decision
     counsellor.decision_agents["understanding"] = SimpleNamespace(run=assess)
@@ -410,28 +408,15 @@ def test_b3_judge_is_a_pinned_tool_free_separate_agent_using_existing_model():
     assert definition["temperature"] == 0.0 and schema["additionalProperties"] is False
     assert set(schema["required"]) == {
         "checks", "evidence_status", "feedback", "concepts", "teach_back_concepts"}
-    assert "already-authorized cited source bodies" in decision_agents.INSTRUCTIONS["answer-review"]
-    assert "Never require a concept absent" in decision_agents.INSTRUCTIONS["understanding"]
-    with pytest.raises(ValueError):
-        OfflineFixtureAgent("answer-review")
+    assert "cited source bodies" in decision_agents.INSTRUCTIONS["answer-review"]
+    assert set(decision_agents.INSTRUCTIONS) == {"answer-review"}
 
 
-def test_b9_dutch_personal_choice_and_factual_objection_questions_remain_distinct_in_pinned_prompt():
-    instructions = agent_definition("intent").as_dict()["instructions"]
-    assert "'Moet ik bezwaar maken of niet?'" in instructions
-    assert "'Kan ik bezwaar maken?'" in instructions
-    assert "personal_choice_or_comparison" in instructions
-    assert "transition_information_gap" in instructions
-
-
-@pytest.mark.parametrize("language", [None, "de", "Dutch", {"age": 80}])
-def test_b7_intent_language_is_explicit_closed_and_never_derived_from_demographics(monkeypatch, language):
-    monkeypatch.setattr(decision_agents, "settings", replace(settings, intent_agent_version="1"))
-    body = {key: value for key, value in EXPLAIN.items() if key != "response_language"}
-    if language is not None:
-        body["response_language"] = language
-    with pytest.raises(DecisionUnavailable):
-        FoundryDecisionAgent("intent", client=Responses(body)).run(tools(), "A synthetic question.", CONTEXT)
+def test_b9_personal_choice_and_factual_objection_criteria_stay_distinct():
+    criteria = decision_agents._intent_criteria()
+    assert "whether the customer should take an action" in criteria["personal_choice_or_comparison"]
+    assert "not whether the customer should" in criteria["transition_information_gap"]
+    assert "is not a request to decide" in criteria["personal_choice_or_comparison"]
 
 
 def test_b3_audit_accepts_only_one_bounded_repair_and_preserves_unique_routing_evidence(counsellor):

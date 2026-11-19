@@ -23,7 +23,7 @@ The standard pension WTP reference composition deploys the following services. O
 
 ## Hosted agents
 
-The standard agent provisioning set is gg-counsellor, gg-counsellor-voice-compact, gg-understanding-agent and gg-fairness-explainability. The fairness agent is used by the explicit protective operator proof; native scheduled fairness is deterministic and remains independent. gg-persona-demo is optional. gg-counsellor-modern and its model are confined to explicit model evaluation. Intent and answer review use Microsoft Decision 1.1 directly via Entra ID rather than hosted agents.
+The standard agent provisioning set is gg-counsellor, gg-counsellor-voice-compact and gg-fairness-explainability. The fairness agent is used by the explicit protective operator proof; native scheduled fairness is deterministic and remains independent. gg-persona-demo is optional. gg-counsellor-modern and its model are confined to explicit model evaluation. Intent, understanding and answer review use Microsoft Decision 1.1 directly via Entra ID rather than hosted agents.
 
 ## Workload permissions
 

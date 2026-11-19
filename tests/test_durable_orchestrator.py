@@ -13,14 +13,15 @@ from governedgraph.common.contracts import ContractError, EscalationRequest
 from governedgraph.common.member_auth import MemberIdentity
 from governedgraph.contact_centre.service import HANDOVER_SUMMARY, Handover, SyntheticContactCentre
 from governedgraph.guardrails.numeric_fidelity import check
-from governedgraph.learning.run_cycle import run_cycle
+from counsellor_doubles import install
+from strategy_doubles import run_cycle
 from governedgraph.orchestrator.consumer import InboxRecord, JourneyConsumer
 from governedgraph.orchestrator.messaging import FileJourneyPublisher
 from governedgraph.orchestrator.service import DeliveryPending, OrchestratorService
 from governedgraph.orchestrator.state_machine import Journey, State
 from governedgraph.orchestrator.store import Delivery, FileJourneyStore, FileRecordStore, JourneyBusy, JourneyRecord
 from governedgraph.orchestrator.worker import handle_message
-from governedgraph.strategy_service.service import StrategyService
+from strategy_doubles import local_strategy_service
 
 IDENTITY = MemberIdentity("MBR-7Q2K", True)
 
@@ -28,7 +29,8 @@ IDENTITY = MemberIdentity("MBR-7Q2K", True)
 @pytest.fixture
 def setup(tmp_path, monkeypatch, isolated_conversations):
     monkeypatch.setattr(settings.__class__, "run_dir", property(lambda self: tmp_path))
-    strategies = StrategyService(state_dir=tmp_path / "strategy", control_share=0)
+    install(monkeypatch, tmp_path)
+    strategies = local_strategy_service(tmp_path / "strategy", control_share=0)
     run_cycle(strategies)
 
     def factory(journey, auth_ref, **kwargs):
@@ -365,3 +367,19 @@ def test_b9_blob_lease_is_renewed_and_loss_fences_commit(monkeypatch, renewal_fa
     blob.acquire_lease.assert_called_once_with(lease_duration=60)
     lease.renew.assert_called_once()
     lease.release.assert_called_once()
+
+
+def test_a_follow_up_question_is_linked_to_the_latest_delivered_answer_without_member_action(setup):
+    from governedgraph.orchestrator.service import response_reference
+    from governedgraph.orchestrator.state_machine import Event
+
+    runtime = setup.runtime()
+    journey_id = runtime.start(IDENTITY, "chat", "standard")["journey_id"]
+    runtime.turn(journey_id, "explain", IDENTITY, "", "Explain my transition letter")
+    runtime.turn(journey_id, "teachback", IDENTITY, "", "It stays the same and can go up or down each year.")
+    runtime.turn(journey_id, "follow-up", IDENTITY, "", "Will the transition change what I receive?")
+    scoped = [event for event in load_record(setup, journey_id).journey.events
+              if event.event == Event.INTENT_IN_SCOPE.value]
+    assert (scoped[0].related_journey_id, scoped[0].related_response_id) == (None, None)
+    assert (scoped[-1].related_journey_id, scoped[-1].related_response_id) == (
+        journey_id, response_reference(journey_id, "explain"))

@@ -212,10 +212,8 @@ class DecisionEvidence:
         if not isinstance(self.role, str) or self.role not in {"intent", "understanding", "answer-review"}:
             raise ContractError("unknown decision-agent role")
         identities = {
-            f"gg-{self.role}-agent", f"offline-fixture-{self.role}",
+            f"gg-{self.role}-agent", f"offline-fixture-{self.role}", "microsoft-decision-1.1",
         }
-        if self.role in {"intent", "answer-review"}:
-            identities.add("microsoft-decision-1.1")
         if not isinstance(self.agent_name, str) or self.agent_name not in identities:
             raise ContractError("unknown decision-agent identity")
         if not isinstance(self.agent_version, str) or not (

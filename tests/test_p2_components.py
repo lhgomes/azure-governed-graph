@@ -19,6 +19,8 @@ from governedgraph.learning.uplift import ArmOutcome, evaluate_window
 from governedgraph.strategy_service.exploration import explore
 from governedgraph.strategy_service.service import SnapshotRejected, StrategyService
 from governedgraph.strategy_service.snapshot import LocalHmacSigner, RankingSnapshot, sign_snapshot
+from governedgraph.strategy_service.state import LocalStateStore
+from strategy_doubles import import_strategy_api, pinned_to_active
 
 KEY = "first_contact|transition_impact_question|voice|standard"
 REQUEST = {"journey_id": "J-x", "journey_state": "first_contact",
@@ -42,12 +44,17 @@ class Inputs:
         self.evidence = {}
         self.audit = None
 
+    def pinned(self, name):
+        source = DATA_DIR / ("synthetic/outcome_aggregates_illustrative.csv" if name == "outcomes"
+                             else "fairness/cohort_aggregates_illustrative.csv")
+        return pinned_to_active(self.service, source, self.root / "p2-inputs" / f"{name}.csv")
+
     def outcome_bytes(self):
-        return (DATA_DIR / "synthetic" / "outcome_aggregates_illustrative.csv").read_bytes()
+        return self.pinned("outcomes").read_bytes()
 
     def run_fairness(self, service, *, expected_digest):
         assert expected_digest == hashlib.sha256(self.outcome_bytes()).hexdigest()
-        self.audit = run_cohort_audit(load_thresholds())
+        self.audit = run_cohort_audit(load_thresholds(), self.pinned("cohorts"))
         FairnessExplainabilityAgent(service, self.root / "private-cohort-cases").apply_veto_gate(self.audit)
         return self.audit.audit_id
 
@@ -56,7 +63,7 @@ class Inputs:
         projected = copy.deepcopy(self.audit)
         projected.findings = []
         projected.vetoes = [(key, strategy, "protective-veto") for key, strategy, _ in self.audit.vetoes]
-        return load_outcome_aggregates(), projected
+        return load_outcome_aggregates(self.pinned("outcomes"), catalogue=self.service.catalogue), projected
 
     def save_evidence(self, kind, identifier, payload):
         self.evidence[(kind, identifier)] = payload
@@ -66,7 +73,7 @@ class Inputs:
 
 
 def setup(root):
-    service = LocalAdmin(signer=SIGNER, state_dir=root / "ranking", control_share=0.0)
+    service = LocalAdmin(signer=SIGNER, store=LocalStateStore(root / "ranking" / "state.json"), control_share=0.0)
     return service, Inputs(root, service)
 
 
@@ -165,7 +172,7 @@ def test_audit_artifact_cannot_carry_a_cohort_column(tmp_path):
 def test_rank_baseline_changed_after_audit_refuses_publication(tmp_path):
     state, inputs, service = advance(tmp_path, "audit")
     replacement = sign_snapshot(RankingSnapshot("concurrent", service.catalogue.version, "1.0", state.audit_id,
-                                               "tier0", {k: [[sid, "1.0"] for sid in v]
+                                               "tier0", {k: [[sid, service.catalogue.get(sid).version] for sid in v]
                                                          for k, v in state.previous.items()}), SIGNER)
     service.load_snapshot(replacement)
     with pytest.raises(ValueError, match="baseline changed"):
@@ -177,7 +184,7 @@ def test_compare_and_swap_stops_a_racing_publisher(tmp_path):
     service, _ = setup(tmp_path)
     baseline = "expert-priors-" + service.priors["priors_version"]
     snapshot = sign_snapshot(RankingSnapshot("new", service.catalogue.version, "1.0", "audit", "tier0",
-                                            {KEY: [["S5", "1.0"]]}), SIGNER)
+                                            {KEY: [["S5", service.catalogue.get("S5").version]]}), SIGNER)
     service.load_snapshot(snapshot, expected_snapshot_id=baseline)
     with pytest.raises(SnapshotRejected, match="baseline changed"):
         service.load_snapshot(snapshot, expected_snapshot_id=baseline)
@@ -269,19 +276,23 @@ def test_control_frozen_and_fallback_never_explore(tmp_path, caplog):
 
 
 def test_revert_endpoint_uses_existing_protective_authorization(tmp_path, monkeypatch):
-    import governedgraph.strategy_service.api as api
+    import governedgraph.strategy_service.auth as auth
 
+    api = import_strategy_api(monkeypatch, tmp_path)
     _, _, service = advance(tmp_path, "publish")
     monkeypatch.setattr(api, "svc", service)
+    authorized = []
+    monkeypatch.setattr(auth, "authorize", lambda action, authorization: authorized.append(action) or {})
     response = TestClient(api.app).post("/revert-to-static")
-    assert response.status_code == 200
+    assert response.status_code == 200 and authorized == ["freeze"]
     assert service.frozen and service.current is None
 
 
-def test_revert_endpoint_does_not_bypass_entra_authorization(monkeypatch):
-    import governedgraph.strategy_service.api as api
+def test_revert_endpoint_does_not_bypass_entra_authorization(tmp_path, monkeypatch):
     import governedgraph.strategy_service.auth as auth
     from fastapi import HTTPException
+
+    api = import_strategy_api(monkeypatch, tmp_path)
 
     seen = []
     def deny(action, authorization):
@@ -388,7 +399,7 @@ def test_fairness_component_has_no_key_vault_configuration(monkeypatch):
 
 def test_azure_api_enables_exploration_from_start_without_a_rollout_flag():
     text = (REPO_ROOT / "src/governedgraph/strategy_service/api.py").read_text()
-    assert "svc = StrategyService(exploration_enabled=settings.is_azure)" in text
+    assert "svc = StrategyService(exploration_enabled=True)" in text
     with pytest.raises(ValueError, match="boolean"):
         StrategyService(exploration_enabled="true")
 

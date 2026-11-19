@@ -20,10 +20,15 @@ class ContentDocument:
     approval_ref: str
     body: str
     watermark: str
+    # Questions this passage answers; searched and semantically ranked so conversational wording finds the passage.
+    answers: str = ""
 
     def __post_init__(self):
         for name, value in asdict(self).items():
-            if name != "journey_states" and (not isinstance(value, str) or not value.strip()):
+            if name == "answers":
+                if not isinstance(value, str):
+                    raise ContractError("content answers must be text")
+            elif name != "journey_states" and (not isinstance(value, str) or not value.strip()):
                 raise ContractError(f"content requires nonempty {name}")
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", self.id):
             raise ContractError("invalid content version id")
@@ -39,7 +44,8 @@ class ContentDocument:
 
     @classmethod
     def from_dict(cls, payload: dict) -> ContentDocument:
-        if isinstance(payload, dict) and {field.name for field in fields(cls)} - payload.keys():
+        required = {field.name for field in fields(cls) if field.name != "answers"}
+        if isinstance(payload, dict) and required - payload.keys():
             raise ContractError("content requires every version and approval field")
         return _strict(cls, payload)
 

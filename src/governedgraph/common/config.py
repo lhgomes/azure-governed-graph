@@ -20,8 +20,6 @@ class Settings:
     model_deployment: str = os.getenv("AZURE_AI_MODEL_DEPLOYMENT", "gpt-counsellor")
     agent_name: str = os.getenv("AZURE_AI_AGENT_NAME", "gg-counsellor")
     agent_version: str = os.getenv("AZURE_AI_AGENT_VERSION", "")
-    intent_agent_version: str = os.getenv("AZURE_AI_INTENT_AGENT_VERSION", "")
-    understanding_agent_version: str = os.getenv("AZURE_AI_UNDERSTANDING_AGENT_VERSION", "")
     review_agent_version: str = os.getenv("AZURE_AI_REVIEW_AGENT_VERSION", "")
     fairness_agent_name: str = os.getenv("AZURE_AI_FAIRNESS_AGENT_NAME", "gg-fairness-explainability")
     fairness_agent_version: str = os.getenv("AZURE_AI_FAIRNESS_AGENT_VERSION", "")

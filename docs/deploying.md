@@ -335,10 +335,8 @@ implement revocable ranking or reinstatement overrides.
 ### Choose an existing or new deployment
 
 Reusing infrastructure is not the same as migrating governed application state.
-The second-contact release changes the source catalogue and strategy versions.
-Its writer approval is recorded under
-`HR-PENSION-WTP-SECOND-CONTACT-2026-11-17`, with human-supplied reference
-`MB-2026-11-17-001`; see [evaluation](evaluation.md#second-contact-release-approval).
+The second-contact release changes the source catalogue and strategy versions,
+and its writer approval is a recorded human decision.
 Ordinary initialization validates and preserves existing state rather than
 overwriting it. Normal `scripts.deploy` signs and initializes expert priors
 before complete workload provisioning, as usual. It never loads, validates or
@@ -368,25 +366,18 @@ explicit upgrade shares delivery primitives but alone defers strategy
 initialization until compatible workloads have rolled out. Subsequent ordinary
 deployments use `scripts.deploy` again.
 
-Foundry delivery uses a dedicated, certificate-verified P-256 TLS transport
-(`IMP-FOUNDRY-DELIVERY-TLS`). This avoids an observed connection reset when
-OpenSSL 3.5 offers hybrid key shares, without disabling TLS 1.3, changing the
+Foundry delivery uses a dedicated, certificate-verified P-256 TLS transport.
+This avoids connection resets when OpenSSL 3.5 offers hybrid key shares, without disabling TLS 1.3, changing the
 endpoint, bypassing certificates or changing machine-wide OpenSSL settings.
 Explicit CA bundles, client certificates and proxy settings remain supported.
 Foundry request/response transport failures stop delivery and finalize the
 per-attempt receipt as failed at the current stage. If bounded bootstrap fails,
 foundation/image work may already have completed, but catalogue migration has
 not yet run; inspect the receipt before retrying against the same target.
-Azure ACR `dtu` reproduced eight missing-transport/error-handling regressions;
-`dtv` passed 23 focused TLS, failed-receipt, tenant and writer/upgrade regressions.
-Read-only Azure SDK version listings then succeeded for all six delivery agents
-using the corrected client. This validation did not run a deployment or catalogue
-migration and is not live channel acceptance.
 
 The reviewed `catalogue/source_upgrade_v1.json` explicitly
 describes the source 1.1.0 catalogue, its 1.2 expert priors and the exact
-target 1.1.1 catalogue/1.3 priors hashes. Approval
-`HR-PENSION-WTP-RANKING-COVERAGE-2026-11-18` covers all 200 supported explanation
+target 1.1.1 catalogue/1.3 priors hashes. The reviewed upgrade covers all 200 supported explanation
 contexts and the existing `approved_priors` upgrade policy. Strategy definitions
 and versions are unchanged. The upgrade archives the old state and resets live
 ordering to the approved expert baseline; it does not preserve learned ordering
@@ -512,7 +503,7 @@ only, a `RequestConflict` reporting another operation on a Foundry account.
 These retries wait 30, 60, and 120 seconds. Unclassified private endpoint
 failures are not retried automatically.
 
-**Decision `IMP-FOUNDRY-WRITE-ORDER`:** finish the Foundry model deployments
+Finish the Foundry model deployments
 before creating or updating the project under the same account. This avoids
 competing parent-account writes without a fixed delay on successful deployments.
 

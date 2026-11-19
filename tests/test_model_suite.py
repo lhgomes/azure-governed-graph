@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 from evals.run_evals import load, persona_cases
+from evals import run_model_comparison as model_comparison
 from evals.run_model_comparison import UsageRecorder, collect_candidate
 from evals.run_model_suite import (
     LABEL,
@@ -31,6 +32,8 @@ from governedgraph.common.config import REPO_ROOT, settings
 from governedgraph.common.contracts import ContractError
 from governedgraph.common.io import load_json
 from governedgraph.evaluation import FLOORS, TokenRateCard, evidence_digest, summarize_candidate
+from governedgraph.orchestrator.continuity import CustomerConversations
+from strategy_doubles import local_strategy_service, run_cycle
 
 
 def configuration():
@@ -60,7 +63,7 @@ def comparison():
             )
             row["evidence"]["case_id"] = candidate.deployment + "/" + row["case_id"]
             usages = {name: {"usage": {"input_tokens": 20, "cached_input_tokens": 0, "output_tokens": 10},
-                             "complete": True} for name in ("gpt-counsellor", "gpt-compact")}
+                             "complete": True} for name in ("gpt-counsellor",)}
             bucket = usages.setdefault(candidate.deployment, {
                 "usage": {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0}, "complete": True,
             })
@@ -81,7 +84,7 @@ def comparison():
 def test_b8_suite_template_has_all_three_models_but_never_invents_live_agent_pins():
     config = Suite.from_dict(load_json(REPO_ROOT / "evals/datasets/model-suite.json"))
     assert {candidate.model for candidate in config.candidates} == {"gpt-4.1", "gpt-4.1-mini", "gpt-5.4-mini"}
-    assert len(config.missing_pins()) == 6
+    assert len(config.missing_pins()) == 4
     assert main(["--check-config"]) == 0
 
 
@@ -97,7 +100,7 @@ def test_b7_candidate_configuration_is_closed_and_explicit(change):
 
 @pytest.mark.parametrize("change", [
     {"gender": "unknown"}, {"baseline": "missing"}, {"judge": "missing"},
-    {"decision_versions": {"intent": "latest"}}, {"persona_version": "latest"},
+    {"decision_versions": {"answer-review": "latest"}}, {"persona_version": "latest"},
 ])
 def test_b7_suite_rejects_unknown_fields_and_unpinned_shared_roles(change):
     with pytest.raises(ContractError):
@@ -329,11 +332,12 @@ def test_reasoning_tokens_are_counted_once_as_part_of_total_output():
     assert recorder.usage["output_tokens"] == 80
 
 
-def test_b8_unconfigured_suite_fails_closed_before_cloud_access_and_preserves_existing_output(tmp_path):
+def test_b8_unconfigured_suite_fails_closed_before_cloud_access_and_preserves_existing_output(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings.__class__, "is_azure", property(lambda _: False))
     output = tmp_path / "blocked.json"
     assert main(["--output", str(output)]) == 2
     report = load_json(output)
-    assert report["rows"] == {} and len(report["preflight"]) == 6
+    assert report["rows"] == {} and len(report["preflight"]) == 4
     assert "analysis" not in report
     with pytest.raises(FileExistsError):
         main(["--output", str(output)])
@@ -376,7 +380,7 @@ def test_on_demand_command_wires_three_pinned_candidates_all_roles_and_persisten
         assert composer.model == candidate and composer.agent_version == "1"
         assert set(decision_agents) == set(ROLES)
         assert all(agent.agent_version == "1" for agent in decision_agents.values())
-        assert set(supporting_recorders) == {"gpt-counsellor", "gpt-compact"}
+        assert set(supporting_recorders) == {"gpt-counsellor"}
         collected.append(candidate)
         for row in fixture["rows"][candidate]:
             on_row(deepcopy(row))
@@ -403,9 +407,14 @@ def test_explicit_decision_version_never_changes_runtime_settings():
     assert settings.review_agent_version == old
 
 
-def test_b3_b8_replay_uses_injected_decisions_and_same_candidate_for_review_and_repair(tmp_path, monkeypatch):
+def test_b3_b8_replay_uses_injected_decisions_and_same_candidate_for_review_and_repair(
+        tmp_path, monkeypatch, local_counsellor, isolated_conversations):
     monkeypatch.setattr(settings.__class__, "run_dir", property(lambda _: tmp_path))
     monkeypatch.setattr(settings.__class__, "is_azure", property(lambda _: False))
+    monkeypatch.setattr(model_comparison, "StrategyService", lambda **kwargs: local_strategy_service(
+        kwargs["state_dir"], control_share=kwargs["control_share"]))
+    monkeypatch.setattr(model_comparison, "run_cycle", run_cycle)
+    monkeypatch.setattr(CustomerConversations, "azure", lambda *_: isolated_conversations)
     marker = Mock()
     supporting = UsageRecorder(Mock())
 

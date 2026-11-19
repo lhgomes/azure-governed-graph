@@ -40,15 +40,15 @@ def test_b4_fixture_publisher_requires_dev_environment_and_explicit_opt_in(monke
         main()
 
 
-def test_b7_tracking_role_cannot_submit_jobs_or_impersonate_fairness_compute():
-    source = (ROOT / "infra/modules/ml-tracking-rbac.bicep").read_text()
-    assert "experiments/runs/read" in source
-    assert "experiments/runs/write" in source
-    assert "metrics/resource/write" in source
-    assert "scope: workspace" in source
-    assert "dataActions: []" in source
-    for forbidden in ("/jobs/", "/computes/", "/submit/action", "/delete", "/*"):
-        assert forbidden not in source
+def test_b7_no_tracking_or_compute_role_exists_and_p2_access_stays_container_scoped():
+    modules = {path: path.read_text() for path in (ROOT / "infra").rglob("*.bicep")}
+    assert not (ROOT / "infra/modules/ml-tracking-rbac.bicep").exists()
+    for path, source in modules.items():
+        for forbidden in ("Microsoft.MachineLearningServices", "workspaces/jobs", "/computes/", "/submit/action"):
+            assert forbidden not in source, f"{path.name} grants or declares {forbidden}"
+    access = modules[ROOT / "infra/modules/p2-access.bicep"]
+    assert "scope: artifacts" in access and "scope: aggregates" in access and "scope: registry" in access
+    assert "dataActions" not in access and "roleDefinitions@" not in access
 
 
 def test_b4_fixture_publisher_defaults_disabled_and_has_no_runtime_identity():

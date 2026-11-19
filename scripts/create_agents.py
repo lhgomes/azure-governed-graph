@@ -32,6 +32,7 @@ def _project_transport() -> RequestsTransport:
     # This delivery path rejects OpenSSL 3.5's hybrid key-share offer.
     # P-256 retains TLS 1.3; Requests still supplies the selected CA bundle.
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.set_ecdh_curve("prime256v1")
 
     class VerifiedAdapter(HTTPAdapter):
@@ -115,12 +116,6 @@ def provision(project, *, apply: bool, role: str = "counsellor", agent_name: str
 
         definition = fairness_definition()
         name, decision = settings.fairness_agent_name, "IMP-34"
-    elif role == "understanding":
-        from governedgraph.agents.decision_agents import agent_definition as decision_definition, deployment_for
-
-        definition = decision_definition(role)
-        model_deployment = deployment_for(role)
-        name, decision = AGENT_NAMES[role], "IMP-57"
     elif role == "persona":
         from governedgraph.agents.live_persona import (
             LIVE_PERSONA_AGENT_NAME, live_persona_definition, persona_deployment,
@@ -178,7 +173,7 @@ def provision(project, *, apply: bool, role: str = "counsellor", agent_name: str
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
-    parser.add_argument("--role", choices=("counsellor", "fairness", "voice-compact", "understanding",
+    parser.add_argument("--role", choices=("counsellor", "fairness", "voice-compact",
                                         "evaluation", "persona"),
                         default="counsellor")
     args = parser.parse_args()

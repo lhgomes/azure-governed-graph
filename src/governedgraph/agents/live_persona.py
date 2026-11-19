@@ -14,6 +14,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from governedgraph.agents import llm_log
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import ContractError, _strict
 
@@ -157,6 +158,8 @@ class LivePersona:
             if error.code != "content_filter":
                 raise
             raise PersonaBlocked("live persona input was filtered") from None
+        llm_log.record(None, "persona", self.agent_name, {"agent": f"{self.agent_name}:{self.agent_version}",
+                                                           "input": self.messages}, result)
         if (result.status != "completed" or not result.output_text.strip()
                 or any(item.type != "message" for item in result.output)):
             raise RuntimeError("persona did not return a completed text-only turn")

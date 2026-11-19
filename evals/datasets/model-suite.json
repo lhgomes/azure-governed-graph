@@ -4,8 +4,6 @@
   "judge": "gpt-counsellor",
   "persona_version": "3",
   "decision_versions": {
-    "intent": null,
-    "understanding": null,
     "answer-review": null
   },
   "candidates": [

@@ -6,13 +6,19 @@ import pytest
 from governedgraph.common.config import DATA_DIR, settings
 from governedgraph.common.io import load_json
 from governedgraph.evaluators import AdviceRefusalEvaluator, NumericFidelityEvaluator, StrategyAdherenceEvaluator
+from counsellor_doubles import new_session
 from evals import run_evals
+from strategy_doubles import local_strategy_service, run_cycle
 
 
 @pytest.fixture(autouse=True)
-def isolated_local_evaluation(tmp_path, monkeypatch):
+def isolated_local_evaluation(tmp_path, monkeypatch, local_counsellor):
+    """The sweep runs against test doubles for the Strategy Service, P2 cycle and Counsellor boundaries."""
     monkeypatch.setattr(settings.__class__, "run_dir", property(lambda _: tmp_path))
     monkeypatch.setattr(settings.__class__, "is_azure", property(lambda _: False))
+    monkeypatch.setattr(run_evals, "StrategyService", lambda **kwargs: local_strategy_service(tmp_path / "strategy", **kwargs))
+    monkeypatch.setattr(run_evals, "run_cycle", run_cycle)
+    monkeypatch.setattr(run_evals, "new_session", new_session)
 
 
 def test_numeric_evaluator_reuses_provenance_gate_not_an_assumed_pass():
@@ -76,11 +82,10 @@ def test_local_sweep_keeps_all_three_hard_gates_and_existing_expectations(capsys
     assert "'demographic_invariance': True" in lines[-1]
 
 
-def test_full_persona_probe_exits_nonzero_for_unmet_english_coverage_without_weakening_gates(capsys, monkeypatch):
-    from governedgraph.strategy_service.service import StrategyService
-
+def test_full_persona_probe_exits_nonzero_for_unmet_english_coverage_without_weakening_gates(
+        capsys, monkeypatch, tmp_path):
     def missing_english_coverage(**kwargs):
-        service = StrategyService(**kwargs)
+        service = local_strategy_service(tmp_path / "strategy", **kwargs)
         service.priors["rankings"].pop("first_contact|transition_impact_question|chat|english")
         return service
 

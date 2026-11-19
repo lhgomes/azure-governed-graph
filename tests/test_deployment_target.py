@@ -335,8 +335,9 @@ def test_plan_needs_no_seed_cloud_calls_prompt_or_persistence(workspace, monkeyp
 
 
 @pytest.mark.parametrize("flags,reuse,create_new", [(["--reuse", GROUP], GROUP, False), (["--new"], None, True)])
-def test_main_routes_explicit_selection_flags_before_delivery(workspace, monkeypatch, flags, reuse, create_new):
+def test_main_routes_explicit_selection_flags_before_delivery(workspace, monkeypatch, capsys, flags, reuse, create_new):
     calls = []
+    monkeypatch.setattr(deploy, "ROOT", workspace.root)
     selected = delivery.Inputs.from_dict({**workspace.raw, "resource_group": GROUP, "naming_seed": SEED})
     monkeypatch.setattr(deploy.Composition, "load", lambda _: SimpleNamespace(name="pension_wtp"))
 
@@ -349,12 +350,14 @@ def test_main_routes_explicit_selection_flags_before_delivery(workspace, monkeyp
     def deliver(_runner, inputs, _composition):
         assert inputs == selected
         calls.append(("deliver", {}))
-        return {"readiness": "passed", "outputs": {}}
+        return {"readiness": "passed", "outputs": {
+            "VOICE_DEMO_ORIGIN": "https://demo.example.invalid", "ADMIN_CONSOLE_URL": "https://admin.example.invalid"}}
 
     monkeypatch.setattr(deploy, "select_target", select)
     monkeypatch.setattr(deploy, "deploy", deliver)
     assert deploy.main(["--inputs", str(workspace.path), *flags]) == 0
     assert calls == [("select", {"reuse": reuse, "create_new": create_new}), ("deliver", {})]
+    assert "Demo URL: https://demo.example.invalid/demo/" in capsys.readouterr().out
 
 
 def test_subscription_deployment_records_are_unique_per_target_but_stable_on_redeploy(workspace):

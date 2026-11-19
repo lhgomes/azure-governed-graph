@@ -15,7 +15,10 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from fastapi.testclient import TestClient
 
 from governedgraph.agents.clients import ApimValuesClient
-from governedgraph.agents.counsellor import DISCLOSURE, new_session
+from counsellor_doubles import install, new_session
+from governedgraph.agents.counsellor import DISCLOSURE, Counsellor
+from governedgraph.agents.foundry_tracing import journey_trace_id
+from governedgraph.contact_centre.service import Handover, SyntheticContactCentre
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import MemberValue
 from governedgraph.common.member_auth import verify_member_token
@@ -23,6 +26,12 @@ from governedgraph.common.tracing import traceparent
 from governedgraph.dev.issue_member_token import issue_token
 from pension_wtp.member_values_api.app import app as values_app
 from governedgraph.orchestrator import api as journeys
+from governedgraph.orchestrator.consumer import InboxRecord, JourneyConsumer
+from governedgraph.orchestrator.messaging import FileJourneyPublisher
+from governedgraph.orchestrator.service import OrchestratorService
+from governedgraph.orchestrator.store import FileJourneyStore, FileRecordStore
+from governedgraph.orchestrator.worker import FileJourneyWorker
+from strategy_doubles import local_strategy_service, run_cycle
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -47,6 +56,24 @@ def member_tokens(monkeypatch):
 
     token.sign_claims = lambda claims: jwt.encode(claims, key, algorithm="RS256")
     return token
+
+
+@pytest.fixture
+def local_runtime(tmp_path, monkeypatch, isolated_conversations):
+    """The journey API over file-backed stores and a synthetic contact centre instead of Azure storage and Service Bus."""
+    install(monkeypatch, tmp_path)
+    strategies = local_strategy_service(tmp_path / "strategy", control_share=0)
+    run_cycle(strategies)
+    centre = SyntheticContactCentre(FileRecordStore(tmp_path / "handovers", Handover.decode))
+    consumer = JourneyConsumer(FileRecordStore(tmp_path / "inbox", InboxRecord.decode), centre)
+
+    def factory(journey, auth_ref, **kwargs):
+        return Counsellor(journey, auth_ref, strategy_service=strategies, **kwargs)
+
+    monkeypatch.setattr(journeys, "create_runtime", lambda: OrchestratorService(
+        FileJourneyStore(tmp_path / "journeys"), FileJourneyPublisher(tmp_path / "queues"), factory,
+        contact_centre=centre, worker=FileJourneyWorker(tmp_path / "queues", consumer),
+        continuity=isolated_conversations))
 
 
 def test_b1_real_rsa_token_requires_verified_stepup_and_short_expiry(member_tokens):
@@ -109,7 +136,8 @@ def test_b1_apim_client_forwards_token_not_member_header(member_tokens, monkeypa
     headers = get.call_args.kwargs["headers"]
     assert headers["Authorization"] == f"Bearer {token}"
     assert "X-Authenticated-Member" not in headers
-    assert headers["X-Journey-ID"] == "J-1" and headers["traceparent"] == parent
+    assert headers["X-Journey-ID"] == "J-1"
+    assert headers["traceparent"] == f"00-{journey_trace_id('J-1'):032x}-{parent.split('-')[2]}-01"
     assert any(record.journey_id == "J-1" for record in caplog.records)
     assert token not in caplog.text
 
@@ -145,8 +173,8 @@ def test_b1_backend_two_members_403_incident_and_post_405(caplog):
 
 
 def test_b1_b9_circuit_open_escalates_without_estimation(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings.__class__, "run_dir", property(lambda self: tmp_path))
-    counsellor = new_session("MBR-7Q2K")
+    install(monkeypatch, tmp_path)
+    counsellor = new_session("MBR-7Q2K", channel="chat")
     counsellor.tools.values_client = Mock()
     counsellor.tools.values_client.get.side_effect = httpx.HTTPStatusError(
         "circuit open", request=httpx.Request("GET", "https://synthetic.example"),
@@ -163,7 +191,7 @@ def test_b1_b9_circuit_open_escalates_without_estimation(tmp_path, monkeypatch):
 
 
 def test_b1_without_stepup_never_reads_personal_values(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings.__class__, "run_dir", property(lambda self: tmp_path))
+    install(monkeypatch, tmp_path)
     counsellor = new_session("MBR-7Q2K", step_up_verified=False)
     counsellor.tools.values_client = Mock()
     counsellor.start()
@@ -174,8 +202,7 @@ def test_b1_without_stepup_never_reads_personal_values(tmp_path, monkeypatch):
     assert not any(character.isdigit() for character in result.text)
 
 
-def test_b1_journey_identity_from_token_and_no_cross_member_turn(member_tokens, monkeypatch, tmp_path, caplog):
-    monkeypatch.setattr(settings.__class__, "run_dir", property(lambda self: tmp_path))
+def test_b1_journey_identity_from_token_and_no_cross_member_turn(member_tokens, local_runtime, caplog):
     with TestClient(journeys.app) as client:
         headers = {"Authorization": f"Bearer {member_tokens()}"}
         assert client.post("/journeys", json={}).status_code == 401
@@ -185,11 +212,12 @@ def test_b1_journey_identity_from_token_and_no_cross_member_turn(member_tokens, 
         journey_id = response.json()["journey_id"]
         with client.app.state.runtime.store.transaction(journey_id) as transaction:
             assert transaction.record.journey.member_ref == "MBR-7Q2K"
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.WARNING):
             response = client.post(f"/journeys/{journey_id}/turns", json={"utterance": "Hello"},
                                    headers={"Authorization": f"Bearer {member_tokens('MBR-3H8D')}"})
         assert response.status_code == 403
-        assert any(record.message == "member_scope_violation" for record in caplog.records)
+        assert any(record.message == "customer_context_access_denied" and record.journey_id == journey_id
+                   for record in caplog.records)
 
 
 def test_b1_openapi_is_get_only_and_matches_official_value_contract():
@@ -202,8 +230,7 @@ def test_b1_openapi_is_get_only_and_matches_official_value_contract():
     assert spec["components"]["schemas"]["MemberValues"]["additionalProperties"] is False
 
 
-def test_b1_durable_api_restart_advisor_queue_is_member_scoped(member_tokens, monkeypatch, tmp_path):
-    monkeypatch.setattr(settings.__class__, "run_dir", property(lambda self: tmp_path))
+def test_b1_durable_api_restart_advisor_queue_is_member_scoped(member_tokens, local_runtime, monkeypatch):
 
     async def paused_recovery(runtime, stopped):
         await stopped.wait()

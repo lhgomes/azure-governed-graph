@@ -9,6 +9,12 @@
       "label": "ILLUSTRATIVE - synthetic data",
       "en": "Thank you. We can leave it here for now. You can ask another question or request a person at any time.",
       "nl": "Dank je. We kunnen het hier voor nu bij laten. Je kunt een andere vraag stellen of op elk moment om een medewerker vragen."
+    },
+    "comprehension_retry": {
+      "approval_ref": "IMP-COMPREHENSION-RETRY-2026-11-19",
+      "label": "ILLUSTRATIVE - synthetic data",
+      "en": "Thank you for putting that in your own words. I'm not sure yet that I explained it clearly enough. Could you tell me in a sentence what you understood from my last explanation, or tell me which part you would like me to go over again?",
+      "nl": "Dank je dat je het in je eigen woorden zegt. Ik weet nog niet zeker of ik het duidelijk genoeg heb uitgelegd. Kun je in een zin zeggen wat je van mijn laatste uitleg hebt begrepen, of aangeven welk deel ik nog eens moet doorlopen?"
     }
   },
   "note": "Approved templates. Figures are bound BY REFERENCE ({{value:<value_id>}}) from get_member_values results (B2). The model may choose wording around a template but never writes a figure itself. An approved answer-goal template takes precedence for that task and language without changing the selected strategy. Otherwise the runtime picks the first variant whose placeholders are all present in the member's official values.",

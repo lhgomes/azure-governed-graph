@@ -20,17 +20,21 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from governedgraph.common.contracts import ContractError, SuspensionEvent
+from governedgraph.strategy_service.catalogue import Catalogue
 from governedgraph.strategy_service.service import SnapshotRejected, StrategyService
 from governedgraph.strategy_service.snapshot import LocalHmacSigner, RankingSnapshot, sign_snapshot
 from governedgraph.strategy_service.state import StateConflict, StateUnavailable
 from governedgraph.strategy_service.overrides import OwnerDecision, state_revision
 from governedgraph.strategy_service.catalogue_release import CatalogueDecision, sign_release
+from strategy_doubles import import_strategy_api, install_no_export_tracing, pinned_to_active
 
 KEY = "first_contact|transition_impact_question|voice|standard"
 SIGNER = LocalHmacSigner("azure-state-test")
 REQUEST = {"journey_id": "J-1", "journey_state": "first_contact",
            "intent": "transition_impact_question", "channel": "voice"}
-EVENT = SuspensionEvent("S2", "1.0", "first_contact", "audit-test", 26.0, "1.0", "GC-test")
+CATALOGUE = Catalogue.load()
+VER = {item.strategy_id: item.version for item in CATALOGUE.all()}
+EVENT = SuspensionEvent("S2", VER["S2"], "first_contact", "audit-test", 26.0, "1.0", "GC-test")
 
 
 class MemoryState:
@@ -62,8 +66,8 @@ class MemoryState:
 
 
 def snapshot(name="snap-one", order=("S2", "S5", "S1", "S4", "S3")):
-    return sign_snapshot(RankingSnapshot(name, "1.0.0", "1.0", "audit-test", "tier0",
-                                        {KEY: [[sid, "1.0"] for sid in order]}), SIGNER)
+    return sign_snapshot(RankingSnapshot(name, CATALOGUE.version, "1.0", "audit-test", "tier0",
+                                        {KEY: [[sid, VER[sid]] for sid in order]}), SIGNER)
 
 
 def service(store, tmp_path, share=0.0):
@@ -99,17 +103,17 @@ def test_b3_b6_catalogue_publication_is_atomic_versioned_and_retains_protective_
                                      order=["S1", "S2", "S3", "S4", "S5"]), "synthetic-owner")
     decision = style_decision(svc)
     svc.catalogue_decision(decision, "synthetic-owner")
-    assert svc.catalogue.get("S1").version == "1.0"
+    assert svc.catalogue.get("S1").version == VER["S1"]
     release, baseline = pending_release(svc)
     svc.activate_catalogue(release, baseline)
     replica = service(store, tmp_path / "replica")
     assert replica.catalogue.get("S1").version == decision.decision_ref
     assert replica.catalogue.get("S1").template_id == "T-S3"
-    assert replica.catalogue.historical("S1", "1.0") is not None
+    assert replica.catalogue.historical("S1", VER["S1"]) is not None
     assert replica.current == replica.static == baseline and replica.last_good is None
     assert [entry.kind for entry in replica.owner_overrides] == ["pause"]
     assert {"S2", "S3"} <= set(replica.suspended_for("first_contact"))
-    replica.suspend(SuspensionEvent("S1", "1.0", "first_contact", "old-approved-audit", 26.0, "1.0", "GC-old"))
+    replica.suspend(SuspensionEvent("S1", VER["S1"], "first_contact", "old-approved-audit", 26.0, "1.0", "GC-old"))
     assert "S1" not in {row.strategy_id for row in replica.get_ranked(REQUEST).ranked}
     with pytest.raises(StateConflict):
         svc.activate_catalogue(release, baseline)
@@ -135,7 +139,7 @@ def test_b8_p2_cannot_publish_a_changed_cancelled_or_frozen_owner_catalogue(tmp_
         svc.freeze()
     with pytest.raises(SnapshotRejected if blocked == "unsigned" else StateConflict):
         svc.activate_catalogue(release, baseline)
-    assert svc.catalogue.version == "1.0.0"
+    assert svc.catalogue.version == CATALOGUE.version
     if blocked == "frozen":
         assert svc.read_state()["catalogue_pending"]["decision_ref"] == release.decision_ref
 
@@ -325,7 +329,7 @@ def test_b7_owner_decisions_reject_demographics_missing_confirmation_and_duplica
 
 
 def test_b6_health_refreshes_shared_protective_state_and_fails_closed(tmp_path, monkeypatch):
-    from governedgraph.strategy_service import api
+    api = import_strategy_api(monkeypatch, tmp_path)
 
     store = MemoryState()
     writer, reader = service(store, tmp_path / "writer"), service(store, tmp_path / "reader")
@@ -375,7 +379,7 @@ def test_b3_tampered_or_inactive_persisted_snapshots_never_served(tmp_path, fiel
     a.load_snapshot(snapshot("new"))
     bad = RankingSnapshot.from_dict(store.state[field])
     if invalid == "signature":
-        bad.rankings[KEY] = [["S3", "1.0"]]
+        bad.rankings[KEY] = [["S3", VER["S3"]]]
     elif invalid == "catalogue":
         bad.catalogue_version = "retired"
         sign_snapshot(bad, SIGNER)
@@ -476,7 +480,7 @@ def authorization(monkeypatch):
 
     private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     tenant = "00000000-0000-0000-0000-000000000001"
-    monkeypatch.setattr(auth, "settings", replace(auth.settings, mode="azure", strategy_tenant_id=tenant,
+    monkeypatch.setattr(auth, "settings", replace(auth.settings, strategy_tenant_id=tenant,
                        strategy_api_client_id="strategy-api", strategy_publisher_id="p2",
                        strategy_fairness_id="fairness", strategy_runtime_id="runtime",
                        strategy_governance_group=""))
@@ -536,7 +540,7 @@ def test_b8_bad_or_delegated_tokens_and_agent_reinstatement_rejected(authorizati
 
 
 def test_strategy_api_auth_and_failed_writes_are_explicit(authorization, tmp_path, monkeypatch):
-    from governedgraph.strategy_service import api
+    api = import_strategy_api(monkeypatch, tmp_path)
 
     auth, token = authorization
     store = MemoryState()
@@ -565,6 +569,8 @@ def test_b7_suspension_contract_rejects_demographics():
 @pytest.fixture
 def blob_store(monkeypatch):
     from governedgraph.strategy_service.state import BlobStateStore
+
+    install_no_export_tracing(monkeypatch)
 
     class AzureError(Exception):
         pass
@@ -641,7 +647,7 @@ def test_b3_blob_store_retains_explicit_verified_last_good_and_conditional_state
                for kind, name, options in calls)
     before = dict(data)
     bad = snapshot("tampered")
-    bad.rankings[KEY] = [["S3", "1.0"]]
+    bad.rankings[KEY] = [["S3", VER["S3"]]]
     with pytest.raises(SnapshotRejected):
         restored.load_snapshot(bad)
     assert before == data
@@ -746,12 +752,13 @@ def test_b6_blob_version_check_observes_new_suspensions_for_every_member(blob_st
         assert "S2" not in [item.strategy_id for item in result.ranked]
 
 
-def test_b7_p2_reads_only_closed_aggregate_audit_projection(tmp_path):
+def test_b7_p2_reads_only_closed_aggregate_audit_projection(tmp_path, monkeypatch):
     from governedgraph.common.config import DATA_DIR
     from governedgraph.learning.azure_inputs import BlobLearningInputs, WATERMARK
     from governedgraph.learning.ranking_pipeline import load_thresholds
 
-    source = (DATA_DIR / "synthetic" / "outcome_aggregates_illustrative.csv").read_bytes()
+    source = pinned_to_active(SimpleNamespace(catalogue=CATALOGUE), DATA_DIR / "synthetic" / "outcome_aggregates_illustrative.csv",
+                              tmp_path / "outcomes.csv").read_bytes()
     projection = {
         "audit_id": "audit-1", "threshold_version": load_thresholds()["threshold_version"],
         "outcome_digest": hashlib.sha256(source).hexdigest(), "vetoes": [[KEY, "S2"]],
@@ -768,6 +775,8 @@ def test_b7_p2_reads_only_closed_aggregate_audit_projection(tmp_path):
     inputs = BlobLearningInputs.__new__(BlobLearningInputs)
     inputs.outcome_bytes = lambda: source
     inputs.private = SimpleNamespace(get_blob_client=blob)
+    monkeypatch.setattr("governedgraph.agents.clients.HttpStrategyClient", lambda: SimpleNamespace(
+        get_catalogue=lambda: (Catalogue.load(), "")))
     evidence, audit = inputs.ranking_inputs("audit-1", load_thresholds())
     assert evidence and audit.vetoes == [(KEY, "S2", "protective-veto")] and not audit.findings
     assert calls == [("learning-audits", "audit-1.json")]
@@ -867,6 +876,8 @@ def test_shared_graph_transport_preserves_existing_group_membership_idempotency(
     from scripts import configure_admin_console, configure_contact_centre
 
     def duplicate(method, path, body=None):
+        if method == "GET":
+            return {"id": "member"}
         raise provision_auth.GraphError(method, path, 400, "One or more added object references already exist.")
 
     monkeypatch.setattr(provision_auth, "graph", duplicate)

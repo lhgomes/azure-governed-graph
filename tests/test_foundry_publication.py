@@ -21,7 +21,7 @@ def values():
 
 @pytest.mark.parametrize("change", [
     {"AZURE_ENV_NAME": "production"}, {"AZURE_AI_PROJECT_ENDPOINT": ""},
-    {"AZURE_AI_AGENT_VERSION": ""}, {"AZURE_AI_UNDERSTANDING_AGENT_VERSION": "latest"},
+    {"AZURE_AI_AGENT_VERSION": ""}, {"AZURE_AI_VOICE_COMPACT_VERSION": "latest"},
 ])
 def test_publication_requires_gg_dev_project_and_every_explicit_pin(change):
     with pytest.raises(EnvError):
@@ -30,13 +30,11 @@ def test_publication_requires_gg_dev_project_and_every_explicit_pin(change):
 
 def project():
     from governedgraph.agents.counsellor import INSTRUCTIONS
-    from governedgraph.agents.decision_agents import agent_definition as decision_definition
     from governedgraph.agents.foundry_runtime import agent_definition
 
     definitions = {
         "gg-counsellor": agent_definition(INSTRUCTIONS, model="gpt-counsellor"),
         "gg-counsellor-voice-compact": agent_definition(INSTRUCTIONS, model="gpt-compact"),
-        **{f"gg-{role}-agent": decision_definition(role) for role in ("understanding",)},
     }
     remote = Mock()
     remote.agents.get_version.side_effect = lambda name, version: SimpleNamespace(
@@ -48,8 +46,17 @@ def project():
     return remote
 
 
+@pytest.fixture
+def no_local_adapter_guard(monkeypatch):
+    """run() still refuses to start while settings report Azure; the Foundry project, collection and scoring are doubles."""
+    from governedgraph.common.config import settings
+
+    monkeypatch.setattr(settings.__class__, "is_azure", property(lambda _: False))
+
+
 @pytest.mark.parametrize("failure", [None, "numeric_fidelity", "expectation", "judge", "coverage", "invariance"])
-def test_fresh_publication_wires_pins_and_preserves_every_acceptance_gate(tmp_path, monkeypatch, failure):
+def test_fresh_publication_wires_pins_and_preserves_every_acceptance_gate(
+        tmp_path, monkeypatch, failure, no_local_adapter_guard):
     from evals.run_evals import load, persona_cases
     from governedgraph.agents.persona_simulator import PersonaScenario, ScriptedPersona
     from governedgraph.evaluation import FLOORS
@@ -59,9 +66,8 @@ def test_fresh_publication_wires_pins_and_preserves_every_acceptance_gate(tmp_pa
 
     def collect(model, composer, actor_factory, directory, *, on_row, decision_agents, supporting_recorders):
         assert composer.agent_version == "1"
-        assert set(decision_agents) == {"understanding"}
-        assert all(agent.agent_version == "1" for agent in decision_agents.values())
-        assert set(supporting_recorders) == {"gpt-compact"}
+        assert not decision_agents
+        assert not supporting_recorders
         actor = actor_factory(PersonaScenario("synthetic", "ILLUSTRATIVE - synthetic data", "Explain", "Explain"))
         assert isinstance(actor, ScriptedPersona)
         collected.append(model)
@@ -104,7 +110,7 @@ def test_fresh_publication_wires_pins_and_preserves_every_acceptance_gate(tmp_pa
     assert json.loads(output.read_text()) == original
 
 
-def test_changed_remote_definition_blocks_before_paid_calls(tmp_path):
+def test_changed_remote_definition_blocks_before_paid_calls(tmp_path, no_local_adapter_guard):
     remote = project()
     remote.agents.get_version.side_effect = lambda name, version: SimpleNamespace(
         name=name, version=version, definition=SimpleNamespace(as_dict=lambda: {"changed": True}),

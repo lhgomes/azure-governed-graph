@@ -1,5 +1,4 @@
-"""B8: optional Entra group access control is fail-closed, level-separated and visible when off."""
-import re
+"""B8: Entra group access control is mandatory, fail-closed and level-separated."""
 import time
 from types import SimpleNamespace
 from uuid import uuid4
@@ -7,14 +6,11 @@ from uuid import uuid4
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
-from fastapi.testclient import TestClient
 
+from admin_doubles import LocalSources, open_console, read_lines
 from governedgraph.admin import access as access_module
-from governedgraph.admin import api
 from governedgraph.admin.access import AccessPolicy
-from governedgraph.admin.data import read_lines
-from governedgraph.strategy_service.service import StrategyService
-from governedgraph.strategy_service.state import LocalStateStore
+from strategy_doubles import local_strategy_service
 
 TENANT, CLIENT = str(uuid4()), str(uuid4())
 READERS, OPERATORS, OUTSIDERS = str(uuid4()), str(uuid4()), str(uuid4())
@@ -38,12 +34,9 @@ def token(groups=(), *, key=KEY, **override):
 
 
 def console(tmp_path, monkeypatch, policy):
-    monkeypatch.setenv("GOVERNEDGRAPH_ADMIN_ENABLED", "true")
-    service = StrategyService(store=LocalStateStore(tmp_path / "strategy_service" / "state.json"))
-    client = TestClient(api.create_app(service, tmp_path, access=policy), base_url="http://127.0.0.1:8090")
-    page = client.get("/")
-    client.headers["x-admin-session"] = re.search(r'name="admin-session" content="([^"]+)"', page.text)[1]
-    return client, page
+    service = local_strategy_service(tmp_path / "strategy_service")
+    client = open_console(monkeypatch, LocalSources(service, tmp_path), policy)
+    return client, client.get("/")
 
 
 def policy(reader=READERS, operator=OPERATORS, client=CLIENT, tenant=TENANT):
@@ -60,16 +53,15 @@ def freeze(client, headers):
         "action": "freeze", "reason": "Synthetic operator protection", "expected_revision": state["revision"]})
 
 
-def test_blank_groups_leave_access_open_and_say_so(tmp_path, monkeypatch):
+def test_blank_groups_leave_administration_unavailable_and_say_so(tmp_path, monkeypatch):
     web, _ = console(tmp_path, monkeypatch, AccessPolicy())
-    assert web.get("/api/access").json() == {"mode": "disabled", "open_actions": True}
-    overview = web.get("/api/overview").json()
-    assert overview["access"] == {"mode": "disabled", "user": "Access control off", "can_act": True, "open_actions": True}
-    assert freeze(web, {}).status_code == 200
-    assert read_lines(tmp_path / "admin" / "actions.jsonl")[0]["actor"] == "local-loopback-operator"
+    assert web.get("/api/access").json() == {"mode": "disabled", "open_actions": False}
+    for headers in ({}, bearer(token([OPERATORS]))):
+        response = web.get("/api/overview", headers=headers)
+        assert response.status_code == 503 and "configured Entra" in response.json()["detail"]
+        assert web.post("/api/actions", headers=headers, json={}).status_code == 503
     assert "login.microsoftonline.com" not in web.get("/").headers["content-security-policy"]
-    assert "Sign-in is off" in web.get("/").text
-    assert "GOVERNEDGRAPH_ADMIN_READER_GROUP_ID" in web.get("/").text
+    assert not (tmp_path / "admin" / "actions.jsonl").exists()
 
 
 def test_whitespace_only_groups_count_as_not_configured(monkeypatch):

@@ -19,13 +19,11 @@ LABEL = "ILLUSTRATIVE - synthetic data"
 AGENT_ROLES = {
     "counsellor": "AZURE_AI_AGENT_VERSION",
     "voice-compact": "AZURE_AI_VOICE_COMPACT_VERSION",
-    "understanding": "AZURE_AI_UNDERSTANDING_AGENT_VERSION",
     "fairness": "AZURE_AI_FAIRNESS_AGENT_VERSION",
 }
 AGENT_NAMES = {
     "counsellor": "gg-counsellor",
     "voice-compact": "gg-counsellor-voice-compact",
-    "understanding": "gg-understanding-agent",
     "fairness": "gg-fairness-explainability",
 }
 COMMAND_POLICY = {
@@ -400,9 +398,19 @@ def run_job(runner, inputs: Inputs, name: str, *, sleep=time.sleep) -> str:
         raise DeliveryError("bootstrap execution ID missing")
     evidence = getattr(runner, "evidence", None)
     record = evidence.begin("jobs", name=name, execution_id=execution) if evidence is not None else None
+    failures = 0
     for _ in range(120):
-        status = runner.run(["az", "containerapp", "job", "execution", "show", *base,
-                             "--job-execution-name", execution, "--query", "properties.status", "-o", "tsv"])
+        try:
+            status = runner.run(["az", "containerapp", "job", "execution", "show", *base,
+                                 "--job-execution-name", execution, "--query", "properties.status", "-o", "tsv"])
+        except CommandError:
+            # A crashed CLI read says nothing about the execution; poll again without starting a replacement.
+            failures += 1
+            if failures > 3:
+                raise
+            sleep(10)
+            continue
+        failures = 0
         if status == "Succeeded":
             if evidence is not None and record is not None:
                 evidence.end(record, status)

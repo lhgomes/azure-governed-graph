@@ -77,6 +77,11 @@ def dependency(domain, operation, *args):
 INSTRUCTIONS = domain_prompt("counsellor")
 
 
+def _quality_only(review: AnswerReview) -> bool:
+    """Only relevance/style defects remain; every safety check (grounding, advice, document, language) passed."""
+    return review.verdict == "revise" and bool(review.issues) and set(review.issues) <= {"relevance", "strategy"}
+
+
 def _task_template(tools, strategy) -> str:
     intent = next((item.decision for item in reversed(tools.trace.decision_evidence)
                    if item.role == "intent"), None)
@@ -393,7 +398,9 @@ class Counsellor:
             t.write_explainability_record(strategy.strategy_id, numeric_fidelity_passed=fid.passed)
         # A task-specific fallback is not a reviewed teach-back.
         fallback_goal = t.trace.composition_source == "template_fallback" and bool(_task_template(t, strategy))
-        ev = Event.RESPONSE_DELIVERED if strategy.teach_back and not fallback_goal else Event.NO_TEACH_BACK
+        teach_back_skipped = t.trace.composition_source == "foundry" and last_explanation is None
+        ev = (Event.RESPONSE_DELIVERED if strategy.teach_back and not fallback_goal and not teach_back_skipped
+              else Event.NO_TEACH_BACK)
         self.journey.fire(ev, strategy=(strategy.strategy_id, strategy.version))
         self.journey.last_explanation = last_explanation
         r = t.trace.ranked
@@ -418,6 +425,11 @@ class Counsellor:
             _, _, reason = self._post_process(revised, strategy)
             if reason or self.tools.trace.composition_source != "foundry":
                 self.tools.trace.note("answer_repair", "unusable")
+                if _quality_only(review):
+                    self.tools.trace.composition_source = "foundry"
+                    log.warning("answer_review_quality_waived", extra={
+                        "journey_id": self.journey.journey_id, "issues": review.issues})
+                    return raw_draft, review
                 return "", review
             self.tools.trace.note("answer_repair", "revised")
             draft = AnswerDraft.from_dict(json.loads(revised))
@@ -428,6 +440,14 @@ class Counsellor:
             log.warning("answer_review_nonpass", extra={
                 "journey_id": self.journey.journey_id, "verdict": review.verdict, "issues": review.issues,
             })
+            if _quality_only(review):
+                # Relevance and teaching style are quality properties, not safety properties: the draft already
+                # passed every grounding, advice, document, language and uncertainty check and the deterministic
+                # gates after one repair, so deliver it rather than withhold an answer. No teach-back is claimed.
+                log.warning("answer_review_quality_waived", extra={
+                    "journey_id": self.journey.journey_id, "issues": review.issues})
+                self.tools.trace.composition_source = "foundry"
+                return raw_draft, review
             self.tools.trace.composition_source = "template_fallback"
             return "", review
         return raw_draft, review
@@ -484,6 +504,7 @@ class Counsellor:
         for index, candidate in enumerate((draft, template)):
             if not candidate:
                 continue
+            gate_source = "template" if index else "draft"
             if index == 0 and self.tools.trace.composition_source == "foundry":
                 unbound = re.sub(r"\{\{(?:value|asof):[^{}]+\}\}", "", candidate)
                 if re.search(r"\d", numeric_fidelity.ORDINAL.sub("", unbound)):
@@ -500,13 +521,19 @@ class Counsellor:
             try:
                 text = bind(candidate, self.tools.trace.values)
             except BindingError:
+                log.warning("output_gate_blocked", extra={
+                    "journey_id": self.journey.journey_id, "failure_domain": f"{gate_source}:binding"})
                 numeric_block()
                 continue
             if "{{" in text or "}}" in text:
+                log.warning("output_gate_blocked", extra={
+                    "journey_id": self.journey.journey_id, "failure_domain": f"{gate_source}:unbound_placeholder"})
                 numeric_block()
                 continue
             fid = numeric_fidelity.check(text, self.tools.trace.values, approved)
             if not fid.passed:
+                log.warning("output_gate_blocked", extra={
+                    "journey_id": self.journey.journey_id, "failure_domain": f"{gate_source}:numeric_fidelity"})
                 self.tools.trace.note("output_gate", "blocked", ["numeric_fidelity"])
                 numeric_block()
             if fid.passed and not response_steers_choice(text):
@@ -516,8 +543,12 @@ class Counsellor:
                     log.warning("output_gate_template_fallback", extra={"journey_id": self.journey.journey_id})
                 return text, fid, None
             if fid.passed:
+                log.warning("output_gate_blocked", extra={
+                    "journey_id": self.journey.journey_id, "failure_domain": f"{gate_source}:steers_choice"})
                 self.tools.trace.note("output_gate", "blocked", ["steers_choice"])
         if not template:
+            log.warning("output_gate_blocked", extra={
+                "journey_id": self.journey.journey_id, "failure_domain": "template:none_approved"})
             self.tools.trace.note("output_gate", "no_approved_fallback")
         return "", numeric_fidelity.FidelityResult(False, [], ["<blocked>"]), failure_reason
 

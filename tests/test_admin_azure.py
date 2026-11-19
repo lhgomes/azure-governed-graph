@@ -12,6 +12,7 @@ from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 from fastapi.testclient import TestClient
 
 from governedgraph.admin import api, sources
+from admin_doubles import SignedIn
 from governedgraph.admin.access import AccessPolicy, Identity
 from governedgraph.admin.data import Context, revision
 from governedgraph.admin.sources import AdminSourceError, AzureSources, Containers
@@ -21,12 +22,14 @@ from governedgraph.common.contracts import ExplainabilityRecord, SuspensionEvent
 from governedgraph.explainability.store import encoded
 from governedgraph.learning.feedback import FeedbackManifest
 from governedgraph.learning.feedback_store import snapshot_name
+from governedgraph.strategy_service.catalogue import Catalogue
 from governedgraph.strategy_service.snapshot import RankingSnapshot
 
 KEY = "first_contact|transition_impact_question|voice|standard"
 EMPTY_STATE = {"current": None, "last_good": None, "frozen": False, "suspensions": []}
 SUSPENSION = asdict(SuspensionEvent("S2", "1.0", "first_contact", "audit-1", 26.0, "1.0", "GC-1", "2026-11-05T00:00:00+00:00"))
 WATERMARK = "ILLUSTRATIVE - synthetic data"
+ACTIVE_S1 = Catalogue.load().get("S1").version
 
 
 class FakeBlob:
@@ -106,7 +109,7 @@ def record(journey="J-1", response="a" * 32):
 
 def outcome_csv():
     return ("request_key,strategy_id,strategy_version,interactions,resolved_first_contact,repeat_contact_14d\n"
-            f"{KEY},S1,1.0,400,200,40\n").encode()
+            f"{KEY},S1,{ACTIVE_S1},400,200,40\n").encode()
 
 
 def aggregates(payload=None):
@@ -248,7 +251,7 @@ def test_journal_is_create_only_and_never_overwrites_an_action_step():
     entry = {"action_id": "ADMIN-9", "status": "requested", "created_at": "t"}
     source.journal(entry)
     assert containers.actions.uploads == [("ADMIN-9/requested.json", False)]
-    with pytest.raises(AdminSourceError, match="No protective action was attempted"):
+    with pytest.raises(AdminSourceError, match="admin journal write failed"):
         source.journal({**entry, "reason": "changed"})
     assert json.loads(containers.actions.blobs["ADMIN-9/requested.json"]) == entry
 
@@ -282,7 +285,7 @@ def test_apply_uses_only_the_protective_client_and_drops_cached_audit_reads():
 
 
 def test_missing_configuration_names_the_missing_settings(monkeypatch):
-    monkeypatch.setattr(sources, "settings", replace(settings, mode="azure", strategy_admin_url="", strategy_api_client_id="",
+    monkeypatch.setattr(sources, "settings", replace(settings, strategy_admin_url="", strategy_api_client_id="",
                                                       explainability_account_url="", ranking_storage_url=""))
     with pytest.raises(AdminSourceError) as error:
         AzureSources.from_settings()
@@ -295,15 +298,17 @@ ORIGIN = "https://apim-test.azure-api.net"
 
 
 @pytest.fixture
-def hosted(tmp_path, monkeypatch):
-    def make(source, policy=None, **env):
-        monkeypatch.setattr(api, "settings", replace(settings, mode="azure", environment_name="gg-dev"))
+def hosted(monkeypatch):
+    signed = SignedIn(monkeypatch)
+
+    def make(source, operate=False, **env):
+        monkeypatch.setattr(api, "settings", replace(settings, environment_name="gg-dev"))
         monkeypatch.setenv("GOVERNEDGRAPH_ADMIN_ENABLED", env.get("enabled", "true"))
         monkeypatch.setenv("GOVERNEDGRAPH_ADMIN_PUBLIC_ORIGIN", env.get("origin", ORIGIN))
         monkeypatch.setenv("GOVERNEDGRAPH_ADMIN_BASE_PATH", "/admin/")
-        app = api.create_app(run_dir=tmp_path, access=policy or AccessPolicy(allow_open_actions=False),
-                             sources=source, trace_reader=SyntheticTraceReader())
+        app = api.create_app(access=signed.policy(), sources=source, trace_reader=SyntheticTraceReader())
         web = TestClient(app, base_url="http://admin.internal")
+        web.headers.update(signed.bearer([signed.operators if operate else signed.readers]))
         page = re.search(r'admin-session" content="([^"]+)"', web.get("/").text)
         if page:
             web.headers["x-admin-session"] = page[1]
@@ -337,40 +342,40 @@ def test_hosted_console_requires_explicit_enablement_and_an_https_origin(hosted)
 
 def test_hosted_cross_origin_requests_are_rejected_and_the_session_capability_is_required(hosted):
     source, _, client, _ = build()
-    web = hosted(source, AccessPolicy(allow_open_actions=True))
+    web = hosted(source, operate=True)
     body = {"action": "freeze", "reason": "Synthetic operator protection", "expected_revision": "0" * 64}
     assert web.post("/api/actions", json=body, headers={"origin": "https://attacker.example"}).status_code == 403
     assert web.get("/api/overview", headers={"x-admin-session": "wrong"}).status_code == 403
     assert client.calls == []
 
 
-def test_open_azure_console_is_read_only_until_actions_are_explicitly_allowed(hosted):
+def test_reader_azure_console_is_read_only_until_the_operator_group_acts(hosted):
     source, containers, client, _ = build()
     web = hosted(source)
     overview = web.get("/api/overview").json()
-    assert overview["access"] == {"mode": "disabled", "user": "Access control off", "can_act": False,
+    assert overview["access"] == {"mode": "enabled", "user": "synthetic.operator@example.test", "can_act": False,
                                   "can_own": False, "open_actions": False}
-    assert web.get("/api/access").json() == {"mode": "disabled", "open_actions": False}
+    assert web.get("/api/access").json()["mode"] == "enabled"
     response = freeze_request(web)
-    assert response.status_code == 403 and "disabled while access control is off" in response.json()["detail"]
+    assert response.status_code == 403 and "operator group" in response.json()["detail"]
     assert client.calls == [] and containers.actions.uploads == []
 
 
-def test_allowed_open_action_is_journaled_before_and_after_the_strategy_call(hosted):
+def test_operator_action_is_journaled_before_and_after_the_strategy_call(hosted):
     source, containers, client, strategy = build()
-    web = hosted(source, AccessPolicy(allow_open_actions=True))
+    web = hosted(source, operate=True)
     response = freeze_request(web)
     assert response.status_code == 200 and client.calls == [("freeze",)]
     assert [name.split("/")[1] for name, _ in containers.actions.uploads] == ["requested.json", "applied.json"]
     assert all(overwrite is False for _, overwrite in containers.actions.uploads)
     first = json.loads(containers.actions.blobs[containers.actions.uploads[0][0]])
-    assert first["actor"] == "local-loopback-operator" and first["status"] == "requested"
+    assert first["actor"].startswith("entra:") and first["status"] == "requested"
     assert all(method == "GET" for method, _ in strategy.requests)
 
 
 def test_a_failed_strategy_call_is_journaled_as_failed_and_explains_the_fix(hosted):
     source, containers, _, _ = build(client=FakeStrategyClient(request_error(403)))
-    web = hosted(source, AccessPolicy(allow_open_actions=True))
+    web = hosted(source, operate=True)
     response = freeze_request(web)
     assert response.status_code == 503 and "Strategy.Freeze" in response.json()["detail"]
     assert [json.loads(containers.actions.blobs[name])["status"] for name, _ in containers.actions.uploads] == ["requested", "failed"]
@@ -378,7 +383,7 @@ def test_a_failed_strategy_call_is_journaled_as_failed_and_explains_the_fix(host
 
 def test_unavailable_journal_prevents_any_protective_call(hosted):
     source, containers, client, _ = build()
-    web = hosted(source, AccessPolicy(allow_open_actions=True))
+    web = hosted(source, operate=True)
     containers.actions.upload = None
     original = containers.actions.get_blob_client
     from azure.core.exceptions import ServiceRequestError
@@ -390,13 +395,13 @@ def test_unavailable_journal_prevents_any_protective_call(hosted):
     containers.actions.get_blob_client = lambda name: Down(containers.actions, name)
     response = freeze_request(web)
     containers.actions.get_blob_client = original
-    assert response.status_code == 503 and "No protective action was attempted" in response.json()["detail"]
+    assert response.status_code == 503 and "admin journal write failed" in response.json()["detail"]
     assert client.calls == []
 
 
 def test_stale_state_revision_is_a_conflict_in_azure_too(hosted):
     source, _, client, strategy = build()
-    web = hosted(source, AccessPolicy(allow_open_actions=True))
+    web = hosted(source, operate=True)
     revision = web.get("/api/overview").json()["revision"]
     strategy.state = dict(EMPTY_STATE, frozen=True)
     response = web.post("/api/actions", json={"action": "freeze", "reason": "Synthetic operator protection",

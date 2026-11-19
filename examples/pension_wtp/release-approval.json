@@ -1,10 +1,10 @@
 {
   "tier": "tier2",
   "approved": true,
-  "decision_ref": "HR-PENSION-WTP-RANKING-COVERAGE-2026-11-18",
-  "evidence_ref": "docs/evaluation.md#complete-ranking-coverage",
+  "decision_ref": "HR-PENSION-WTP-COUNSELLOR-PROMPT-2026-11-19",
+  "evidence_ref": "docs/local/decision-log.md#imp-149---simplified-counsellor-instructions",
   "writers": {
-    "gg-counsellor": {"definition_sha256": "296797e5383203efe9287a4ea65e64949798f0c3b8bec5362c141d516b985a65"},
-    "gg-counsellor-voice-compact": {"definition_sha256": "8da2d58bdd74e3fc5e5f8c898dff56a4e4376023d68a3323f911a7d9afa18e32"}
+    "gg-counsellor": {"definition_sha256": "108a77b6c68725cc5030dbd48143fef33ddb0821f07903254eb94bf7cb0c9f3c"},
+    "gg-counsellor-voice-compact": {"definition_sha256": "c9f2360ea8124a327a36368e5614703fe309f09b6730896787e46358df42071f"}
   }
 }

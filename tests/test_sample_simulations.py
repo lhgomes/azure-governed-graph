@@ -36,6 +36,7 @@ from governedgraph.voice.voice_demo import run_live_simulator, run_simulator
 from governedgraph.voice.voice_live_bridge import OrchestratorChannel, VoiceBridge, VoiceError, VoiceReply
 
 ROOT = Path(__file__).resolve().parents[1]
+pytestmark = pytest.mark.usefixtures("sample_simulations")
 
 
 FAREWELL = "Thank you, that is all I needed. Goodbye."
@@ -215,7 +216,7 @@ def test_b7_build_projection_contains_all_personas_but_no_profiles_or_cohorts(tm
     result = subprocess.run([
         sys.executable, str(ROOT / "examples/pension_wtp/demo/build_simulations.py"),
         "--output", str(output),
-    ], env={**os.environ, "GOVERNEDGRAPH_MODE": "local",
+    ], env={**os.environ,
             "PYTHONPATH": f"{ROOT / 'src'}:{ROOT / 'examples'}"}, capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     body = json.loads(output.read_text())
@@ -236,13 +237,11 @@ def test_b7_build_projection_contains_all_personas_but_no_profiles_or_cohorts(tm
     (tmp_path / "demo").mkdir()
     output.rename(tmp_path / "demo/simulations.json")
     monkeypatch.setattr(simulations, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(simulations, "settings", SimpleNamespace(is_azure=True))
     assert [asdict(item) for item in load_simulations()] == body["simulations"]
 
 
 def test_b7_azure_never_falls_back_to_raw_persona_profiles(tmp_path, monkeypatch):
     monkeypatch.setattr(simulations, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(simulations, "settings", SimpleNamespace(is_azure=True))
     with pytest.raises(FileNotFoundError):
         load_simulations()
 
@@ -502,8 +501,12 @@ def test_live_simulation_binds_member_channel_accessibility_and_protective_outco
     assert requests[-1].url.path == f"/members/{simulation.member_ref}/explainability-report"
     assert all(request.headers["authorization"] == "Bearer memory-only-" + simulation.member_ref
                for request in requests)
-    for request in requests[1:-1]:
-        assert set(json.loads(request.content)) == {"utterance"}
+    bodies = [json.loads(request.content) for request in requests[1:-1]]
+    for body in bodies:
+        # A playback confirmation carries only the opaque delivered-response reference, never member content.
+        assert set(body) in ({"utterance"}, {"utterance", "playback_response_id"})
+        assert "playback_response_id" not in body or body["utterance"] == ""
+    utterances = [body["utterance"] for body in bodies if "playback_response_id" not in body]
     audio_frames = [frame for frame in frames if frame["kind"] == "audio"]
     assert audio_frames[0]["role"] == "counsellor" and audio_frames[0]["text"] == DISCLOSURE
     assert audio_frames[1]["role"] == "persona" and audio_frames[1]["text"] == simulation.opening
@@ -518,4 +521,4 @@ def test_live_simulation_binds_member_channel_accessibility_and_protective_outco
         assert audio_frames[-1]["role"] == "persona" and audio_frames[-1]["text"] == FAREWELL
         assert frames[-2] == {"kind": "session_ended"} and frames[-1]["session_ended"] is True
         assert frames[-1]["ended_by"] == "persona"
-        assert [json.loads(request.content)["utterance"] for request in requests[1:-1]] == [simulation.opening]
+        assert utterances == [simulation.opening]

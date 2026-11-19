@@ -1,19 +1,24 @@
 """B3/B4/B6/B7/B9: administration reads actual governed state, never cohort identities."""
-import hashlib
 import json
 
 import pytest
 
-from governedgraph.admin.data import learning_evidence, overview
+from admin_doubles import LocalSources
+from governedgraph.admin.sources import AdminSourceError
 from governedgraph.common.contracts import SuspensionEvent
-from governedgraph.strategy_service.service import StrategyService
 from governedgraph.strategy_service.snapshot import RankingSnapshot, sign_snapshot
+from strategy_doubles import local_strategy_service
+from test_admin_azure import aggregates, build
+
+
+def overview(service, directory):
+    return LocalSources(service, directory).overview()
 
 KEY = "first_contact|transition_impact_question|voice|standard"
 
 
 def test_b3_b6_admin_shows_verified_rankings_with_eligibility_and_universal_veto(tmp_path):
-    service = StrategyService(state_dir=tmp_path / "strategy")
+    service = local_strategy_service(tmp_path / "strategy")
     snapshot = sign_snapshot(RankingSnapshot(
         "snapshot-admin", service.catalogue.version, "1.0", "audit-1", "tier0",
         {KEY: [[sid, service.catalogue.get(sid).version] for sid in ["S2", "S5", "S1", "S4", "S3"]]},
@@ -39,7 +44,7 @@ def test_b7_admin_projects_case_without_demographics_or_cohort_rates(tmp_path):
         "finding": {"strategy_id": "S2", "request_key": KEY, "gap_pts": 25, "breach": True,
                     "dimension": "gender", "cohort": "PRIVATE-COHORT", "cohort_fcr_pct": 12},
     }) + "\n")
-    result = overview(StrategyService(state_dir=tmp_path / "strategy"), tmp_path)
+    result = overview(local_strategy_service(tmp_path / "strategy"), tmp_path)
     encoded = json.dumps(result)
     assert "PRIVATE-COHORT" not in encoded and "gender" not in encoded and "cohort_fcr_pct" not in encoded
     assert result["cases"][0]["finding"]["gap_pts"] == 25
@@ -47,7 +52,7 @@ def test_b7_admin_projects_case_without_demographics_or_cohort_rates(tmp_path):
 
 
 def test_b4_admin_does_not_run_learning_or_invent_approvals(tmp_path):
-    service = StrategyService(state_dir=tmp_path / "strategy")
+    service = local_strategy_service(tmp_path / "strategy")
     first = overview(service, tmp_path)
     second = overview(service, tmp_path)
     assert first["revision"] == second["revision"]
@@ -57,20 +62,16 @@ def test_b4_admin_does_not_run_learning_or_invent_approvals(tmp_path):
     assert not list(tmp_path.rglob("*.jsonl"))
 
 
-def test_b4_b7_admin_learning_view_reads_only_verified_published_aggregates(tmp_path):
-    from governedgraph.learning.feedback import FeedbackManifest, FeedbackSnapshot
-    from governedgraph.learning.feedback_store import FileFeedbackStore
-
-    assert learning_evidence(tmp_path) == {"manifest": None, "aggregates": []}
-    contents = ("request_key,strategy_id,strategy_version,interactions,resolved_first_contact,repeat_contact_14d\n"
-                f"{KEY},S1,1.0,400,200,40\n").encode()
-    digest = hashlib.sha256(contents).hexdigest()
-    manifest = FeedbackManifest(digest, "a" * 64, "b" * 64, 10, 10, 0, 5)
-    store = FileFeedbackStore(tmp_path / "learning-aggregates")
-    store.save(FeedbackSnapshot(contents, manifest))
-    result = learning_evidence(tmp_path)
+def test_b4_b7_admin_learning_view_reads_only_verified_published_aggregates():
+    empty, _, _, _ = build()
+    assert empty.overview()["learning"] == {"manifest": None, "aggregates": []}
+    files = aggregates()
+    source, _, _, _ = build(learning=files)
+    result = source.overview()["learning"]
     assert result["manifest"]["observed_decisions"] == 10
     assert result["aggregates"][0]["interactions"] == 400
-    store.outcome_path().write_bytes(contents + b"corrupted")
-    with pytest.raises(ValueError, match="digest mismatch"):
-        learning_evidence(tmp_path)
+    digest_name = next(name for name in files if name.startswith("live/"))
+    files[digest_name] += b"corrupted"
+    corrupted, _, _, _ = build(learning=files)
+    with pytest.raises(AdminSourceError, match="failed verification"):
+        corrupted.overview()

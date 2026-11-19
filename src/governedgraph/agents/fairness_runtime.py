@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass
 from uuid import uuid4
 
+from governedgraph.agents import llm_log
 from governedgraph.agents.fairness_explainability import assemble_explainability_report
 from governedgraph.agents.foundry_runtime import MAX_CALLS_PER_ROUND, MAX_TOOL_ROUNDS, FoundryUnavailable
 from governedgraph.common.config import settings
@@ -165,6 +166,9 @@ class FoundryFairnessAgent:
             if previous is not None:
                 kwargs["previous_response_id"] = previous
             response = self.client.responses.create(**kwargs)
+            llm_log.record(None, "fairness", settings.fairness_agent_name,
+                           {"agent": f"{settings.fairness_agent_name}:{settings.fairness_agent_version}",
+                            "input": inputs, "previous_response_id": previous}, response)
             if response.status != "completed":
                 raise FoundryUnavailable("fairness response did not complete")
             calls = [item for item in response.output if item.type == "function_call"]

@@ -1,10 +1,11 @@
 """End-to-end runtime sequence in local mode with the persona harness (SIMULATED)."""
 import pytest
 
-from governedgraph.agents.counsellor import new_session
-from governedgraph.learning.run_cycle import run_cycle
+from counsellor_doubles import new_session
+from strategy_doubles import local_strategy_service, run_cycle
 from pension_wtp.member_values_api.data import MemberScopeError, get_member_values
-from governedgraph.strategy_service.service import StrategyService
+
+pytestmark = pytest.mark.usefixtures("local_counsellor")
 
 
 @pytest.fixture()
@@ -12,7 +13,7 @@ def svc(tmp_path, monkeypatch):
     monkeypatch.setenv("GOVERNEDGRAPH_RUN_DIR", str(tmp_path))
     import governedgraph.common.config as cfg
     monkeypatch.setattr(cfg.settings.__class__, "run_dir", property(lambda self: tmp_path), raising=False)
-    s = StrategyService(state_dir=tmp_path / "s", control_share=0.0)
+    s = local_strategy_service(tmp_path / "s", control_share=0.0)
     run_cycle(s)
     return s
 

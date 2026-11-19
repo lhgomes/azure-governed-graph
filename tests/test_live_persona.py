@@ -421,6 +421,7 @@ def test_confirmation_after_a_resolved_answer_closes_naturally_without_claiming_
 ])
 def test_b5_pending_meaning_checks_still_require_the_understanding_verdict(confirmation_workflow, outcome, reason):
     from governedgraph.common.contracts import ExplanationContext, UnderstandingDecision
+    from governedgraph.agents.counsellor import TEMPLATES
     from governedgraph.orchestrator.state_machine import State
     from governedgraph.orchestrator.workflow import member_turn
 
@@ -440,6 +441,7 @@ def test_b5_pending_meaning_checks_still_require_the_understanding_verdict(confi
         assert "clarify-question" not in result.workflow_steps and not c._explain.called
     elif outcome == "uncertain":
         assert result.state == "comprehension_check" and "clarify-question" in result.workflow_steps
+        assert result.text == TEMPLATES["acknowledgements"]["comprehension_retry"][c.journey.response_language]
         assert c.journey.teach_back_failures == 0
     else:
         assert "explain-with-approved-tools" in result.workflow_steps and c.journey.teach_back_failures == 1
@@ -447,6 +449,7 @@ def test_b5_pending_meaning_checks_still_require_the_understanding_verdict(confi
 
 
 def test_a_confirmation_without_a_previous_answer_does_not_close_the_journey(confirmation_workflow):
+    from governedgraph.common.domain import message
     from governedgraph.orchestrator.state_machine import State
     from governedgraph.orchestrator.workflow import member_turn
 
@@ -454,6 +457,7 @@ def test_a_confirmation_without_a_previous_answer_does_not_close_the_journey(con
     c.journey.state, c.journey.last_explanation = State.IDENTIFIED, None
     result = asyncio.run(member_turn(c, "Thank you."))
     assert result.state == "identified" and "clarify-question" in result.workflow_steps
+    assert result.text == message("clarify_question")
     assert "acknowledge-explanation" not in result.workflow_steps
     assert [call.args[0] for call in c.decide.call_args_list] == ["intent"]
 
@@ -559,6 +563,7 @@ def test_a_persona_card_rejects_a_malformed_guide_voice_or_one_shared_with_the_p
         card(**changes)
 
 
+@pytest.mark.usefixtures("sample_simulations")
 def test_the_dutch_persona_speaks_dutch_in_chat_with_a_dutch_guide_voice():
     from dataclasses import asdict as as_dict
 

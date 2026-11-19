@@ -15,11 +15,11 @@ from pension_wtp.agents.design_contracts import (
 from governedgraph.common.contracts import ContractError, EscalationRequest, StrategyResponse
 
 APPROVED_NEXT_STEPS = {
-    "NS-01": ("Read your personal transition letter", "C-004"),
-    "NS-02": ("Check your figures in the fund's online portal", "C-007"),
-    "NS-03": ("Learn how yearly adjustments work", "C-003"),
-    "NS-04": ("How to raise a question or an objection", "C-005"),
-    "NS-05": ("Talk to a human advisor", "C-006"),
+    "NS-01": ("Read your personal transition letter", "C-004", "1.1"),
+    "NS-02": ("Check your figures in the fund's online portal", "C-007", "1.2"),
+    "NS-03": ("Learn how yearly adjustments work", "C-003", "1.2"),
+    "NS-04": ("How to raise a question or an objection", "C-005", "1.1"),
+    "NS-05": ("Talk to a human advisor", "C-006", "1.1"),
 }
 
 
@@ -28,12 +28,11 @@ class NextStep(DesignContract):
     step_id: Literal["NS-01", "NS-02", "NS-03", "NS-04", "NS-05"]
     title: str
     content_id: str
-    content_version: Literal["1.0"] = "1.0"
+    content_version: str
 
     def __post_init__(self):
         super().__post_init__()
-        if (APPROVED_NEXT_STEPS.get(self.step_id) != (self.title, self.content_id)
-                or self.content_version != "1.0"):
+        if APPROVED_NEXT_STEPS.get(self.step_id) != (self.title, self.content_id, self.content_version):
             raise ContractError("only approved, pinned next-step content is permitted (GNA)")
 
 
@@ -57,8 +56,8 @@ class AdoptionGuide:
         return self.ranked_reader()
 
     def search_approved_content(self, query: str) -> list[NextStep]:
-        return [NextStep(sid, title, cid) for sid, (title, cid) in APPROVED_NEXT_STEPS.items()
-                if query.casefold() in title.casefold() or query == sid]
+        return [NextStep(sid, *step) for sid, step in APPROVED_NEXT_STEPS.items()
+                if query.casefold() in step[0].casefold() or query == sid]
 
     def escalate_to_advisor(self, reason_code: EscalationReason = "member_request", *,
                             idempotency_key: str) -> EscalationRequest:
@@ -94,5 +93,4 @@ class AdoptionGuide:
             sid = "NS-03"
         else:
             sid = "NS-02"
-        title, cid = APPROVED_NEXT_STEPS[sid]
-        return NextStep(sid, title, cid)
+        return NextStep(sid, *APPROVED_NEXT_STEPS[sid])

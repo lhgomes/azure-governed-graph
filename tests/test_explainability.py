@@ -19,13 +19,14 @@ from governedgraph.explainability.store import (
     AuditConflict, AuditStorageUnavailable, AuditUnavailable, BlobExplainabilityStore,
     LocalExplainabilityStore, QueuedExplainabilityStore, enqueue_in_transaction, system_record,
 )
-from governedgraph.learning.run_cycle import run_cycle
+from counsellor_doubles import install
+from strategy_doubles import run_cycle
 from governedgraph.orchestrator import api
 from governedgraph.orchestrator.messaging import FileJourneyPublisher
 from governedgraph.orchestrator.service import OrchestratorService
 from governedgraph.orchestrator.state_machine import Event, Journey, State
 from governedgraph.orchestrator.store import BlobJourneyStore, FileJourneyStore, JourneyBusy, JourneyRecord, Transaction
-from governedgraph.strategy_service.service import StrategyService
+from strategy_doubles import local_strategy_service
 
 # Synthetic boundary for the optional gg-dev-only legacy exception; a fresh deployment configures none.
 DEV_CUTOVER_UTC = "2026-10-23T14:29:04Z"
@@ -62,7 +63,8 @@ class Primary:
 @pytest.fixture
 def runtime(tmp_path, monkeypatch, isolated_conversations):
     monkeypatch.setattr(settings.__class__, "run_dir", property(lambda self: tmp_path))
-    strategies = StrategyService(state_dir=tmp_path / "strategy", control_share=0)
+    install(monkeypatch, tmp_path)
+    strategies = local_strategy_service(tmp_path / "strategy", control_share=0)
     run_cycle(strategies)
     primary = Primary(tmp_path / "records.jsonl")
 

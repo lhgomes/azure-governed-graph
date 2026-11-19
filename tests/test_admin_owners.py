@@ -178,11 +178,15 @@ def test_b8_owner_transport_keeps_human_and_proxy_tokens_separate(monkeypatch):
             return SimpleNamespace(token="synthetic-proxy-token")
 
     def respond(request):
+        import json
+        from governedgraph.strategy_service.catalogue import Catalogue
+
+        if request.method == "GET":
+            assert request.url.path == "/strategy-admin/catalogue"
+            return httpx.Response(200, json={"catalogue": Catalogue.load().to_dict(), "priors": {}})
         assert request.url.path == "/strategy-admin/owner-overrides"
         assert request.headers["Authorization"] == "Bearer synthetic-owner-token"
         assert request.headers["X-Admin-Authorization"] == "Bearer synthetic-proxy-token"
-        import json
-
         assert json.loads(request.content) == asdict(decision)
         return httpx.Response(200, json={"decision_ref": decision.decision_ref, "status": "applied"})
 
@@ -190,8 +194,10 @@ def test_b8_owner_transport_keeps_human_and_proxy_tokens_separate(monkeypatch):
     monkeypatch.setattr(httpx, "Client", lambda **options: http_client(
         transport=httpx.MockTransport(respond), **options))
     proxy = client.StrategyAdminClient(protective_only=True, credential=Credential())
-    with proxy.http:
+    try:
         assert proxy.owner_decision(decision, "Bearer synthetic-owner-token")["status"] == "applied"
+    finally:
+        proxy.http.close()
     assert scopes == [f"api://{client_id}/.default"]
 
 

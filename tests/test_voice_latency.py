@@ -7,13 +7,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from governedgraph.agents import counsellor
-from governedgraph.agents.counsellor import new_session
+from counsellor_doubles import install, install_tracing, new_session
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import ContractError
 from governedgraph.guardrails.prompt_safety import ScreenResult
-from governedgraph.learning.run_cycle import run_cycle
-from governedgraph.strategy_service.service import StrategyService
+from strategy_doubles import run_cycle
+from strategy_doubles import local_strategy_service
 from governedgraph.voice.benchmark import QUESTIONS, distribution, summarize
 from governedgraph.voice.voice_live_bridge import ACKNOWLEDGEMENT, AudioFailure, VoiceBridge, VoiceReply, checked_sentences
 
@@ -88,7 +87,8 @@ def test_screening_and_agent_routing_precede_parallel_tools_and_all_join_before_
     from governedgraph.common.contracts import IntentDecision
 
     monkeypatch.setattr(settings.__class__, "run_dir", property(lambda _: tmp_path))
-    service = StrategyService(state_dir=tmp_path / "strategy", control_share=0)
+    install(monkeypatch, tmp_path)
+    service = local_strategy_service(tmp_path / "strategy", control_share=0)
     run_cycle(service)
     c = new_session("MBR-7Q2K", strategy_service=service)
     c.start()
@@ -97,18 +97,18 @@ def test_screening_and_agent_routing_precede_parallel_tools_and_all_join_before_
     drafted = Event()
 
     def wrap(name, operation):
-        def run(*args):
+        def run(*args, **kwargs):
             if name in {"values", "strategy", "content"}:
                 assert completed >= {"screening", "intent"}
                 barrier.wait(timeout=5)
             if name == failure:
                 raise TimeoutError("synthetic dependency failure")
-            value = operation(*args)
+            value = operation(*args, **kwargs)
             completed.add(name)
             return value
         return run
 
-    c.screen.screen = wrap("screening", lambda *_: ScreenResult(True))
+    c.screen.screen = wrap("screening", lambda *_, **__: ScreenResult(True))
     c.decision_agents["intent"] = SimpleNamespace(run=wrap("intent", lambda *_: IntentDecision(
         "explanation", "transition_impact_question", "official_transition_information",
     )))
@@ -121,7 +121,6 @@ def test_screening_and_agent_routing_precede_parallel_tools_and_all_join_before_
         drafted.set()
         return original(*args)
     c._compose = compose
-    monkeypatch.setattr(counsellor, "settings", SimpleNamespace(is_azure=True))
     result = c._safe_handle("Please explain my transition letter")
     if failure:
         assert result.escalated and result.state == "escalation_requested"
@@ -214,25 +213,20 @@ def test_warmup_uses_valid_shared_correlation_without_creating_a_member_journey(
     from governedgraph.agents import decision_model
     from governedgraph.voice import warmup
 
-    screen, understanding = Mock(), Mock()
+    screen = Mock()
     screen.screen.return_value.allowed = True
-    choose = Mock(
-        return_value={"reason": "transition_information_gap", "response_language": "en"},
-    )
+    choose = Mock(side_effect=lambda _tools, _state, questions: (
+        {"reason": "transition_information_gap"} if "reason" in questions else {"response_language": "en"}))
     monkeypatch.setattr(warmup, "operation", lambda *args, **kwargs: nullcontext())
     monkeypatch.setattr(decision_model, "choose", choose)
     monkeypatch.setattr(warmup.FoundryComposer, "shared", Mock())
     monkeypatch.setattr(warmup, "AzurePromptShields", lambda endpoint: screen)
-    shared = Mock(return_value=understanding)
-    monkeypatch.setattr(warmup.FoundryDecisionAgent, "shared", shared)
     warmup.warm_runtime()
     assert re.fullmatch(r"J-[a-f0-9]{32}", screen.journey_id)
     screen.screen.assert_called_once()
-    shared.assert_called_once_with("understanding")
-    choose.assert_called_once()
-    tools, state, _ = choose.call_args.args
-    assert tools.journey.journey_id == screen.journey_id
-    assert state["conversation_context"] == []
+    assert choose.call_count == 2
+    assert all(call.args[0].journey.journey_id == screen.journey_id for call in choose.call_args_list)
+    assert {call.args[1].splitlines()[-1].split(":")[0] for call in choose.call_args_list} == {"Customer message"}
 
 
 def test_checked_sentences_are_transmitted_before_playback_finishes_but_all_acks_are_required():
@@ -261,7 +255,8 @@ def test_checked_sentences_are_transmitted_before_playback_finishes_but_all_acks
     asyncio.run(scenario())
 
 
-def test_durable_sender_reuses_confirmed_connection_and_failure_keeps_message_identity():
+def test_durable_sender_reuses_confirmed_connection_and_failure_keeps_message_identity(monkeypatch):
+    install_tracing(monkeypatch)
     from threading import Lock
     from unittest.mock import MagicMock, Mock
     from azure.servicebus.exceptions import ServiceBusError
@@ -292,7 +287,8 @@ def test_durable_sender_reuses_confirmed_connection_and_failure_keeps_message_id
 
 
 @pytest.mark.parametrize("failure_point", ["open", "cached_send"])
-def test_durable_sender_reconnects_once_without_losing_response_or_message_identity(failure_point):
+def test_durable_sender_reconnects_once_without_losing_response_or_message_identity(failure_point, monkeypatch):
+    install_tracing(monkeypatch)
     from threading import Lock
     from unittest.mock import MagicMock, Mock
     from azure.servicebus.exceptions import ServiceBusConnectionError
@@ -320,7 +316,8 @@ def test_durable_sender_reconnects_once_without_losing_response_or_message_ident
     assert publisher._senders == {"journey-events": replacement}
 
 
-def test_durable_sender_repeated_connection_failure_is_not_silently_accepted():
+def test_durable_sender_repeated_connection_failure_is_not_silently_accepted(monkeypatch):
+    install_tracing(monkeypatch)
     from threading import Lock
     from unittest.mock import MagicMock, Mock
     from azure.servicebus.exceptions import ServiceBusConnectionError

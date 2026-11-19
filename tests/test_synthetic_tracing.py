@@ -16,7 +16,7 @@ PROJECT = ("/subscriptions/synthetic/resourceGroups/synthetic/providers/Microsof
 @pytest.fixture
 def opted_in(monkeypatch):
     monkeypatch.setattr(foundry_tracing, "settings", SimpleNamespace(
-        is_azure=True, environment_name="gg-dev", agent_name="gg-counsellor", agent_version="2",
+        environment_name="gg-dev", agent_name="gg-counsellor", agent_version="2",
     ))
     monkeypatch.setenv("GOVERNEDGRAPH_DEPLOY_VOICE_DEMO", "true")
     monkeypatch.setenv("GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS", "true")
@@ -61,16 +61,18 @@ def test_b4_default_strips_content_and_explicit_dev_preserves_only_checked_host_
     assert "gen_ai.request.tools" not in exported.attributes and "error.message" not in exported.attributes
 
 
-@pytest.mark.parametrize("changes,flag", [
-    ({"environment_name": "production"}, "true"),
-    ({"is_azure": False}, "true"),
-    ({}, "false"),
+@pytest.mark.parametrize("changes,flag,demo", [
+    ({"environment_name": "production"}, "true", "true"),
+    ({"environment_name": ""}, "true", "true"),
+    ({}, "false", "true"),
+    ({}, "true", "false"),
 ])
 def test_b4_production_or_disabled_flags_never_export_conversation_even_with_markers(
-        opted_in, monkeypatch, changes, flag):
+        opted_in, monkeypatch, changes, flag, demo):
     monkeypatch.setattr(foundry_tracing, "settings",
                         SimpleNamespace(**{**vars(foundry_tracing.settings), **changes}))
     monkeypatch.setenv("GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS", flag)
+    monkeypatch.setenv("GOVERNEDGRAPH_DEPLOY_VOICE_DEMO", demo)
     delegate = Mock()
     ContentFreeTraceExporter(delegate, PROJECT, synthetic_conversations=True).export([span(**conversation_attributes())])
     assert "gen_ai.input.messages" not in delegate.export.call_args.args[0][0].attributes
@@ -229,16 +231,15 @@ def test_b4_capture_is_only_for_authenticated_allowlisted_synthetic_members(opte
 
 
 def test_b4_trace_observation_occurs_after_durable_delivery_and_not_on_failed_outbox(
-        tmp_path, monkeypatch, isolated_conversations):
+        tmp_path, monkeypatch, isolated_conversations, local_counsellor):
     from governedgraph.agents.counsellor import Counsellor
     from governedgraph.common.member_auth import MemberIdentity
     from governedgraph.explainability.store import LocalExplainabilityStore
-    from governedgraph.learning.run_cycle import run_cycle
     from governedgraph.orchestrator.service import DeliveryPending, OrchestratorService
     from governedgraph.orchestrator.store import FileJourneyStore
-    from governedgraph.strategy_service.service import StrategyService
+    from strategy_doubles import local_strategy_service, run_cycle
 
-    service = StrategyService(state_dir=tmp_path / "strategy", control_share=0)
+    service = local_strategy_service(tmp_path / "strategy", control_share=0)
     run_cycle(service)
     observed, sent = [], []
     def observe(*args):
