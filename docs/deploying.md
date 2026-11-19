@@ -22,6 +22,64 @@ Prices are deployment-dependent: **no cost or latency figure in the repository s
 
 For an externally visible release, also complete the [publication checklist](public-release-checklist.md). Deployment readiness alone never authorizes production use.
 
+### Resource-provider registration
+
+Before provisioning, use the approved subscription explicitly and review its
+provider registrations. Registration requires the provider's
+`/register/action` permission; ask an authorized subscription administrator if
+the deploying identity does not have it. These commands do not grant roles or
+deploy application resources.
+
+```bash
+SUBSCRIPTION_ID="<approved-subscription-id>"
+az provider list --subscription "$SUBSCRIPTION_ID" \
+  --query "sort_by(@, &namespace)[].{Provider:namespace,State:registrationState}" \
+  --output table
+```
+
+The current topology uses `Microsoft.ApiManagement`, `Microsoft.App`,
+`Microsoft.Authorization`, `Microsoft.CognitiveServices`,
+`Microsoft.ContainerRegistry`, `Microsoft.Insights`, `Microsoft.KeyVault`,
+`Microsoft.MachineLearningServices`, `Microsoft.ManagedIdentity`,
+`Microsoft.Network`, `Microsoft.OperationalInsights`, `Microsoft.Resources`,
+`Microsoft.Search`, `Microsoft.ServiceBus` and `Microsoft.Storage`.
+
+APIM **Standard v2** outbound VNet integration additionally requires
+`Microsoft.Web` registration because its subnet is delegated to
+`Microsoft.Web/serverFarms`, even when no App Service is deployed. An absent
+registration causes `SubnetSubscriptionMustBeRegisteredWithMicrosoftWeb`.
+Register it and verify completion before retrying delivery:
+
+```bash
+az provider register --subscription "$SUBSCRIPTION_ID" \
+  --namespace Microsoft.Web --wait
+az provider show --subscription "$SUBSCRIPTION_ID" \
+  --namespace Microsoft.Web --query registrationState --output tsv
+```
+
+The following are **conditional, not additional confirmed foundation
+requirements**. Run only the commands appropriate to an approved topology or
+a provider-specific deployment error:
+
+```bash
+# If Microsoft.Compute registration is required for the selected ML compute.
+az provider register --subscription "$SUBSCRIPTION_ID" \
+  --namespace Microsoft.Compute --wait
+
+# Only for a workload requiring Azure Batch registration.
+az provider register --subscription "$SUBSCRIPTION_ID" \
+  --namespace Microsoft.Batch --wait
+
+Azure ML compute instances with integrated notebooks also require
+`Microsoft.Notebooks`; this is distinct from the current `AmlCompute` clusters.
+Use the same registration command with the required namespace for any other
+missing provider. Registration is not a quota, regional availability, RBAC,
+deployment-readiness or evaluation check.
+
+See Microsoft's guidance on [resource-provider registration](https://learn.microsoft.com/azure/azure-resource-manager/management/resource-providers-and-types),
+[APIM outbound VNet integration](https://learn.microsoft.com/azure/api-management/integrate-vnet-outbound)
+and [Azure ML provider prerequisites](https://learn.microsoft.com/azure/machine-learning/how-to-manage-workspace-cli#troubleshoot-resource-provider-errors).
+
 ## Commands and explicit inputs
 
 Use Python 3.14, Azure CLI, Azure Developer CLI, Bicep and the existing verified
