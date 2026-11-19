@@ -93,9 +93,10 @@
 <text x="1288" y="469" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Member-scoped access via APIM</text>
 <text x="1288" y="485" font-size="12" fill="#475569" font-weight="400" text-anchor="start">No model calculations</text>
 <path d="M330 298 V386" fill="none" stroke="#a13d5c" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#ma13d5c)"/>
-<path d="M607 390 V365" fill="none" stroke="#946014" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#m946014)"/>
-<path d="M862 390 V365" fill="none" stroke="#275d9b" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#m275d9b)"/>
-<path d="M1128 390 V365" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#m087f82)"/>
+<path d="M607 390 V375" fill="none" stroke="#946014" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4"/>
+<path d="M862 390 V375" fill="none" stroke="#275d9b" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4"/>
+<path d="M1128 390 V375" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4"/>
+<path d="M1128 375 H455 V278 H444" fill="none" stroke="#275d9b" stroke-width="1.8" stroke-dasharray="5 4" stroke-linejoin="round" marker-end="url(#m275d9b)"/>
 <path d="M1418 390 V302" fill="none" stroke="#946014" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#m946014)"/>
 <rect x="20" y="637" width="1560" height="239" rx="10" fill="#edf8f6" stroke="#8fc3ba" stroke-width="1.4"/>
 <text x="40" y="665" font-size="14" fill="#087f82" font-weight="700" text-anchor="start">02 / ISOLATED GOVERNED LEARNING</text>
@@ -120,6 +121,7 @@
 <text x="669" y="755" font-size="13" fill="#475569" font-weight="400" text-anchor="start">Separate cohort zone and identity</text>
 <text x="669" y="771" font-size="13" fill="#475569" font-weight="400" text-anchor="start">Deterministic protective veto</text>
 <text x="669" y="787" font-size="13" fill="#475569" font-weight="400" text-anchor="start">No demographics reach runtime</text>
+<text x="669" y="803" font-size="13" fill="#475569" font-weight="400" text-anchor="start">Agent: explicit operator proof</text>
 <path d="M944 755 H960" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>
 <rect x="964" y="692" width="288" height="136" rx="7" fill="#ffffff" stroke="#a13d5c" stroke-width="1.4"/>
 <text x="977" y="711" font-size="10" fill="#a13d5c" font-weight="700" text-anchor="start">04 / ASSURANCE</text>
@@ -134,17 +136,14 @@
 <text x="1285" y="755" font-size="13" fill="#475569" font-weight="400" text-anchor="start">Signed snapshot and audit linkage</text>
 <text x="1285" y="771" font-size="13" fill="#475569" font-weight="400" text-anchor="start">Treatment vs. static expert control</text>
 <text x="1285" y="787" font-size="13" fill="#475569" font-weight="400" text-anchor="start">Freeze / revert on failure</text>
-<path d="M440 284 H455 V375 H232 V580 H184 V688" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#m087f82)"/>
-<rect x="79" y="582" width="210" height="20" rx="3" fill="#ffffff" stroke="none" stroke-width="1.4"/>
-<text x="184" y="596" font-size="12" fill="#087f82" font-weight="400" text-anchor="middle">Confirmed outcomes only</text>
+<path d="M240 298 V322 H30 V755 H36" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#m087f82)"/>
+<rect x="44" y="549" width="210" height="20" rx="3" fill="#ffffff" stroke="none"/>
+<text x="149" y="563" font-size="12" fill="#087f82" text-anchor="middle">Confirmed outcomes only</text>
 <path d="M1394 692 V608 H1128 V530" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#m087f82)"/>
 <rect x="1236" y="585" width="248" height="20" rx="3" fill="#ffffff" stroke="none" stroke-width="1.4"/>
 <text x="1360" y="599" font-size="12" fill="#087f82" font-weight="400" text-anchor="middle">Signed ranking and veto state</text>
 <path d="M800 692 V580 H1060 V530" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#m087f82)"/>
 <rect x="798" y="556" width="208" height="20" rx="3" fill="#ffffff" stroke="none" stroke-width="1.4"/>
 <text x="902" y="570" font-size="12" fill="#087f82" font-weight="400" text-anchor="middle">Universal protective veto</text>
-<path d="M132 526 V610 H1108 V688" fill="none" stroke="#a13d5c" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#ma13d5c)"/>
-<rect x="400" y="596" width="340" height="20" rx="3" fill="#ffffff" stroke="none" stroke-width="1.4"/>
-<text x="570" y="610" font-size="12" fill="#a13d5c" font-weight="400" text-anchor="middle">Authorized owner decisions / protective controls</text>
-<text x="40" y="852" font-size="13" fill="#087f82" font-weight="400" text-anchor="start">Scheduled fairness runs independently of the fairness prompt agent; that agent is retained for the explicit authorized operator proof.</text>
+
 </svg>

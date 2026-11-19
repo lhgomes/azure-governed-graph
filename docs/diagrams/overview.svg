@@ -85,7 +85,7 @@
 <text x="509" y="545" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Fairness audit &amp; veto</text>
 <text x="509" y="565" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Isolated cohort analysis</text>
 <text x="509" y="581" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Deterministic universal veto</text>
-<text x="509" y="597" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Independent operator proof</text>
+<text x="509" y="597" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Agent: operator proof</text>
 <path d="M704 558 H720" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>
 <rect x="724" y="502" width="208" height="112" rx="7" fill="#ffffff" stroke="#a13d5c" stroke-width="1.4"/>
 <text x="737" y="521" font-size="10" fill="#a13d5c" font-weight="700" text-anchor="start">04 / ASSURANCE</text>

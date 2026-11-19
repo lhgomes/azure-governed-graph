@@ -24,7 +24,7 @@ your deterministic systems **make authoritative decisions**, and a learning loop
 [![How GovernedGraph works: a member's question passes three gates in the framework, using a domain pack and values source that you supply; a separate bounded learning loop and an administration console keep people in charge](docs/diagrams/overview.svg)](docs/diagrams/overview.svg)
 
 *Select the diagram for the full-size view. For a step-by-step walkthrough of one answer and a glossary, see
-[getting started](docs/getting-started.md); for every agent and gate, see the
+[getting started](docs/getting-started.md); for every semantic role and gate, see the
 [detailed agent workflow](docs/diagrams/agent-workflow.md).*
 
 ## Framework, your domain and the sample
@@ -114,7 +114,7 @@ integration or production acceptance. See the [limits to state with any result](
 | [Architecture](docs/architecture.md) | Azure P1/P2 flows, persistence, security and governance boundaries |
 | [Administration console](docs/administration.md) | Rankings, vetoes, suspensions, decisions, conversations; protective actions and access control |
 | [Deploying](docs/deploying.md) | Governed Azure delivery and teardown |
-| [Agent workflow diagram](docs/diagrams/agent-workflow.md) | The detailed agents-and-gates diagram, step-by-step explanation and editable Mermaid sources |
+| [Agent workflow diagram](docs/diagrams/agent-workflow.md) | The detailed semantic roles and gates diagram, step-by-step explanation and editable Mermaid sources |
 
 | The sample | |
 |---|---|

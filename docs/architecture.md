@@ -208,9 +208,9 @@ and surfaces an error for retry. Immutable audit/event history is not deleted.
 A released reply is not proof of receipt, voice playback or comprehension.
 
 Prior dialogue is re-screened through Prompt Shields in provider-bounded batches.
-Historical numbers are masked before the intent, understanding and
-answer-review Decision model calls and the writer receive role-labelled dialogue as untrusted reference
-data. Current authorization, authoritative value reads, approved retrieval,
+Historical numbers are masked before role-labelled dialogue is supplied as untrusted
+reference data to the Decision model (intent, understanding and answer review)
+and the writer. Current authorization, authoritative value reads, approved retrieval,
 signed ranking and all output gates still run. History never authorizes tools,
 restores an old journey state or becomes approved factual evidence. Demographic
 self-descriptions are not profile features and must not affect treatment.

@@ -1,9 +1,9 @@
 # Agent workflow and coordination
 
-New to the project? Start with the simpler [overview diagram](overview.svg) , which the README uses:
+New to the project? Start with the simpler [overview diagram](overview.svg), which the README uses:
 the framework, what you supply, the people involved and the learning loop in one picture. This page is the detail behind it.
 
-[Vector SVG](agent-workflow.svg) (1600 × 900, 16:9, white background). The [overview SVG](overview.svg) is 1200 × 650. Both are canonical, scalable diagram assets. Export a PNG when required, for example with `inkscape agent-workflow.svg --export-type=png --export-width=3840 --export-filename=agent-workflow.png` from this directory.
+[Vector SVG](agent-workflow.svg) (1600 × 900, 16:9, white background). The [overview SVG](overview.svg) is 1200 × 650. Both are canonical, scalable diagram assets. Export a PNG when required, for example with `inkscape agent-workflow.svg --export-type=png --export-width=3840 --export-filename=agent-workflow.png` (or substitute `overview` for `agent-workflow`) from this directory.
 
 The diagram presents the implemented member-guidance workflow and separate
 governed learning loop, not an unrestricted agent-to-agent conversation.
@@ -161,7 +161,7 @@ flowchart LR
 | Intent Routing | Decision 1.1 | Return a closed routing decision |
 | Understanding Assessment | Decision 1.1 | Assess only concepts targeted by the accepted teach-back |
 | Counsellor and compact Counsellor | Pinned Foundry prompt agents | Draft from approved evidence and value placeholders |
-| Answer Quality Review | Decision 1.1 | Check grounding, relevance and language; bound repair |
+| Answer Quality Review | Decision 1.1 | Check grounding, relevance and language; host controls repair |
 | Host gates and evidence commit | Deterministic host | Bind values, enforce safety and audit before release |
 | Approved read surfaces | Data-access contracts | Serve approved knowledge, official values and signed strategies |
 | Bounded ranking | Scheduled deterministic pipeline | Reorder approved strategies within evidence and shift limits |

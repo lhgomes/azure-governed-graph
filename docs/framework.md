@@ -36,7 +36,7 @@ journeys are isolated from customer history. See
 - **Counsellor** (generative): drafts a question-specific explanation using placeholders and approved passages. Cannot compute, round or select outside the served ranking.
 - **Intent routing, understanding assessment, answer-quality review** (Microsoft Decision 1.1 via SystemOne): closed semantic decisions; the host controls the single bounded repair.
 - **Strategy Service**: verifies and serves the signed Ranking Snapshot; applies suspension overlays at read time for all members (B3, B6).
-- **Fairness & Explainability Agent** (protective only): audits segregated cohort aggregates and can suspend a strategy for every member (B6).
+- **Fairness audit** (protective only): deterministic analysis of segregated cohort aggregates can suspend a strategy for every member (B6). The separately authorized Fairness & Explainability prompt agent is retained for explicit operator proof; scheduled fairness does not depend on it.
 - **Assurance committee and tiers**: bounded ranking moves are autonomous (Tier 0/1); anything that widens what the system may say, use or decide is a human Tier 2 decision (B8).
 - **Control arm and kill switch**: static expert ranking is retained and the graph must keep beating it, otherwise treatment reverts (B10).
 
@@ -62,7 +62,7 @@ Fairness & Explainability Agent. A domain adds its own agents on top; the pensio
 |---|---|
 | Member Communication / Counsellor | Foundry prompt agents; Agent Framework orchestration |
 | Intent, understanding and answer review | Separate, tool-free Foundry semantic roles supporting the counsellor |
-| Fairness & Explainability Agent | Protective Foundry agent plus segregated aggregate cohort audit |
+| Fairness & Explainability Agent | Deterministic segregated aggregate cohort audit; protective Foundry agent for explicit operator proof |
 | Journey, values facade and Strategy Service | Container Apps, APIM, private Blob state and Service Bus |
 | Approved content and response evidence | Azure AI Search; append-only explainability records in immutable Blob storage |
 | P2 bounded learning | Identity-isolated scheduled Container Apps Jobs |
