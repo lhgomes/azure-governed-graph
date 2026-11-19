@@ -21,7 +21,6 @@ module graph '../../../infra/workloads.bicep' = {
     contactCentreImage: configuration.contactCentreImage
     adminImage: configuration.adminImage
     p2ContainerImage: configuration.p2ContainerImage
-    p2MlArtifactContainers: configuration.p2MlArtifactContainers
     counsellorAgentVersion: configuration.counsellorAgentVersion
     voiceCompactAgentVersion: configuration.voiceCompactAgentVersion
     intentAgentVersion: configuration.intentAgentVersion
@@ -81,12 +80,7 @@ output deployment object = {
   APIM_GATEWAY_URL: graph.outputs.APIM_GATEWAY_URL
   SNAPSHOT_SIGNING_KEY_NAME: graph.outputs.SNAPSHOT_SIGNING_KEY_NAME
   AZURE_CONTAINER_REGISTRY_ENDPOINT: graph.outputs.AZURE_CONTAINER_REGISTRY_ENDPOINT
-  AZURE_ML_WORKSPACE: graph.outputs.AZURE_ML_WORKSPACE
-  AZURE_ML_STORAGE_ID: graph.outputs.AZURE_ML_STORAGE_ID
-  AZURE_ML_REGISTRY_ID: graph.outputs.AZURE_ML_REGISTRY_ID
-  AZURE_ML_KEY_VAULT_ID: graph.outputs.AZURE_ML_KEY_VAULT_ID
-  AZURE_ML_APP_INSIGHTS_ID: graph.outputs.AZURE_ML_APP_INSIGHTS_ID
-  AZURE_ML_WORKSPACE_PRINCIPAL_ID: graph.outputs.AZURE_ML_WORKSPACE_PRINCIPAL_ID
+  P2_ARTIFACT_STORAGE_URL: graph.outputs.P2_ARTIFACT_STORAGE_URL
   RANKING_STORAGE_URL: graph.outputs.RANKING_STORAGE_URL
   STRATEGY_TENANT_ID: graph.outputs.STRATEGY_TENANT_ID
   STRATEGY_API_CLIENT_ID: graph.outputs.STRATEGY_API_CLIENT_ID

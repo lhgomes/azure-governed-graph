@@ -22,7 +22,7 @@ var pipelineSettings = [for setting in items(pipelineEnv): { name: setting.key, 
 resource jobs 'Microsoft.App/jobs@2024-03-01' = [for role in roles: {
   name: 'job-gg-p2-${role.name}'
   location: location
-  tags: { data: 'synthetic', purpose: 'temporary-p2-${role.name}', targetPlatform: 'AzureML' }
+  tags: { data: 'synthetic', purpose: 'scheduled-p2-${role.name}', targetPlatform: 'ContainerApps' }
   identity: { type: 'UserAssigned', userAssignedIdentities: { '${role.identityId}': {} } }
   properties: {
     environmentId: environment.id
@@ -30,7 +30,7 @@ resource jobs 'Microsoft.App/jobs@2024-03-01' = [for role in roles: {
     configuration: union({
       replicaTimeout: 4200
       replicaRetryLimit: 0
-      registries: [ { server: 'crmlgg${token}.azurecr.io', identity: role.identityId } ]
+      registries: [ { server: 'crgg${take(token, 16)}.azurecr.io', identity: role.identityId } ]
     }, scheduleEnabled ? {
       triggerType: 'Schedule'
       scheduleTriggerConfig: {
