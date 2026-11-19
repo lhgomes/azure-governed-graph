@@ -37,29 +37,75 @@ az provider list --subscription "$SUBSCRIPTION_ID" \
   --output table
 ```
 
-The current topology uses `Microsoft.ApiManagement`, `Microsoft.App`,
-`Microsoft.Authorization`, `Microsoft.CognitiveServices`,
-`Microsoft.ContainerRegistry`, `Microsoft.Insights`, `Microsoft.KeyVault`,
-`Microsoft.ManagedIdentity`,
-`Microsoft.Network`, `Microsoft.OperationalInsights`, `Microsoft.Resources`,
-`Microsoft.Search`, `Microsoft.ServiceBus` and `Microsoft.Storage`.
+Check both declared resources and service-created supporting resources.
+Scanning Bicep resource types alone misses implicit dependencies such as
+Application Insights' automatically created Failure Anomalies alert rule.
+The current foundation and workload composition requires these registrations:
 
-APIM **Standard v2** outbound VNet integration additionally requires
-`Microsoft.Web` registration because its subnet is delegated to
-`Microsoft.Web/serverFarms`, even when no App Service is deployed. An absent
+| Provider | Used by |
+|---|---|
+| `Microsoft.AlertsManagement` | Application Insights' service-created smart-detection alert rule |
+| `Microsoft.ApiManagement` | APIM facade |
+| `Microsoft.App` | Container Apps environments, applications and jobs |
+| `Microsoft.CognitiveServices` | Foundry accounts/projects, models and Content Safety |
+| `Microsoft.ContainerRegistry` | Container image registry and builds |
+| `Microsoft.Insights` | Application Insights, workbooks, diagnostics and alerts |
+| `Microsoft.KeyVault` | Signing vault and keys |
+| `Microsoft.ManagedIdentity` | Role-specific managed identities |
+| `Microsoft.Network` | VNets, subnets, private endpoints, private DNS and networking |
+| `Microsoft.OperationalInsights` | Log Analytics workspace |
+| `Microsoft.Search` | Approved-content search |
+| `Microsoft.ServiceBus` | Journey events and escalation messaging |
+| `Microsoft.Storage` | Content, records, state and learning artifacts |
+| `Microsoft.Web` | APIM Standard v2 outbound VNet integration's subnet delegation |
+
+`Microsoft.Authorization` (RBAC) and `Microsoft.Resources` (resource groups and
+deployments) are also used, but are registration-free core providers; no
+explicit registration command is needed for them.
+
+APIM's `Microsoft.Web` dependency applies even when no App Service is deployed,
+because its subnet is delegated to `Microsoft.Web/serverFarms`. An absent
 registration causes `SubnetSubscriptionMustBeRegisteredWithMicrosoftWeb`.
-Register it and verify completion before retrying delivery:
+The implicit alert dependency can instead fail with
+`MissingSubscriptionRegistration` naming `Microsoft.AlertsManagement`.
+
+An authorized administrator can register the complete required set and inspect
+each resulting state before retrying delivery:
 
 ```bash
-az provider register --subscription "$SUBSCRIPTION_ID" \
-  --namespace Microsoft.Web --wait
-az provider show --subscription "$SUBSCRIPTION_ID" \
-  --namespace Microsoft.Web --query registrationState --output tsv
+providers=(
+  Microsoft.AlertsManagement
+  Microsoft.ApiManagement
+  Microsoft.App
+  Microsoft.CognitiveServices
+  Microsoft.ContainerRegistry
+  Microsoft.Insights
+  Microsoft.KeyVault
+  Microsoft.ManagedIdentity
+  Microsoft.Network
+  Microsoft.OperationalInsights
+  Microsoft.Search
+  Microsoft.ServiceBus
+  Microsoft.Storage
+  Microsoft.Web
+)
+for provider in "${providers[@]}"; do
+  az provider register --subscription "$SUBSCRIPTION_ID" \
+    --namespace "$provider" --wait || exit 1
+  az provider show --subscription "$SUBSCRIPTION_ID" \
+    --namespace "$provider" \
+    --query "{Provider:namespace,State:registrationState}" --output table || exit 1
+done
 ```
 
-The deployment requires only the resource providers used by the foundation.
-Register another provider only if a selected workload explicitly requires it.
-Registration does not certify quota, regional availability, RBAC or readiness.
+The current composition does not deploy Azure Machine Learning, VMs, Batch or
+Fabric; it does not require `Microsoft.MachineLearningServices`,
+`Microsoft.Compute`, `Microsoft.Batch` or `Microsoft.Fabric`.
+Subscription-specific policies can introduce additional supporting resources
+outside this application inventory. Check policy-created deployment failures
+separately: registering providers cannot repair a policy that references a
+nonexistent workspace. Registration also does not certify quota, regional
+availability, RBAC or readiness.
 
 See Microsoft's guidance on [resource-provider registration](https://learn.microsoft.com/azure/azure-resource-manager/management/resource-providers-and-types)
 and [APIM outbound VNet integration](https://learn.microsoft.com/azure/api-management/integrate-vnet-outbound).
