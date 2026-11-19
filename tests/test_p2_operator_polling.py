@@ -160,8 +160,8 @@ def test_b6_resume_rejects_failed_missing_or_inconsistent_cycle_evidence(monkeyp
 
 @pytest.mark.parametrize("watchdog_status", ["Running", "Failed"])
 def test_main_resumes_existing_stages_without_replacing_watchdog_or_repeating_work(monkeypatch, watchdog_status):
-    config = SimpleNamespace(registry_id="/registries/crmlsynthetic", resource_group="rg", subscription_id="s")
-    monkeypatch.setattr(p2.MlConfig, "from_environment", lambda: config)
+    config = SimpleNamespace(registry_endpoint="crmlsynthetic.azurecr.io", resource_group="rg", subscription_id="s")
+    monkeypatch.setattr(p2.P2Config, "from_environment", lambda: config)
     monkeypatch.setenv("AZURE_ENV_NAME", "gg-dev")
     monkeypatch.setattr(p2.subprocess, "check_output", lambda *a, **k: "AZURE_ENV_NAME=gg-dev\n")
     jobs = {"pipeline": JOB, "fairness": {"id": JOB["id"].replace("pipeline", "fairness")}}
@@ -218,8 +218,8 @@ def test_resume_history_includes_every_page_and_rejects_foreign_links(monkeypatc
 
 
 def test_parent_owned_cycle_cannot_start_a_second_watchdog(monkeypatch):
-    config = SimpleNamespace(registry_id="/registries/crmlsynthetic", resource_group="rg", subscription_id="s")
-    monkeypatch.setattr(p2.MlConfig, "from_environment", lambda: config)
+    config = SimpleNamespace(registry_endpoint="crmlsynthetic.azurecr.io", resource_group="rg", subscription_id="s")
+    monkeypatch.setattr(p2.P2Config, "from_environment", lambda: config)
     monkeypatch.setattr(p2.subprocess, "check_output", lambda *a, **k: "AZURE_ENV_NAME=gg-dev\n")
     jobs = {"pipeline": JOB, "fairness": {"id": JOB["id"].replace("pipeline", "fairness")}}
     monkeypatch.setattr(p2, "az_json", lambda *a, **k: jobs[a[a.index("-n") + 1].removeprefix("job-gg-p2-")])

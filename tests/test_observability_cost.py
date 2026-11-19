@@ -33,8 +33,7 @@ def test_b3_gateway_omits_empty_named_values_and_requires_every_agent_pin():
     readiness = source.split("var agentsReady = ", 1)[1].split("resource values ", 1)[0]
     assert re.fullmatch(r"!empty\(\w+\)(?:\s*&&\s*!empty\(\w+\))*\s*", readiness)
     assert set(re.findall(r"!empty\((\w+)\)", readiness)) == {
-        "mainAgentVersion", "compactAgentVersion", "intentAgentVersion",
-        "understandingAgentVersion", "reviewAgentVersion",
+        "mainAgentVersion", "compactAgentVersion", "understandingAgentVersion",
     }
 
 
@@ -341,18 +340,16 @@ def test_gateway_preserves_identity_pins_and_fails_closed():
     for role, name in (
         ("main", "gg-counsellor"),
         ("compact", "gg-counsellor-voice-compact"),
-        ("intent", "gg-intent-agent"),
         ("understanding", "gg-understanding-agent"),
-        ("review", "gg-answer-review-agent"),
     ):
         assert f'name == "{name}"' in text and f"{{{{model-{role}-agent-version}}}}" in text
         assert f"'model-{role}-agent-version':" in gateway
     pinned = next(when for when in root.findall(".//when")
                   if when.find(".//set-status[@reason='Approved pinned agent required']") is not None)
-    assert pinned.attrib["condition"].count('name == "') == 5
+    assert pinned.attrib["condition"].count('name == "') == 3
     main = (ROOT/"infra/workloads.bicep").read_text()
-    assert "AZURE_AI_REVIEW_AGENT_VERSION: reviewAgentVersion" in main
-    assert "reviewAgentVersion: reviewAgentVersion" in main
+    assert "AZURE_AI_REVIEW_AGENT_VERSION" not in main
+    assert "reviewAgentVersion" not in main
     assert root.find(".//set-body") is None
 
 

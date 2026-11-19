@@ -21,7 +21,7 @@ def values():
 
 @pytest.mark.parametrize("change", [
     {"AZURE_ENV_NAME": "production"}, {"AZURE_AI_PROJECT_ENDPOINT": ""},
-    {"AZURE_AI_AGENT_VERSION": ""}, {"AZURE_AI_REVIEW_AGENT_VERSION": "latest"},
+    {"AZURE_AI_AGENT_VERSION": ""}, {"AZURE_AI_UNDERSTANDING_AGENT_VERSION": "latest"},
 ])
 def test_publication_requires_gg_dev_project_and_every_explicit_pin(change):
     with pytest.raises(EnvError):
@@ -36,7 +36,7 @@ def project():
     definitions = {
         "gg-counsellor": agent_definition(INSTRUCTIONS, model="gpt-counsellor"),
         "gg-counsellor-voice-compact": agent_definition(INSTRUCTIONS, model="gpt-compact"),
-        **{f"gg-{role}-agent": decision_definition(role) for role in ("intent", "understanding", "answer-review")},
+        **{f"gg-{role}-agent": decision_definition(role) for role in ("understanding",)},
     }
     remote = Mock()
     remote.agents.get_version.side_effect = lambda name, version: SimpleNamespace(
@@ -59,9 +59,9 @@ def test_fresh_publication_wires_pins_and_preserves_every_acceptance_gate(tmp_pa
 
     def collect(model, composer, actor_factory, directory, *, on_row, decision_agents, supporting_recorders):
         assert composer.agent_version == "1"
-        assert set(decision_agents) == {"intent", "understanding", "answer-review"}
+        assert set(decision_agents) == {"understanding"}
         assert all(agent.agent_version == "1" for agent in decision_agents.values())
-        assert set(supporting_recorders) == {"gpt-counsellor", "gpt-compact"}
+        assert set(supporting_recorders) == {"gpt-compact"}
         actor = actor_factory(PersonaScenario("synthetic", "ILLUSTRATIVE - synthetic data", "Explain", "Explain"))
         assert isinstance(actor, ScriptedPersona)
         collected.append(model)

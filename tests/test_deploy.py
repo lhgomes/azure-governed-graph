@@ -251,25 +251,22 @@ def test_provision_retries_only_known_transient_errors(tmp_path, monkeypatch, te
     assert delays == ([30, 60, 120] if retries else [])
 
 
-def test_each_registry_build_uses_only_its_own_dependency_family(monkeypatch):
+def test_single_registry_build_preserves_distinct_dependency_families(monkeypatch):
     calls = []
     def build(_runner, registry, target, dockerfile, paths, args, *, subscription):
         assert subscription == "selected-subscription"
         calls.append((registry, target, dockerfile, args))
         return {"image": registry + "/" + target}
     monkeypatch.setattr(deploy, "build", build)
-    deploy.image_artifacts(None, {"compute": {"registryName": "runtime-registry"},
-                                "learning": {"mlRegistryId": "/p2-registry"}}, COMPOSITION,
+    deploy.image_artifacts(None, {"compute": {"registryName": "shared-registry"}}, COMPOSITION,
                            subscription="selected-subscription")
     assert len(calls) == 6
     for registry, target, dockerfile, args in calls:
-        if registry == "p2-registry":
-            assert dockerfile.endswith("Dockerfile.p2")
+        assert registry == "shared-registry"
+        if dockerfile.endswith("Dockerfile.p2"):
             assert "FRAMEWORK_RUNTIME" not in args
-            assert "runtime-registry" not in " ".join(args.values())
         else:
             assert "FRAMEWORK_P2" not in args
-            assert "p2-registry" not in " ".join(args.values())
 
 
 @pytest.mark.parametrize("catalogue_upgrade", [False, True])
@@ -283,7 +280,6 @@ def test_initializer_receives_existing_keyless_telemetry_without_widening_signer
             "strategyIdentityId", "strategyClientId", "strategyPrincipalId", "keyVaultUri", "signingKeyName",
         )},
         "compute": {"registryName": "runtime-registry", "environmentId": "existing-environment"},
-        "learning": {"mlRegistryId": "/ml-registry"},
         "data": {"contentBlobEndpoint": "https://synthetic.blob.core.windows.net"},
         "monitoring": {"appInsightsRouting": "synthetic-routing-metadata"},
         "ai": {"projectResourceId": "/synthetic/approved-project"},
@@ -459,7 +455,6 @@ def delivery_flow(private_delivery, monkeypatch):
     monkeypatch.setattr(bootstrap, "approve_search_link", note("search link"))
     monkeypatch.setattr(bootstrap, "initial_priors", note("initial priors", {"initialize": {"initialized": True}}))
     monkeypatch.setattr(bootstrap, "member_public_jwk", note("public key", {}))
-    monkeypatch.setattr(bootstrap, "ml_containers", lambda *_: [])
     monkeypatch.setattr(deploy, "network_snapshot", lambda *_: None)
     monkeypatch.setattr(deploy, "run_job", lambda _runner, _inputs, name: calls.append(name) or name + "-execution")
     monkeypatch.setattr(source_upgrade, "load_upgrade", lambda *_: pytest.fail("ordinary delivery loaded an upgrade"))
@@ -1242,7 +1237,6 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
         create_agents.settings, agent_name="legacy-synthetic-counsellor", fairness_agent_name="legacy-synthetic-fairness"))
     calls = []
     foundation = {"compute": {"registryName": "synthetic"},
-                  "learning": {"mlRegistryId": "/synthetic"},
                   "ai": {"projectEndpoint": "https://approved.services.ai.azure.com/api/projects/test"}}
     results = writer_plans()
     images = {target: {"image": f"crsynthetic.azurecr.io/{target}@sha256:" + "a" * 64}
@@ -1279,7 +1273,6 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
         assert calls[-1][0] == (COMPOSITION.workload_template if catalogue_upgrade else "infra/bootstrap.bicep")
         return {"initialize": {"initialized": False}}
     monkeypatch.setattr(bootstrap, "initial_priors", initialize_in_selected_order)
-    monkeypatch.setattr(bootstrap, "ml_containers", lambda *_: ["verified-ml-owned"])
     monkeypatch.setattr(deploy, "run_job", lambda *_: "execution")
     monkeypatch.setattr(deploy, "readiness", lambda *_: None)
     monkeypatch.setattr(deploy, "save_json", lambda *_: None)
@@ -1290,7 +1283,7 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
     assert [name for name, _ in calls] == ["infra/main.bicep", "infra/bootstrap.bicep", COMPOSITION.workload_template]
     workload = calls[-1][1]["configuration"]
     assert workload["orchestratorImage"] == workload["strategyServiceImage"] == workload["memberValuesImage"]
-    assert workload["p2MlArtifactContainers"] == ["verified-ml-owned"]
+    assert "p2MlArtifactContainers" not in workload
     assert workload["personaAgentVersion"] == "7" and workload["deployVoicePersona"] is True
     assert calls[0][1]["deployVoicePersona"] is True
     assert receipt["readiness"] == "passed" and receipt["evaluation"] == "not_run"

@@ -20,8 +20,7 @@ VALUES = {
     "EXPLAINABILITY_CONTAINER": "explainability-records",
     "JOURNEY_STORAGE_URL": "https://synthetic.blob.core.windows.net",
     "AZURE_CONTAINER_REGISTRY_ENDPOINT": "registry.azurecr.io",
-    "AZURE_ML_WORKSPACE": "mlw-gg-synthetic", "AZURE_ML_REGISTRY_ID": "/registries/synthetic",
-    "AZURE_ML_STORAGE_ID": "/storageAccounts/synthetic",
+    "P2_ARTIFACT_STORAGE_URL": "https://synthetic.blob.core.windows.net",
     "AZURE_AI_PROJECT_ENDPOINT": "https://synthetic.services.ai.azure.com/api/projects/synthetic",
     "AZURE_AI_MODEL_DEPLOYMENT": "gpt-counsellor",
 }
