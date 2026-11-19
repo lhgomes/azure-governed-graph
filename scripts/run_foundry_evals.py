@@ -20,9 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PIN_KEYS = {
     "gg-counsellor": "AZURE_AI_AGENT_VERSION",
     "gg-counsellor-voice-compact": "AZURE_AI_VOICE_COMPACT_VERSION",
-    "gg-intent-agent": "AZURE_AI_INTENT_AGENT_VERSION",
     "gg-understanding-agent": "AZURE_AI_UNDERSTANDING_AGENT_VERSION",
-    "gg-answer-review-agent": "AZURE_AI_REVIEW_AGENT_VERSION",
 }
 
 
@@ -54,7 +52,7 @@ def run(project, values: dict[str, str], output: Path) -> int:
         "gg-counsellor": values.get("AZURE_AI_MODEL_DEPLOYMENT", "gpt-counsellor"),
         "gg-counsellor-voice-compact": values.get("AZURE_AI_COMPACT_DEPLOYMENT", "gpt-compact"),
     }
-    roles = ("intent", "understanding", "answer-review")
+    roles = ("understanding",)
     expected = {name: agent_definition(INSTRUCTIONS, model=model).as_dict() for name, model in writers.items()}
     expected.update({f"gg-{role}-agent": decision_definition(role).as_dict() for role in roles})
     for name, definition in expected.items():
@@ -65,10 +63,11 @@ def run(project, values: dict[str, str], output: Path) -> int:
     report = {
         "label": "SIMULATED - ILLUSTRATIVE - synthetic data",
         "environment": "gg-dev", "project_endpoint": values["AZURE_AI_PROJECT_ENDPOINT"],
-        "mode": "local deterministic adapters; real pinned Foundry writers, semantic agents and judges; NOT live proof",
+        "mode": "local deterministic adapters; real pinned Foundry writers, understanding agent and Decision API; NOT live proof",
         "actor_source": "fixed synthetic fixtures; not generated personas",
         "human_calibration": "not established", "automatic_promotion": False,
         "versions": {name: values[key] for name, key in PIN_KEYS.items()},
+        "decision_deployment": values.get("AZURE_AI_DECISION_DEPLOYMENT", "decision-v1"),
         "dataset_sha256": evidence_digest(cases("curated.jsonl") + cases("adversarial.jsonl") + persona_cases()),
         "rows": {},
     }

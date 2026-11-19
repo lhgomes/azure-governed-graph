@@ -23,9 +23,7 @@ module graph '../../../infra/workloads.bicep' = {
     p2ContainerImage: configuration.p2ContainerImage
     counsellorAgentVersion: configuration.counsellorAgentVersion
     voiceCompactAgentVersion: configuration.voiceCompactAgentVersion
-    intentAgentVersion: configuration.intentAgentVersion
     understandingAgentVersion: configuration.understandingAgentVersion
-    reviewAgentVersion: configuration.reviewAgentVersion
     writerApproval: configuration.writerApproval
     memberTokenIssuer: configuration.memberTokenIssuer
     memberTokenPublicJwk: configuration.memberTokenPublicJwk

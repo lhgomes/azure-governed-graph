@@ -20,9 +20,7 @@
           || body["model"] != null || body["instructions"] != null || body["tools"] != null || body["text"] != null
           || !((name == "gg-counsellor" &amp;&amp; version == "{{model-main-agent-version}}")
             || (name == "gg-counsellor-voice-compact" &amp;&amp; version == "{{model-compact-agent-version}}")
-            || (name == "gg-intent-agent" &amp;&amp; version == "{{model-intent-agent-version}}")
-            || (name == "gg-understanding-agent" &amp;&amp; version == "{{model-understanding-agent-version}}")
-            || (name == "gg-answer-review-agent" &amp;&amp; version == "{{model-review-agent-version}}")); }'>
+            || (name == "gg-understanding-agent" &amp;&amp; version == "{{model-understanding-agent-version}}")); }'>
         <return-response><set-status code="400" reason="Approved pinned agent required" /></return-response>
       </when>
       <!-- Human approval is scoped to the immutable writer and Foundry project, not a universal version number. -->

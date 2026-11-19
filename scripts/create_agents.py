@@ -115,7 +115,7 @@ def provision(project, *, apply: bool, role: str = "counsellor", agent_name: str
 
         definition = fairness_definition()
         name, decision = settings.fairness_agent_name, "IMP-34"
-    elif role in ("intent", "understanding", "answer-review"):
+    elif role == "understanding":
         from governedgraph.agents.decision_agents import agent_definition as decision_definition, deployment_for
 
         definition = decision_definition(role)
@@ -178,8 +178,8 @@ def provision(project, *, apply: bool, role: str = "counsellor", agent_name: str
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
-    parser.add_argument("--role", choices=("counsellor", "fairness", "voice-compact", "intent", "understanding",
-                                        "answer-review", "evaluation", "persona"),
+    parser.add_argument("--role", choices=("counsellor", "fairness", "voice-compact", "understanding",
+                                        "evaluation", "persona"),
                         default="counsellor")
     args = parser.parse_args()
     if args.apply:

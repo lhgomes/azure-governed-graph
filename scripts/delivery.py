@@ -19,17 +19,13 @@ LABEL = "ILLUSTRATIVE - synthetic data"
 AGENT_ROLES = {
     "counsellor": "AZURE_AI_AGENT_VERSION",
     "voice-compact": "AZURE_AI_VOICE_COMPACT_VERSION",
-    "intent": "AZURE_AI_INTENT_AGENT_VERSION",
     "understanding": "AZURE_AI_UNDERSTANDING_AGENT_VERSION",
-    "answer-review": "AZURE_AI_REVIEW_AGENT_VERSION",
     "fairness": "AZURE_AI_FAIRNESS_AGENT_VERSION",
 }
 AGENT_NAMES = {
     "counsellor": "gg-counsellor",
     "voice-compact": "gg-counsellor-voice-compact",
-    "intent": "gg-intent-agent",
     "understanding": "gg-understanding-agent",
-    "answer-review": "gg-answer-review-agent",
     "fairness": "gg-fairness-explainability",
 }
 COMMAND_POLICY = {

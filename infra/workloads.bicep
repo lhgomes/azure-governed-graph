@@ -36,10 +36,7 @@ param counsellorAgentVersion string = ''
 @description('Exact immutable compact voice candidate version (IMP-35); empty fails closed.')
 param voiceCompactAgentVersion string = ''
 @description('Exact immutable contextual decision agents; empty fails closed.')
-param intentAgentVersion string = ''
 param understandingAgentVersion string = ''
-@description('Exact immutable source-grounded answer judge version; empty fails closed.')
-param reviewAgentVersion string = ''
 @description('Verified human Tier-2 writer approval object. Null or empty keeps generated answers suspended.')
 param writerApproval object?
 @description('Explicit synthetic conversation visibility; only effective in the opted-in gg-dev presenter.')
@@ -225,9 +222,7 @@ module compute 'modules/compute.bicep' = {
       GOVERNEDGRAPH_SERVICE_NAME: 'gg-orchestrator'
       AZURE_AI_AGENT_VERSION: counsellorAgentVersion
       AZURE_AI_VOICE_COMPACT_VERSION: voiceCompactAgentVersion
-      AZURE_AI_INTENT_AGENT_VERSION: intentAgentVersion
       AZURE_AI_UNDERSTANDING_AGENT_VERSION: understandingAgentVersion
-      AZURE_AI_REVIEW_AGENT_VERSION: reviewAgentVersion
       AZURE_AI_DECISION_DEPLOYMENT: ai.outputs.decisionDeployment
       AZURE_AI_PERSONA_VERSION: personaAgentVersion
       GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS: traceSyntheticConversations && environmentName == 'gg-dev' && deployVoiceDemo ? 'true' : 'false'
@@ -314,9 +309,7 @@ module modelGateway 'modules/model-gateway.bicep' = {
     runtimeClientId: security.outputs.runtimeIdentityClientId
     mainAgentVersion: counsellorAgentVersion
     compactAgentVersion: voiceCompactAgentVersion
-    intentAgentVersion: intentAgentVersion
     understandingAgentVersion: understandingAgentVersion
-    reviewAgentVersion: reviewAgentVersion
     writerApprovalJson: empty(writerApproval) ? '' : string(writerApproval)
     // gg-dev only: a live persona answers in seconds, so a rewrite round can use ~16k tokens in under a minute.
     // The daily token quota below stays unchanged.
