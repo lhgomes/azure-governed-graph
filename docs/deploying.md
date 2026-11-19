@@ -81,6 +81,54 @@ See Microsoft's guidance on [resource-provider registration](https://learn.micro
 [APIM outbound VNet integration](https://learn.microsoft.com/azure/api-management/integrate-vnet-outbound)
 and [Azure ML provider prerequisites](https://learn.microsoft.com/azure/machine-learning/how-to-manage-workspace-cli#troubleshoot-resource-provider-errors).
 
+#### Network feature registration failure
+
+Provider registration does not register individual subscription features. If
+the network deployment fails with `SubscriptionNotRegisteredForFeature` naming
+`Microsoft.Network/AllowBringYourOwnPublicIpAddress`, inspect the failed
+resource operation before making subscription changes:
+
+```bash
+az deployment operation group list --subscription "$SUBSCRIPTION_ID" \
+  --resource-group "<selected-resource-group>" --name network \
+  --query "[?properties.provisioningState=='Failed'].{Resource:properties.targetResource.id,Error:properties.statusMessage}" \
+  --output json
+```
+
+Azure can report this error for the ML outbound public IP
+(`pip-gg-ml-outbound-<token>`). The current template requests an ordinary
+Azure-allocated Standard static public IP for its NAT gateway; it does not
+request a custom IP prefix or supply an IP address. Do not remove the NAT
+gateway or enable default outbound access to bypass the error.
+
+If Azure requires this feature, an authorized subscription administrator can
+register it under the organization's feature-approval policy:
+
+```bash
+az feature register --subscription "$SUBSCRIPTION_ID" \
+  --namespace Microsoft.Network --name AllowBringYourOwnPublicIpAddress
+az feature show --subscription "$SUBSCRIPTION_ID" \
+  --namespace Microsoft.Network --name AllowBringYourOwnPublicIpAddress \
+  --query properties.state --output tsv
+```
+
+Repeat the read-only `az feature show` command until it reports `Registered`.
+Only then refresh the provider registration to propagate the feature:
+
+```bash
+az provider register --subscription "$SUBSCRIPTION_ID" \
+  --namespace Microsoft.Network --wait
+az provider show --subscription "$SUBSCRIPTION_ID" \
+  --namespace Microsoft.Network --query registrationState --output tsv
+```
+
+After both states are `Registered`, retry the authorized delivery with the
+same target. If feature registration remains `Pending`, is unavailable or
+the failure persists, contact Azure Support with the failed resource ID,
+deployment name and correlation ID. Do not bypass subscription policies.
+See [Azure feature registration](https://learn.microsoft.com/azure/azure-resource-manager/management/preview-features)
+and Microsoft's [guidance for this public-IP feature error](https://learn.microsoft.com/azure/microsoft-discovery/troubleshoot-microsoft-discovery#supercomputer-deployment-stalls-because-a-required-public-ip-feature-isn't-registered).
+
 ## Commands and explicit inputs
 
 Use Python 3.14, Azure CLI, Azure Developer CLI, Bicep and the existing verified
