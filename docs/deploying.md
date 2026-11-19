@@ -15,7 +15,7 @@ This is a reference topology for **Azure Public**, not a one-command hosted demo
 | Subscription and authorization | An approved subscription and permissions for subscription-scope/resource-group deployments, resource creation, managed identities, custom roles and role assignments; the exact role grants must be reviewed under local policy. |
 | Regions and quotas | The bundled `gg-dev` composition references `swedencentral` for the primary deployment and `francecentral` for Content Safety. Verify allowed data movement, each model's regional availability, quota and service limits before deploying or changing the template. |
 | Toolchain | Python **3.14** and pinned `requirements-azure.txt` in an **approved Azure-hosted delivery environment**, plus Azure CLI, Azure Developer CLI and Bicep. `pyproject.toml`'s broader Python metadata is not a guarantee that earlier Python versions are supported by this Azure delivery path. |
-| Private input | Create `.azure/private-delivery.json` from the placeholder example below; provide subscription, operator ID, on-call destination and composition. Keep actual identities and all receipts outside Git. The script selects/generates resource-group and naming-seed information as described below. |
+| Private input | Create `.azure/private-delivery.json` from the placeholder example below; provide subscription, on-call destination and composition. The operator ID is optional and defaults to the signed-in user in the selected subscription's tenant. Keep actual identities and all receipts outside Git. The script selects/generates resource-group and naming-seed information as described below. |
 | Budget and cleanup | Estimate recurring charges and set a budget. The sample can provision Foundry model deployments, AI Search, Container Apps, ACR, APIM, Key Vault, Storage, Service Bus, Azure ML, networking, Content Safety and monitoring. Live inference, voice, evaluations, retained telemetry and idle SKUs may all cost money. Read the teardown section before provisioning. |
 
 Prices are deployment-dependent: **no cost or latency figure in the repository should be treated as an Azure quote**. Use the [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) and your subscription's actual regional quotas/SKUs. The default reference example and its sample member data are synthetic; do not substitute real members or production records without a separate security, privacy and governance assessment.
@@ -501,7 +501,6 @@ are illustrative placeholders, not an Azure deployment:
 {
   "environment": "gg-dev",
   "subscription": "00000000-0000-0000-0000-000000000001",
-  "operator_id": "00000000-0000-0000-0000-000000000003",
   "on_call_email": "synthetic@example.invalid",
   "composition": "examples/pension_wtp/deployment.json",
   "location": "swedencentral",
@@ -510,7 +509,22 @@ are illustrative placeholders, not an Azure deployment:
 }
 ```
 
-Subscription, operator, on-call destination and composition are required.
+Subscription, on-call destination and composition are required.
+`operator_id` is optional: omit it or set it to `""` to resolve the signed-in
+deploying user's tenant-local object ID live through Microsoft Graph `/me`.
+The lookup uses the selected subscription's tenant, not the ambient CLI
+subscription, and runs before environment writes or foundation provisioning.
+`--plan` never performs this lookup. A supplied UUID remains unchanged; a stale
+or incorrect supplied ID is not silently replaced. To use discovery instead,
+remove that field from the private file.
+
+The resolved ID is used consistently for the existing developer RBAC,
+recovery operator and demo/admin operator configuration. It is not written back
+to the private input file, so an omitted ID is resolved again on each applied
+delivery. Lookup failure or missing delegated user context stops delivery
+explicitly; there is no fallback to an application identity or home-tenant ID.
+No new roles or permissions are introduced.
+
 `naming_seed` and `resource_group` are optional saved target fields, populated
 by deployment selection. Existing private files containing them remain supported.
 Other optional fields default to the approved environment/regions and an

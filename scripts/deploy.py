@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 import os
 import sys
@@ -76,9 +77,23 @@ def environment(runner, inputs, composition) -> None:
 
 
 def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> dict:
+    from governedgraph.strategy_service.provision_auth import GraphError
+
     stage(runner, "environment", target={"subscription": inputs.subscription, "resource_group": inputs.resource_group,
                                        "naming_seed": inputs.naming_seed, "location": inputs.location,
                                        "composition": composition.name})
+    if not inputs.operator_id:
+        from scripts.configure_admin_console import signed_in_user
+
+        print("Resolving delivery operator from the signed-in user...", flush=True)
+        os.environ["AZURE_SUBSCRIPTION_ID"] = inputs.subscription
+        try:
+            inputs = replace(inputs, operator_id=signed_in_user())
+        except (GraphError, ValueError) as error:
+            raise DeliveryError(
+                "Cannot resolve operator_id in the selected subscription's tenant; "
+                f"sign in as a user or supply operator_id explicitly. {error}"
+            ) from None
     environment(runner, inputs, composition)
     from scripts.bootstrap import agents, approve_search_link, persona_agent, release_approval, entra, initial_priors, member_public_jwk, ml_containers
     from scripts.create_agents import provision as agent_plan
@@ -109,8 +124,6 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
     print("Running bounded bootstrap...", flush=True)
     stage(runner, "bounded bootstrap", images=images)
     os.environ["AZURE_AI_PROJECT_ENDPOINT"] = foundation["ai"]["projectEndpoint"]
-    from governedgraph.strategy_service.provision_auth import GraphError
-
     try:
         registrations = entra(inputs, foundation)
     except GraphError as error:

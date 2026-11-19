@@ -10,6 +10,7 @@ import pytest
 from scripts import bootstrap, delivery, deploy
 from scripts.azd_env import EnvError
 from scripts.delivery_evidence import Evidence
+from governedgraph.strategy_service.provision_auth import GraphError
 
 COMPOSITION = delivery.Composition.load(delivery.ROOT / "examples/pension_wtp/deployment.json")
 
@@ -466,6 +467,10 @@ def delivery_flow(private_delivery, monkeypatch):
 
 
 def test_normal_delivery_preserves_baseline_order_and_never_loads_catalogue_migration(delivery_flow, monkeypatch):
+    from scripts import configure_admin_console
+
+    monkeypatch.setattr(configure_admin_console, "signed_in_user",
+                        lambda: pytest.fail("an explicit operator must not be replaced"))
     inputs = delivery.Inputs.load(delivery_flow.path)
     runner = SimpleNamespace(run=lambda *_: "")
     monkeypatch.setattr(deploy, "readiness", lambda *_: delivery_flow.calls.append("readiness"))
@@ -474,6 +479,74 @@ def test_normal_delivery_preserves_baseline_order_and_never_loads_catalogue_migr
         "environment", "release approval", "foundation", "images", "entra", "agents", "search link",
         "bootstrap", "issuer", "public key", "initial priors", "content", "fixtures", "workloads", "readiness",
     ]
+
+
+@pytest.mark.parametrize("operator_id", [None, ""])
+def test_missing_operator_resolves_in_selected_tenant_before_foundation(delivery_flow, monkeypatch, operator_id):
+    from scripts import configure_admin_console
+
+    raw = delivery_flow.raw
+    if operator_id is None:
+        raw.pop("operator_id")
+    else:
+        raw["operator_id"] = operator_id
+    original = json.dumps(raw)
+    delivery_flow.path.write_text(original)
+    inputs = delivery.Inputs.load(delivery_flow.path)
+    resolved = "00000000-0000-0000-0000-000000000004"
+    monkeypatch.setenv("AZURE_SUBSCRIPTION_ID", "different-subscription")
+
+    def signed_in_user():
+        assert deploy.os.environ["AZURE_SUBSCRIPTION_ID"] == inputs.subscription
+        delivery_flow.calls.append("operator")
+        return resolved
+
+    original_environment = deploy.environment
+    original_provision = deploy.provision
+
+    def environment(runner, selected, composition):
+        assert selected.operator_id == resolved
+        original_environment(runner, selected, composition)
+
+    def provision(runner, selected, template, values):
+        assert selected.operator_id == resolved
+        if template == "infra/main.bicep":
+            assert values["principalId"] == resolved
+        return original_provision(runner, selected, template, values)
+
+    monkeypatch.setattr(configure_admin_console, "signed_in_user", signed_in_user)
+    monkeypatch.setattr(deploy, "environment", environment)
+    monkeypatch.setattr(deploy, "provision", provision)
+    monkeypatch.setattr(deploy, "readiness", lambda *_: None)
+    commands = []
+    runner = SimpleNamespace(run=lambda args: commands.append(args) or "")
+    assert deploy.deploy(runner, inputs, COMPOSITION)["readiness"] == "passed"
+    assert delivery_flow.calls[:4] == ["operator", "environment", "release approval", "foundation"]
+    settings = {args[3]: args[4] for args in commands if args[:3] == ["azd", "env", "set"]}
+    assert settings["STRATEGY_RECOVERY_OPERATOR_ID"] == settings["VOICE_DEMO_OPERATOR_ID"] == resolved
+    assert delivery_flow.path.read_text() == original
+
+
+@pytest.mark.parametrize("error", [
+    ValueError("signed-in user response has no valid object ID"),
+    GraphError("GET", "me", 400, "delegated user context required"),
+])
+def test_operator_lookup_failure_stops_before_environment_writes_or_provisioning(
+        delivery_flow, monkeypatch, error):
+    from scripts import configure_admin_console
+
+    delivery_flow.raw.pop("operator_id")
+    delivery_flow.path.write_text(json.dumps(delivery_flow.raw))
+    inputs = delivery.Inputs.load(delivery_flow.path)
+
+    def unavailable():
+        raise error
+
+    monkeypatch.setattr(configure_admin_console, "signed_in_user", unavailable)
+    runner = SimpleNamespace(run=lambda *_: pytest.fail("identity failure must not write or provision"))
+    with pytest.raises(delivery.DeliveryError, match="Cannot resolve operator_id"):
+        deploy.deploy(runner, inputs, COMPOSITION)
+    assert delivery_flow.calls == []
 
 
 def test_conditional_access_denial_finishes_bootstrap_receipt_without_retry(delivery_flow, monkeypatch, capsys):
@@ -625,14 +698,23 @@ def test_failed_submission_collects_read_only_azure_state_without_resubmitting(p
 
 
 @pytest.mark.parametrize("resource_group", [None, "rg-gg-dev-test"])
-def test_plan_runs_nothing(private_delivery, monkeypatch, capsys, resource_group):
+@pytest.mark.parametrize("operator_id", [None, "", "00000000-0000-0000-0000-000000000003"])
+def test_plan_runs_nothing(private_delivery, monkeypatch, capsys, resource_group, operator_id):
+    from scripts import configure_admin_console
+
     path, raw = private_delivery
+    if operator_id is None:
+        raw.pop("operator_id")
+    else:
+        raw["operator_id"] = operator_id
     if resource_group is not None:
         raw["resource_group"] = resource_group
     content = json.dumps(raw)
     path.write_text(content)
     monkeypatch.setattr(delivery.Composition, "load", lambda _: COMPOSITION)
     monkeypatch.setattr(delivery.Runner, "run", lambda *_args, **_kwargs: pytest.fail("plan must not call cloud"))
+    monkeypatch.setattr(configure_admin_console, "signed_in_user",
+                        lambda: pytest.fail("plan must not resolve the signed-in user"))
     inputs = delivery.Inputs.load(path)
     suffix = hashlib.sha256(bytes.fromhex("00000000000000000000000000000002")).hexdigest()[:12]
     assert inputs.resource_group == (resource_group or f"rg-gg-dev-{suffix}")

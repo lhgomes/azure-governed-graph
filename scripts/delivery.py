@@ -211,9 +211,9 @@ class Inputs:
     subscription: str
     resource_group: str
     naming_seed: str
-    operator_id: str
     on_call_email: str
     composition: str
+    operator_id: str = ""
     location: str = "swedencentral"
     search_location: str = "swedencentral"
     voice_demo: bool = True
@@ -246,8 +246,12 @@ class Inputs:
         if set(raw) - set(cls.__dataclass_fields__):
             raise DeliveryError("unknown delivery input")
         value = cls(**raw)
-        for field in ("subscription", "naming_seed", "operator_id"):
+        for field in ("subscription", "naming_seed"):
             UUID(getattr(value, field))
+        if not isinstance(value.operator_id, str):
+            raise DeliveryError("operator_id must be a UUID string or omitted")
+        if value.operator_id:
+            UUID(value.operator_id)
         if value.environment != "gg-dev" or value.location != "swedencentral":
             raise DeliveryError("this approved delivery targets gg-dev in swedencentral only")
         if not re.fullmatch(r"[A-Za-z0-9_().-]{1,89}[A-Za-z0-9_()-]", value.resource_group):
