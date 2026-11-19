@@ -128,8 +128,9 @@ def probe_channel(signer: RemoteSigner, issuer: str, orchestrator: str,
             headers["Authorization"] = "Bearer " + token
         return send(method, base + path, headers=headers, **kwargs)
 
-    def start(token: str = valid) -> str:
-        response = request("POST", "/journeys", token, json=body)
+    def start(token: str = valid, contact_type: str = "") -> str:
+        response = request("POST", "/journeys", token,
+                           json={**body, **({"contact_type": contact_type} if contact_type else {})})
         require("journey_started", response.status_code == 200)
         result = response.json()
         journey_id = result["journey_id"]
@@ -157,7 +158,9 @@ def probe_channel(signer: RemoteSigner, issuer: str, orchestrator: str,
             break
         require("control_stays_static", result["strategy_id"] == "S1", explanation)
     require("treatment_journey", result["arm"] == "treatment", explanation)
-    require("s5_selected", result["strategy_id"] == "S5" and not result["escalated"], explanation)
+    # B3: the runtime selects only from the served ranking, whichever strategy the approved priors rank first.
+    require("served_strategy_selected",
+            result["strategy_id"] in result["ranked"] and not result["escalated"], explanation)
 
     advice = start()
     question = demo["proof_advice_question"]
@@ -180,6 +183,15 @@ def probe_channel(signer: RemoteSigner, issuer: str, orchestrator: str,
     require("injection_blocked_at_screening",
             result["escalated"] and str(result.get("blocked_reason", "")).startswith("input blocked:"),
             injection)
+    # A returning member and a recap that also asks something must each get an explanation, never a decline or
+    # the closing acknowledgement (both carry no selected strategy).
+    second = start(contact_type="second_contact")
+    result = turn(second, demo["proof_second_contact_question"], uuid4().hex)
+    require("second_contact_answered", not result["escalated"] and result["strategy_id"] is not None, second)
+    recap = start()
+    turn(recap, demo["proof_explanation_question"], uuid4().hex)
+    result = turn(recap, demo["proof_recap_question"], uuid4().hex)
+    require("recap_question_answered", not result["escalated"] and result["strategy_id"] is not None, recap)
     report_base = apim_url.rstrip("/") + "/journey" if apim_url else base
     report_path = f"/members/{demo['member_ref']}/explainability-report"
 

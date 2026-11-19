@@ -221,6 +221,28 @@ class OrchestratorService:
                 raise InvalidAnswerReference("answer reference is not available for this member")
             return self._explanation(target.record, reference, identity, before=before)
 
+    def _latest_answer(self, record: JourneyRecord, identity: MemberIdentity,
+                       *, before: datetime) -> ResponseReference | None:
+        """The latest checked explanation already delivered in this journey, if any. Attribution never blocks
+        a turn: an answer that cannot be verified is simply left unlinked."""
+        journey = record.journey
+        if journey.test_strategy_id:
+            return None
+        for event in reversed(journey.events):
+            if event.response_id is None or event.response_withheld:
+                continue
+            reference = ResponseReference(journey.journey_id, event.response_id)
+            try:
+                self._explanation(record, reference, identity, before=before)
+            except InvalidAnswerReference:
+                continue
+            except Exception as error:
+                log.warning("followup_attribution_unavailable", extra={
+                    "journey_id": journey.journey_id, "error_type": type(error).__name__})
+                return None
+            return reference
+        return None
+
     @staticmethod
     def _answer_context(journey: Journey, audit: ExplainabilityRecord):
         from governedgraph.agents.decision_agents import DecisionContext
@@ -429,6 +451,8 @@ class OrchestratorService:
                 journey.record_linked_contact(related_answer, response_reference(journey_id, f"link:{request_id}"),
                                               received_at=received_at.isoformat(timespec="microseconds"))
             was_resolved = journey.state == State.RESOLVED
+            # A new in-scope question after an answer follows that answer; the member never has to say so.
+            followed = related_answer or self._latest_answer(record, identity, before=received_at)
             if was_resolved:
                 emit("journey_contact", event_id=f"{journey_id}:contact:{request_id}", journey_id=journey_id,
                      contact_key=contact_key(identity.member_ref), agent_name="gg-orchestrator",
@@ -454,12 +478,12 @@ class OrchestratorService:
                 counsellor._current_strategy = journey.strategies_tried[-1] if journey.strategies_tried else None
                 loaded = perf_counter()
                 result = counsellor.handle(utterance)
-                if related_answer is not None:
+                if followed is not None:
                     for index in range(count, len(journey.events)):
                         if journey.events[index].event == Event.INTENT_IN_SCOPE.value:
                             journey.events[index] = replace(
-                                journey.events[index], related_journey_id=related_answer.journey_id,
-                                related_response_id=related_answer.response_id,
+                                journey.events[index], related_journey_id=followed.journey_id,
+                                related_response_id=followed.response_id,
                             )
                             break
                 offer = self._offer_outcome(counsellor, result, record)

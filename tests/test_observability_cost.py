@@ -15,6 +15,7 @@ from governedgraph.common.operational_logging import OperationalFormatter
 from governedgraph.common.contracts import ContractError
 from governedgraph.cost_reporting import Contact, Cost, report
 from governedgraph.observability import contact_key, emit, headers, model_usage, operation
+from strategy_doubles import install_no_export_tracing
 
 ROOT = Path(__file__).resolve().parents[1]
 START = datetime(2026, 10, 1, tzinfo=timezone.utc)
@@ -33,8 +34,7 @@ def test_b3_gateway_omits_empty_named_values_and_requires_every_agent_pin():
     readiness = source.split("var agentsReady = ", 1)[1].split("resource values ", 1)[0]
     assert re.fullmatch(r"!empty\(\w+\)(?:\s*&&\s*!empty\(\w+\))*\s*", readiness)
     assert set(re.findall(r"!empty\((\w+)\)", readiness)) == {
-        "mainAgentVersion", "compactAgentVersion", "intentAgentVersion",
-        "understandingAgentVersion", "reviewAgentVersion",
+        "mainAgentVersion", "compactAgentVersion",
     }
 
 
@@ -127,9 +127,11 @@ def test_all_outbound_headers_have_the_same_journey_trace_root():
     assert headers("J-1")["traceparent"].split("-")[1] != headers("J-2")["traceparent"].split("-")[1]
 
 
-def test_local_operation_needs_no_azure_dependency():
+def test_operation_spans_carry_only_the_journey_and_agent_without_azure_export(monkeypatch):
+    install_no_export_tracing(monkeypatch)
     with operation("J-1", "test.operation", agent_name="synthetic") as span:
-        assert span is None
+        assert span.is_recording()
+        assert dict(span.attributes) == {"journey_id": "J-1", "gen_ai.agent.name": "synthetic"}
 
 
 def test_b4_foundry_connection_uses_project_identity_not_a_key():
@@ -341,18 +343,15 @@ def test_gateway_preserves_identity_pins_and_fails_closed():
     for role, name in (
         ("main", "gg-counsellor"),
         ("compact", "gg-counsellor-voice-compact"),
-        ("intent", "gg-intent-agent"),
-        ("understanding", "gg-understanding-agent"),
-        ("review", "gg-answer-review-agent"),
     ):
         assert f'name == "{name}"' in text and f"{{{{model-{role}-agent-version}}}}" in text
         assert f"'model-{role}-agent-version':" in gateway
     pinned = next(when for when in root.findall(".//when")
                   if when.find(".//set-status[@reason='Approved pinned agent required']") is not None)
-    assert pinned.attrib["condition"].count('name == "') == 5
+    assert pinned.attrib["condition"].count('name == "') == 2
     main = (ROOT/"infra/workloads.bicep").read_text()
-    assert "AZURE_AI_REVIEW_AGENT_VERSION: reviewAgentVersion" in main
-    assert "reviewAgentVersion: reviewAgentVersion" in main
+    assert "AZURE_AI_REVIEW_AGENT_VERSION" not in main
+    assert "reviewAgentVersion" not in main
     assert root.find(".//set-body") is None
 
 

@@ -23,7 +23,7 @@ KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 @pytest.fixture
 def token(monkeypatch):
     monkeypatch.setattr(auth, "settings", replace(
-        auth.settings, mode="azure", strategy_tenant_id=TENANT, strategy_api_client_id="strategy-api",
+        auth.settings, strategy_tenant_id=TENANT, strategy_api_client_id="strategy-api",
         strategy_publisher_id="p2", strategy_fairness_id="fairness", strategy_runtime_id="runtime",
         strategy_admin_id="admin", strategy_governance_group="", strategy_recovery_operator_id=""))
     monkeypatch.setattr(auth, "signing_keys", lambda _: SimpleNamespace(
@@ -160,7 +160,8 @@ def test_b3_b8_gateway_lists_every_console_route_and_exposes_no_wildcard_or_publ
     routes = re.findall(r"method: '(\w+)', path: '([^']+)'", ops)
     assert sorted(routes) == sorted([
         ("GET", "/"), ("GET", "/assets/{name}"), ("GET", "/api/access"), ("GET", "/api/overview"), ("GET", "/api/journeys"),
-        ("GET", "/api/journeys/{journeyId}"), ("GET", "/api/traces/{journeyId}"), ("POST", "/api/actions")])
+        ("GET", "/api/journeys/{journeyId}"), ("GET", "/api/traces/{journeyId}"), ("POST", "/api/actions"),
+        ("POST", "/api/owner-actions"), ("POST", "/api/catalogue")])
     assert "/*" not in ops and "path: 'admin'" in gateway
     main = (ROOT / "infra/workloads.bicep").read_text()
     assert "STRATEGY_ADMIN_PRINCIPAL_ID: security.outputs.adminPrincipalId" in main

@@ -109,24 +109,6 @@ module gateway 'modules/gateway-foundation.bicep' = {
     apimSubnetId: network.outputs.apimSubnetId
   }
 }
-module learning 'modules/learning.bicep' = {
-  name: 'learning'
-  scope: rg
-  params: {
-    location: location
-    tags: tags
-    token: token
-    aggregateStorageId: data.outputs.storageId
-    logAnalyticsId: monitoring.outputs.logAnalyticsId
-    pipelinePrincipalId: security.outputs.pipelinePrincipalId
-    fairnessPrincipalId: security.outputs.fairnessPrincipalId
-    privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    virtualNetworkId: network.outputs.virtualNetworkId
-    deployFabric: false
-    fabricAdminUpn: ''
-    mlArtifactContainers: []
-  }
-}
 module rbac 'modules/rbac.bicep' = {
   name: 'rbac'
   scope: rg
@@ -163,7 +145,6 @@ output foundation object = {
     infrastructureSubnetId: network.outputs.infrastructureSubnetId
     apimSubnetId: network.outputs.apimSubnetId
     privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
-    mlComputeSubnetId: network.outputs.mlComputeSubnetId
   }
   monitoring: {
     logAnalyticsId: monitoring.outputs.logAnalyticsId
@@ -228,14 +209,6 @@ output foundation object = {
     projectEndpoint: ai.outputs.projectEndpoint
     projectResourceId: ai.outputs.projectResourceId
     decisionDeployment: ai.outputs.decisionDeployment
-  }
-  learning: {
-    mlWorkspaceName: learning.outputs.mlWorkspaceName
-    mlStorageId: learning.outputs.mlStorageId
-    mlRegistryId: learning.outputs.mlRegistryId
-    mlVaultId: learning.outputs.mlVaultId
-    mlAppInsightsId: learning.outputs.mlAppInsightsId
-    workspacePrincipalId: learning.outputs.workspacePrincipalId
   }
   compute: {
     registryName: compute.outputs.registryName

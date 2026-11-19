@@ -53,14 +53,43 @@ messages containing utterances are not persisted as framework checkpoints.
 Native Azure services supply infrastructure; the journey logic, closed
 contracts, strategy ranking, vetoes and release gates are framework code.
 
-**Decision `IMP-DECISION-MODEL`:** Microsoft-Decision-1.1 is the sole model
-for intent routing and semantic draft review. The host maps intent reasons to
-approved routes and records closed review verdicts, repair issue codes, and
-teach-back concepts as decision evidence. There is no second judge or model
-fallback for these checks. A rejected draft cannot be released; an assessable
-non-advice defect can use the existing bounded repair. Unavailable decisions
-fail closed. The separate understanding assessment and the deterministic
-numeric fidelity, steering, and audit gates remain unchanged.
+### Decision model
+
+A single pinned Decision model performs the closed semantic checks: intent
+routing, answer review and teach-back understanding. There is no second judge
+or model fallback.
+
+- **Closed outputs.** Each request asks one question and returns one label from
+  a closed set. The domain pack supplies a description of every label
+  (`decision_criteria` in the vocabulary), validated against the closed reason
+  and concept sets. Unrelated questions are never combined in one request:
+  intent reason and response language are separate parallel requests, as are the
+  review verdict and the concept checks.
+- **Confidence gate.** A reason or verdict is accepted only above a
+  greater-than-half confidence. Transport, response-contract and low-confidence
+  failures are distinguished in content-free operational logs. Unavailable
+  intent or review evidence fails closed to a human handover (B9).
+- **Answer review.** One holistic verdict is returned for the approved rubric
+  (most serious issue first; advice always blocks). Every safety defect (advice,
+  grounding, document access, uncertainty, language, unassessable evidence)
+  blocks the draft and falls back to approved wording. After the single bounded
+  repair, a rejection for relevance or teaching style alone delivers the draft
+  that already passed the safety checks and every deterministic gate, without a
+  teach-back. Concept checks only decide which concepts are recorded as taught,
+  so they are optional.
+- **Understanding.** A restatement is `understood`, `needs_explanation` or
+  `uncertain`. `uncertain` records neither a pass nor a failure (B5) and returns
+  approved retry wording that asserts nothing about correctness, figures or
+  options (B2, GNA). The judge assesses meaning and never verifies figures.
+- **Retries.** HTTP 429 responses use one Retry-After retry within the shared
+  per-turn wait budget. Other errors and rejected judgments are not retried.
+- **Diagnostics.** Model request and response text is never part of ordinary
+  operational telemetry. An opt-in, synthetic-data-only diagnostic mode is
+  described in [observability](observability.md); it is never an input to
+  prompts, ranking, templates or learning (B4).
+
+The deterministic numeric-fidelity, steering and audit gates are unchanged by
+any of these checks.
 
 The foundation provisions the pinned Decision model in the workload's Foundry
 account. The workload takes the deployment name from the foundation output;
@@ -74,17 +103,10 @@ subnet. The environment remains internal with public network access disabled.
 The existing environment-domain private DNS zone maps its apex and wildcard to
 the private endpoint's allocated address, not the environment's `staticIp`.
 Environment-only routes remain environment-only; no identity or permission is
-shared or added by this network connection.
-
-Decision `IMP-PRIVATE-APPLICATION-INGRESS`: use an explicit Azure Private Link
-endpoint rather than depend on the implicit internal ingress address. The
-reported environment address was outside the VNet and APIM timed out before
-reaching any application. This is a private connectivity correction, not a
-change to B1-B10, channel authorization, catalogue approval or learning.
-Alternatives were Azure support repair of implicit ingress, or public access
-(rejected). Private Link adds recurring network and Container Apps charges.
-The narrowly scoped module also supports recovery of an existing deployment
-without rebuilding images, rerunning bootstrap or replacing data stores.
+shared or added by this network connection. An explicit Private Link endpoint is
+used rather than the implicit internal ingress address, which is not reliably
+reachable from the VNet; it adds recurring network charges and does not change
+B1-B10, channel authorization, catalogue approval or learning.
 
 ## Runtime sequence (P1)
 
@@ -109,9 +131,8 @@ without rebuilding images, rerunning bootstrap or replacing data stores.
    the member to repeat an already classified question: the approved answer-failure
    acknowledgment offers human help in the same journey, or escalates if that offer
    cannot safely be delivered. Genuine clarification remains an intent-routing decision.
-   The sample's vocabulary `1.3` carries the contextual failure wording approved
-   under `HR-PENSION-WTP-CONTEXTUAL-FAILURE-2026-11-18`; it adds no substantive
-   transition or opt-out claims.
+   The sample's vocabulary carries the contextual failure wording; it adds no
+   substantive transition or opt-out claims.
 9. Durably commit response metadata to the explainability store or its independent
    retry outbox, then commit the response-linked journey event.
 10. Release the checked response only after the audit write-ahead barrier.
@@ -157,8 +178,7 @@ must not be described as completed until its durable effect is confirmed.
 
 ### Customer-scoped conversation continuity
 
-Decision `IMP-CUSTOMER-CONTINUITY`, human approval
-`HR-PENSION-WTP-CUSTOMER-CONTINUITY-2026-11-17`: the authenticated, step-up-verified
+The authenticated, step-up-verified
 `MemberIdentity.member_ref`, namespaced by the configured trusted issuer and
 Foundry project, owns a durable Foundry conversation across turns,
 new contacts, channels and orchestrator restarts. A closed contact selector is
@@ -269,31 +289,23 @@ are a material change requiring reviewed Tier 2 delivery and newly verified
 signed snapshots before live activation (B3, B5, B8, B10). Updating source alone
 does not activate them or certify conversation quality.
 
-Decision `IMP-FOUNDRY-DELIVERY-TLS`: delivery's shared Foundry project client uses
-a certificate-verified P-256 transport. Verified endpoint probes showed OpenSSL
-3.5 hybrid key-share offers closing before HTTP, while classic groups negotiated
-TLS 1.3 with a valid Microsoft certificate. This is a delivery-path
-interoperability correction, not proof of which network component closed the
-connection. Disabling certificate checks, downgrading TLS, changing the endpoint
-and altering system-wide OpenSSL settings were rejected. Selected-tenant
-credentials and approved immutable writer pins remain unchanged. Request/response
-transport failures become explicit delivery errors so both delivery entrypoints
-finalize failed-stage evidence rather than leave a running receipt. No new
-identity, grant, network path or runtime fallback is introduced.
+Delivery's shared Foundry project client uses a certificate-verified P-256
+transport, because hybrid key-share offers from some OpenSSL builds can be
+closed before HTTP. Certificate checks are never disabled and TLS is never
+downgraded. Selected-tenant credentials and approved immutable writer pins are
+unchanged. Request/response transport failures become explicit delivery errors
+so both delivery entrypoints finalize failed-stage evidence rather than leave a
+running receipt. No identity, grant, network path or runtime fallback is added.
 
-Decision `IMP-COMPLETE-RANKING-COVERAGE`, approved under
-`HR-PENSION-WTP-RANKING-COVERAGE-2026-11-18`: sample catalogue `1.1.1` and priors
-`1.3` explicitly cover every catalogue-eligible combination of explanation
-intent, journey stage, channel and accessibility mode. Existing expert orders
-are unchanged. New contexts use the approved default order, except second-contact
-contexts use the focused second-contact order; eligibility filters apply before
-signing. No new strategy definition or cross-context outcome is introduced.
-The signed snapshots, not an unsigned runtime default, authorize treatment.
-The same complete priors seed P2 and the control arm. Regression coverage checks
-all supported contexts, including a general-information follow-up after a
-transition question. Reusing an unsigned default at runtime was rejected.
-The approved upgrade from `1.1.0` archives prior state and resets live ordering
-to the approved baseline; protective suspensions and pauses remain effective.
+Sample catalogue and priors explicitly cover every catalogue-eligible combination
+of explanation intent, journey stage, channel and accessibility mode. New
+contexts use the approved default order, except second-contact contexts use the
+focused second-contact order; eligibility filters apply before signing. The
+signed snapshots, not an unsigned runtime default, authorize treatment. The same
+complete priors seed P2 and the control arm, and regression coverage checks all
+supported contexts. An upgrade that adds coverage archives prior state and resets
+live ordering to the approved baseline; protective suspensions and pauses remain
+effective.
 
 Source-pack upgrades use an explicit reviewed predecessor pack and exact target
 hashes in [source_upgrade_v1.json](../examples/pension_wtp/data/catalogue/source_upgrade_v1.json).
@@ -428,13 +440,12 @@ Connection reuse and warm-up do not cache member values or bypass per-turn
 screening. Figure-free acknowledgements are distinguished from substantive answers
 and cannot claim that checks or audit have completed.
 
-Decision `IMP-VOICE-STARTUP-CONTEXT`: warm-up supplies an explicitly empty
-conversation context to the same decision-agent request path used by live turns;
-it never loads a customer's history or creates a journey. A presenter connection
-that closes before confirmed completion becomes a visible error, including during
-startup; an explicit service error is preserved. Masking missing context in the
-live agent or bypassing warm-up was rejected. B1-B10 and disclosure playback
-remain unchanged.
+Warm-up supplies an explicitly empty conversation context to the same
+decision-agent request path used by live turns; it never loads a customer's
+history or creates a journey. A presenter connection that closes before
+confirmed completion becomes a visible error, including during startup; an
+explicit service error is preserved. B1-B10 and disclosure playback are
+unchanged.
 
 ### Voice SLO table
 

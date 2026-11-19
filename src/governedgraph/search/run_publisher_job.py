@@ -12,6 +12,7 @@ from pathlib import Path
 
 from governedgraph.search.corpus import ContentDocument
 
+BATCH_SIZE = 8
 
 def azure_cli(*args: str) -> str:
     try:
@@ -21,8 +22,10 @@ def azure_cli(*args: str) -> str:
         raise RuntimeError(f"Azure CLI failed: {error.stderr.strip()}") from error
 
 
-def run_publisher_job(candidate: ContentDocument | None = None, *, timeout: float = 1200) -> str:
-    if candidate is not None and candidate.status != "approved":
+def run_publisher_job(candidate: ContentDocument | list[ContentDocument] | None = None, *,
+                      timeout: float = 1200) -> str:
+    candidates = [] if candidate is None else candidate if isinstance(candidate, list) else [candidate]
+    if any(item.status != "approved" for item in candidates):
         raise ValueError("remote publication requires P3 approval")
     group = os.environ["AZURE_RESOURCE_GROUP"]
     subscription = os.environ["AZURE_SUBSCRIPTION_ID"]
@@ -33,7 +36,7 @@ def run_publisher_job(candidate: ContentDocument | None = None, *, timeout: floa
     if state["properties"]["status"] != "Approved" or state["properties"]["provisioningState"] != "Succeeded":
         raise RuntimeError("Search content private link is not approved/ready; owner approval is required")
     base = ("--subscription", subscription, "-g", group, "-n", job)
-    if candidate is None:
+    if not candidates:
         execution = azure_cli("containerapp", "job", "start", *base, "--query", "name", "-o", "tsv")
     else:
         template = json.loads(azure_cli("containerapp", "job", "show", *base,
@@ -42,7 +45,8 @@ def run_publisher_job(candidate: ContentDocument | None = None, *, timeout: floa
         container["command"] = ["python", "-m", "governedgraph.search.reindex_on_approval"]
         container["args"] = ["--from-env"]
         container["env"] = [entry for entry in container["env"] if entry["name"] != "CONTENT_APPROVAL_DOCUMENT"]
-        container["env"].append({"name": "CONTENT_APPROVAL_DOCUMENT", "value": json.dumps(asdict(candidate))})
+        container["env"].append({"name": "CONTENT_APPROVAL_DOCUMENT",
+                                 "value": json.dumps([asdict(item) for item in candidates])})
         with tempfile.TemporaryDirectory(prefix="gg-p3-") as directory:
             path = Path(directory) / "execution.json"
             path.write_text(json.dumps(template))
@@ -65,9 +69,21 @@ def run_publisher_job(candidate: ContentDocument | None = None, *, timeout: floa
 
 
 def main() -> None:
+    from governedgraph.common.config import DATA_DIR
+    from governedgraph.search.corpus import load_corpus
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--document", type=Path, help="P3-approved synthetic content JSON for remote publication")
+    parser.add_argument("--repo-corpus", action="store_true",
+                        help="approve every approved passage of the repository corpus not yet in the live feed")
     args = parser.parse_args()
+    if args.repo_corpus:
+        # Already published, identical versions are a no-op; batches keep each job input small.
+        approved = [doc for doc in load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text())
+                    if doc.status == "approved"]
+        for start in range(0, len(approved), BATCH_SIZE):
+            run_publisher_job(approved[start:start + BATCH_SIZE])
+        return
     candidate = ContentDocument.from_dict(json.loads(args.document.read_text())) if args.document else None
     run_publisher_job(candidate)
 

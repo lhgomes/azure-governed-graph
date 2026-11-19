@@ -11,8 +11,7 @@ from governedgraph.agents import fairness_runtime as runtime
 from governedgraph.agents.fairness_explainability import FairnessExplainabilityAgent, run_cohort_audit
 from governedgraph.common.contracts import ContractError
 from governedgraph.learning.ranking_pipeline import load_thresholds
-from governedgraph.strategy_service.service import StrategyService
-from governedgraph.strategy_service.snapshot import LocalHmacSigner
+from strategy_doubles import COHORTS, local_strategy_service, pinned_to_active
 
 
 def test_b7_b8_fairness_invocation_role_has_exact_approved_rights_and_scopes():
@@ -132,9 +131,9 @@ def test_b7_closed_fairness_request_rejects_scope_and_demographics(payload):
 
 
 def test_b6_existing_audit_applies_all_vetoes_without_model_permission(tmp_path):
-    service = StrategyService(signer=LocalHmacSigner("test"), state_dir=tmp_path / "state")
+    service = local_strategy_service(tmp_path / "state")
     protective = FairnessExplainabilityAgent(service, tmp_path / "governance")
-    report = run_cohort_audit(load_thresholds())
+    report = run_cohort_audit(load_thresholds(), pinned_to_active(service, COHORTS, tmp_path / "cohorts.csv"))
 
     def audit():
         protective.apply_veto_gate(report)
@@ -236,7 +235,7 @@ def test_b7_azure_runtime_refuses_non_fairness_host_before_using_credentials(mon
     blob.BlobServiceClient = object
     monkeypatch.setitem(sys.modules, "azure.identity", identity)
     monkeypatch.setitem(sys.modules, "azure.storage.blob", blob)
-    monkeypatch.setattr(runtime, "settings", replace(runtime.settings, mode="azure"))
+    monkeypatch.setattr(runtime, "settings", replace(runtime.settings))
     monkeypatch.setenv("GOVERNEDGRAPH_P2_ROLE", "pipeline")
     with pytest.raises(PermissionError):
         runtime.azure_runtime(runtime.FairnessRequest("audit"))

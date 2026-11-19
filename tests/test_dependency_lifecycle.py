@@ -10,12 +10,14 @@ from governedgraph.agents import foundry_tracing
 from governedgraph.orchestrator import messaging
 from governedgraph.orchestrator.store import BlobJourneyStore, Delivery, JourneyRecord
 from governedgraph.orchestrator.state_machine import Journey
+from strategy_doubles import install_no_export_tracing
 
 
 @pytest.mark.parametrize("exists,race", [(True, False), (False, False), (False, True)])
-def test_b4_blob_initialization_does_not_write_existing_state_and_preserves_create_races(exists, race):
+def test_b4_blob_initialization_does_not_write_existing_state_and_preserves_create_races(exists, race, monkeypatch):
     from azure.core.exceptions import ResourceExistsError
 
+    install_no_export_tracing(monkeypatch)
     lease, blob = Mock(), Mock()
     record = JourneyRecord(Journey("J-synthetic", "MBR-7Q2K"))
     blob.exists.return_value = exists
@@ -56,6 +58,7 @@ def test_b4_unexpected_blob_conflict_is_not_reported_as_success():
 
 @pytest.mark.parametrize("queue", ["journey-events", "escalations"])
 def test_b9_idle_sender_recycled_before_send_without_replaying_or_changing_identity(monkeypatch, queue):
+    install_no_export_tracing(monkeypatch)
     old, fresh = MagicMock(), MagicMock()
     publisher = messaging.ServiceBusJourneyPublisher.__new__(messaging.ServiceBusJourneyPublisher)
     publisher._lock = Lock()

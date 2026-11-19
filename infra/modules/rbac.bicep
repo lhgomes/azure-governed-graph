@@ -395,11 +395,6 @@ resource p2KvVerify 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(snapshotKey.id, pipelinePrincipalId, verifyRole.id)
   properties: { principalId: pipelinePrincipalId, principalType: 'ServicePrincipal', roleDefinitionId: verifyRole.id }
 }
-resource p2Sb 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: sb
-  name: guid(sb.id, pipelinePrincipalId, roles.sbReceiver)
-  properties: { principalId: pipelinePrincipalId, principalType: 'ServicePrincipal', roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.sbReceiver) }
-}
 
 resource learningEvidence 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' existing = {
   parent: contentBlobService

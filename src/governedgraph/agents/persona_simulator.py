@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 
+from governedgraph.agents import llm_log
 from governedgraph.common.config import DATA_DIR
 from governedgraph.common.contracts import ContractError, _strict
 from governedgraph.common.io import load_json
@@ -100,6 +101,8 @@ class FoundryPersona:
             if error.code != "content_filter":
                 raise
             raise PersonaBlocked("Foundry persona input was filtered") from None
+        llm_log.record(None, "persona", self.agent_name, {"agent": f"{self.agent_name}:{self.agent_version}",
+                                                           "input": self.messages}, result)
         if (result.status != "completed" or not result.output_text.strip()
                 or any(item.type != "message" for item in result.output)):
             raise RuntimeError("persona did not return a completed text-only turn")

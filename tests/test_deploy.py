@@ -251,25 +251,22 @@ def test_provision_retries_only_known_transient_errors(tmp_path, monkeypatch, te
     assert delays == ([30, 60, 120] if retries else [])
 
 
-def test_each_registry_build_uses_only_its_own_dependency_family(monkeypatch):
+def test_single_registry_build_preserves_distinct_dependency_families(monkeypatch):
     calls = []
     def build(_runner, registry, target, dockerfile, paths, args, *, subscription):
         assert subscription == "selected-subscription"
         calls.append((registry, target, dockerfile, args))
         return {"image": registry + "/" + target}
     monkeypatch.setattr(deploy, "build", build)
-    deploy.image_artifacts(None, {"compute": {"registryName": "runtime-registry"},
-                                "learning": {"mlRegistryId": "/p2-registry"}}, COMPOSITION,
+    deploy.image_artifacts(None, {"compute": {"registryName": "shared-registry"}}, COMPOSITION,
                            subscription="selected-subscription")
     assert len(calls) == 6
     for registry, target, dockerfile, args in calls:
-        if registry == "p2-registry":
-            assert dockerfile.endswith("Dockerfile.p2")
+        assert registry == "shared-registry"
+        if dockerfile.endswith("Dockerfile.p2"):
             assert "FRAMEWORK_RUNTIME" not in args
-            assert "runtime-registry" not in " ".join(args.values())
         else:
             assert "FRAMEWORK_P2" not in args
-            assert "p2-registry" not in " ".join(args.values())
 
 
 @pytest.mark.parametrize("catalogue_upgrade", [False, True])
@@ -283,7 +280,6 @@ def test_initializer_receives_existing_keyless_telemetry_without_widening_signer
             "strategyIdentityId", "strategyClientId", "strategyPrincipalId", "keyVaultUri", "signingKeyName",
         )},
         "compute": {"registryName": "runtime-registry", "environmentId": "existing-environment"},
-        "learning": {"mlRegistryId": "/ml-registry"},
         "data": {"contentBlobEndpoint": "https://synthetic.blob.core.windows.net"},
         "monitoring": {"appInsightsRouting": "synthetic-routing-metadata"},
         "ai": {"projectResourceId": "/synthetic/approved-project"},
@@ -459,7 +455,6 @@ def delivery_flow(private_delivery, monkeypatch):
     monkeypatch.setattr(bootstrap, "approve_search_link", note("search link"))
     monkeypatch.setattr(bootstrap, "initial_priors", note("initial priors", {"initialize": {"initialized": True}}))
     monkeypatch.setattr(bootstrap, "member_public_jwk", note("public key", {}))
-    monkeypatch.setattr(bootstrap, "ml_containers", lambda *_: [])
     monkeypatch.setattr(deploy, "network_snapshot", lambda *_: None)
     monkeypatch.setattr(deploy, "run_job", lambda _runner, _inputs, name: calls.append(name) or name + "-execution")
     monkeypatch.setattr(source_upgrade, "load_upgrade", lambda *_: pytest.fail("ordinary delivery loaded an upgrade"))
@@ -481,9 +476,47 @@ def test_normal_delivery_preserves_baseline_order_and_never_loads_catalogue_migr
     ]
 
 
+def test_deploy_bootstraps_source_imports_in_an_isolated_interpreter():
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent("""
+        import sys
+        from types import SimpleNamespace
+
+        sys.path.insert(0, sys.argv[1])
+        from scripts import deploy
+
+        def stop_before_writes(*_):
+            raise RuntimeError("reached environment setup")
+
+        deploy.environment = stop_before_writes
+        deploy.stage = lambda *_args, **_kwargs: None
+        inputs = SimpleNamespace(
+            subscription="00000000-0000-0000-0000-000000000001",
+            resource_group="rg-gg-dev-synthetic",
+            naming_seed="00000000-0000-0000-0000-000000000002",
+            location="swedencentral",
+            operator_id="00000000-0000-0000-0000-000000000003",
+        )
+        try:
+            deploy.deploy(None, inputs, SimpleNamespace(name="synthetic"))
+        except RuntimeError as error:
+            assert str(error) == "reached environment setup", str(error)
+        else:
+            raise AssertionError("deployment did not reach environment setup")
+    """)
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", script, str(delivery.ROOT)],
+        cwd=delivery.ROOT, capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize("operator_id", [None, ""])
 def test_missing_operator_resolves_in_selected_tenant_before_foundation(delivery_flow, monkeypatch, operator_id):
-    from scripts import configure_admin_console
+    from governedgraph.strategy_service import provision_auth
 
     raw = delivery_flow.raw
     if operator_id is None:
@@ -496,10 +529,11 @@ def test_missing_operator_resolves_in_selected_tenant_before_foundation(delivery
     resolved = "00000000-0000-0000-0000-000000000004"
     monkeypatch.setenv("AZURE_SUBSCRIPTION_ID", "different-subscription")
 
-    def signed_in_user():
+    def graph(method, path):
+        assert (method, path) == ("GET", "me?$select=id")
         assert deploy.os.environ["AZURE_SUBSCRIPTION_ID"] == inputs.subscription
         delivery_flow.calls.append("operator")
-        return resolved
+        return {"id": resolved}
 
     original_environment = deploy.environment
     original_provision = deploy.provision
@@ -514,7 +548,7 @@ def test_missing_operator_resolves_in_selected_tenant_before_foundation(delivery
             assert values["principalId"] == resolved
         return original_provision(runner, selected, template, values)
 
-    monkeypatch.setattr(configure_admin_console, "signed_in_user", signed_in_user)
+    monkeypatch.setattr(provision_auth, "graph", graph)
     monkeypatch.setattr(deploy, "environment", environment)
     monkeypatch.setattr(deploy, "provision", provision)
     monkeypatch.setattr(deploy, "readiness", lambda *_: None)
@@ -533,16 +567,17 @@ def test_missing_operator_resolves_in_selected_tenant_before_foundation(delivery
 ])
 def test_operator_lookup_failure_stops_before_environment_writes_or_provisioning(
         delivery_flow, monkeypatch, error):
-    from scripts import configure_admin_console
+    from governedgraph.strategy_service import provision_auth
 
     delivery_flow.raw.pop("operator_id")
     delivery_flow.path.write_text(json.dumps(delivery_flow.raw))
     inputs = delivery.Inputs.load(delivery_flow.path)
 
-    def unavailable():
+    def unavailable(method, path):
+        assert (method, path) == ("GET", "me?$select=id")
         raise error
 
-    monkeypatch.setattr(configure_admin_console, "signed_in_user", unavailable)
+    monkeypatch.setattr(provision_auth, "graph", unavailable)
     runner = SimpleNamespace(run=lambda *_: pytest.fail("identity failure must not write or provision"))
     with pytest.raises(delivery.DeliveryError, match="Cannot resolve operator_id"):
         deploy.deploy(runner, inputs, COMPOSITION)
@@ -1200,14 +1235,14 @@ def test_standalone_agent_apply_uses_the_exported_subscription(monkeypatch):
     from scripts import create_agents
 
     monkeypatch.setenv("AZURE_SUBSCRIPTION_ID", "selected-subscription")
-    monkeypatch.setattr(sys, "argv", ["create_agents", "--apply", "--role", "intent"])
+    monkeypatch.setattr(sys, "argv", ["create_agents", "--apply", "--role", "fairness"])
     project = object()
     def scoped_client(endpoint, *, subscription):
         assert endpoint == create_agents.settings.project_endpoint
         assert subscription == "selected-subscription"
         return nullcontext(project)
     def provision(selected, *, apply, role):
-        assert selected is project and apply is True and role == "intent"
+        assert selected is project and apply is True and role == "fairness"
         return {"action": "ILLUSTRATIVE - synthetic data"}
     monkeypatch.setattr(create_agents, "project_client", scoped_client)
     monkeypatch.setattr(create_agents, "provision", provision)
@@ -1232,6 +1267,27 @@ def test_bootstrap_reuses_a_single_active_execution_and_rejects_ambiguous_metada
             delivery.run_job(Runner(), inputs, "bootstrap", sleep=lambda _: None)
 
 
+@pytest.mark.parametrize("crashes, completes", [(3, True), (4, False)])
+def test_bootstrap_polling_survives_a_few_cli_crashes_without_starting_a_replacement(crashes, completes):
+    polls = []
+
+    class Runner:
+        def run(self, args):
+            assert "start" not in args
+            if "list" in args:
+                return json.dumps([{"name": "active-execution", "properties": {"status": "Running"}}])
+            polls.append(args)
+            if len(polls) <= crashes:
+                raise delivery.CommandError(args, 1, "JSONDecodeError in the Azure CLI")
+            return "Succeeded"
+    inputs = SimpleNamespace(subscription="synthetic", resource_group="rg-gg-dev")
+    if completes:
+        assert delivery.run_job(Runner(), inputs, "bootstrap", sleep=lambda _: None) == "active-execution"
+    else:
+        with pytest.raises(delivery.CommandError):
+            delivery.run_job(Runner(), inputs, "bootstrap", sleep=lambda _: None)
+
+
 @pytest.mark.parametrize("catalogue_upgrade", [False, True])
 def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
         monkeypatch, capsys, catalogue_upgrade, synthetic_upgrade_composition):
@@ -1242,14 +1298,14 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
         create_agents.settings, agent_name="legacy-synthetic-counsellor", fairness_agent_name="legacy-synthetic-fairness"))
     calls = []
     foundation = {"compute": {"registryName": "synthetic"},
-                  "learning": {"mlRegistryId": "/synthetic"},
                   "ai": {"projectEndpoint": "https://approved.services.ai.azure.com/api/projects/test"}}
     results = writer_plans()
     images = {target: {"image": f"crsynthetic.azurecr.io/{target}@sha256:" + "a" * 64}
               for target in ("runtime", "p2", "fixtures", "probe")}
     inputs = SimpleNamespace(environment="gg-dev", subscription="synthetic", resource_group="rg-gg-dev-test",
                              naming_seed="synthetic", location="swedencentral", search_location="swedencentral",
-                             operator_id="synthetic", on_call_email="synthetic@example.invalid", voice_demo=True)
+                             operator_id="synthetic", on_call_email="synthetic@example.invalid", voice_demo=True,
+                             decision_deployment="synthetic-decision")
     def provision(_runner, _inputs, template, values):
         calls.append((template, values))
         return {"foundation": foundation} if template.endswith("main.bicep") else (
@@ -1279,7 +1335,6 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
         assert calls[-1][0] == (COMPOSITION.workload_template if catalogue_upgrade else "infra/bootstrap.bicep")
         return {"initialize": {"initialized": False}}
     monkeypatch.setattr(bootstrap, "initial_priors", initialize_in_selected_order)
-    monkeypatch.setattr(bootstrap, "ml_containers", lambda *_: ["verified-ml-owned"])
     monkeypatch.setattr(deploy, "run_job", lambda *_: "execution")
     monkeypatch.setattr(deploy, "readiness", lambda *_: None)
     monkeypatch.setattr(deploy, "save_json", lambda *_: None)
@@ -1290,7 +1345,7 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
     assert [name for name, _ in calls] == ["infra/main.bicep", "infra/bootstrap.bicep", COMPOSITION.workload_template]
     workload = calls[-1][1]["configuration"]
     assert workload["orchestratorImage"] == workload["strategyServiceImage"] == workload["memberValuesImage"]
-    assert workload["p2MlArtifactContainers"] == ["verified-ml-owned"]
+    assert "p2MlArtifactContainers" not in workload
     assert workload["personaAgentVersion"] == "7" and workload["deployVoicePersona"] is True
     assert calls[0][1]["deployVoicePersona"] is True
     assert receipt["readiness"] == "passed" and receipt["evaluation"] == "not_run"

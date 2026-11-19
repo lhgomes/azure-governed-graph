@@ -29,7 +29,7 @@ def _synthetic_outcome_context():
 
 def test_host_outcome_wording_is_closed_and_localized():
     vocabulary = domain.vocabulary()
-    assert vocabulary["version"] == "1.2"
+    assert vocabulary["version"] == "1.3"
     assert set(vocabulary["outcome_check"]) == set(vocabulary["response_languages"]) == {"en", "nl"}
     assert vocabulary["outcome_check_approval_ref"] is None
     for language, wording in vocabulary["outcome_check"].items():
@@ -58,7 +58,7 @@ def test_synthetic_dev_activation_is_required(monkeypatch):
     assert offered.response_id == "a" * 32
     assert result.text.endswith(offered.question)
     assert record.journey.events[-1].outcome_offered
-    assert record.journey.events[-1].outcome_version == "1.2"
+    assert record.journey.events[-1].outcome_version == "1.3"
 
 
 @pytest.mark.parametrize("bad_wording", [

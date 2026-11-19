@@ -20,6 +20,9 @@ from governedgraph.evaluation import (
     DIMENSIONS, FLOORS, HumanRating, TokenRateCard, calibrate, evidence_digest, summarize_candidate, verify_comparison,
 )
 from governedgraph.foundry_evaluation import EVALUATION_HEADERS, FoundryEvaluationClient, JUDGE_OUTPUT, RUBRICS
+from evals import run_model_comparison as model_comparison
+from governedgraph.orchestrator.continuity import CustomerConversations
+from strategy_doubles import local_strategy_service, run_cycle
 from evals.run_model_comparison import UsageRecorder, collect_candidate, expected_behavior, report_passed, score_report
 from evals.run_evals import load, persona_cases
 
@@ -312,9 +315,14 @@ def test_faithfulness_rubric_retains_unsupported_claim_and_uncertainty_failures(
     assert "unsupported factual detail" in RUBRICS["groundedness"]
 
 
-def test_guarded_replay_runs_every_persona_and_adversarial_variant_without_profile_egress(tmp_path, monkeypatch):
+def test_guarded_replay_runs_every_persona_and_adversarial_variant_without_profile_egress(
+        tmp_path, monkeypatch, local_counsellor, isolated_conversations):
     monkeypatch.setattr(settings.__class__, "run_dir", property(lambda _: tmp_path))
     monkeypatch.setattr(settings.__class__, "is_azure", property(lambda _: False))
+    monkeypatch.setattr(model_comparison, "StrategyService", lambda **kwargs: local_strategy_service(
+        kwargs["state_dir"], control_share=kwargs["control_share"]))
+    monkeypatch.setattr(model_comparison, "run_cycle", run_cycle)
+    monkeypatch.setattr(CustomerConversations, "azure", lambda *_: isolated_conversations)
 
     class Composer:
         agent_name = "synthetic-fake"
@@ -325,8 +333,11 @@ def test_guarded_replay_runs_every_persona_and_adversarial_variant_without_profi
         def draft(self, tools, _utterance, strategy):
             assert not hasattr(tools.journey, "profile")
             from governedgraph.agents.counsellor import TEMPLATES
+            from governedgraph.guardrails.binding import referenced_value_ids
 
-            return next(iter(TEMPLATES["templates"][strategy.template_id].values()))
+            have = set(tools.trace.values.by_id()) if tools.trace.values else set()
+            return next((variant for variant in TEMPLATES["templates"][strategy.template_id].values()
+                         if set(referenced_value_ids(variant)) <= have), "")
 
     rows = collect_candidate("fake", Composer(), lambda item: ScriptedPersona(asdict(item)), tmp_path)
     assert len(rows) == 17

@@ -334,7 +334,7 @@ run("strategyDetail(data.strategies[0])");
 const body = document.getElementById("detail-body");
 assert.match(body.textContent, /Recorded uses.*2 in the saved answer records/);
 assert.match(body.textContent, /Order by situation/);
-assert.match(body.textContent, /Learning results.*Published uses.*900/);
+assert.match(body.textContent, /Learning results.*Published uses.*900/s);
 const tabs = body.children[0].children;
 assert.deepEqual(tabs.map((tab) => tab.textContent), ["Summary", "Order by situation", "Learning results"]);
 assert.equal(body.children[1].hidden, false);

@@ -60,7 +60,7 @@ governance. See [architecture](architecture.md) and [evaluation](evaluation.md).
 
 ## Verify after deployment
 
-Budget for Foundry model inference and evaluation, Speech, Azure ML, Container Apps, APIM, Search, storage, networking and observability as applicable; a successful deployment incurs real Azure charges. There is no fixed cost estimate in the repository because usage, SKU and regional prices vary. Use the [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) for a scoped estimate and perform a controlled teardown when finished.
+Budget for Foundry model inference and evaluation, Speech, Container Apps, APIM, Search, storage, networking and observability as applicable; a successful deployment incurs real Azure charges. There is no fixed cost estimate in the repository because usage, SKU and regional prices vary. Use the [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) for a scoped estimate and perform a controlled teardown when finished.
 
 - Inspect readiness, identity boundaries, the admin console and the synthetic
   member journey in Azure.

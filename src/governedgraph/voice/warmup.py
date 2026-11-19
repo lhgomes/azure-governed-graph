@@ -5,7 +5,7 @@ from contextlib import nullcontext
 from types import SimpleNamespace
 
 from governedgraph.agents.azure_safety import AzurePromptShields
-from governedgraph.agents.decision_agents import DecisionContext, DecisionUnavailable, FoundryDecisionAgent, run_decision
+from governedgraph.agents.decision_agents import DecisionContext, DecisionUnavailable, run_decision
 from governedgraph.common import domain
 from governedgraph.common.contracts import IntentDecision
 from governedgraph.agents.foundry_runtime import FoundryComposer, FoundryUnavailable
@@ -28,7 +28,6 @@ def warm_runtime() -> None:
         if not screen.screen(demo["warmup_utterance"], demo["member_ref"]).allowed:
             raise VoiceError("warm-up screening unavailable")
         try:
-            FoundryDecisionAgent.shared("understanding")
             tools = SimpleNamespace(journey=SimpleNamespace(journey_id=correlation_id), trace_parent="",
                                     trace=SimpleNamespace(decision_evidence=[], note=lambda *_: None,
                                                           measure=lambda _: nullcontext()),

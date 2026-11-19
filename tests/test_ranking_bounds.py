@@ -1,9 +1,10 @@
 """B5: bounded continuous ranking of already-approved strategies only."""
 from governedgraph.learning.ranking_pipeline import bounded_reorder, compute_candidates, load_outcome_aggregates, load_thresholds, max_shift
 from governedgraph.strategy_service.catalogue import Catalogue
+from strategy_doubles import pinned_outcomes
 
 
-def test_b3_b5_second_contact_has_separate_eligible_priors_without_first_contact_outcomes():
+def test_b3_b5_second_contact_has_separate_eligible_priors_without_first_contact_outcomes(tmp_path):
     from governedgraph.common.config import DATA_DIR
     from governedgraph.common.contracts import RequestKey
     from governedgraph.common.io import load_json
@@ -12,7 +13,7 @@ def test_b3_b5_second_contact_has_separate_eligible_priors_without_first_contact
     catalogue = Catalogue.load()
     priors = load_json(DATA_DIR / "catalogue/expert_priors_v1.json")
     rankings = expert_rankings(catalogue, priors)
-    evidence = load_outcome_aggregates()
+    evidence = load_outcome_aggregates(pinned_outcomes(tmp_path))
     for channel, mode in (("voice", "standard"), ("chat", "standard"), ("chat", "english")):
         key = RequestKey("second_contact", "transition_impact_question", channel, mode)
         eligible = {style.strategy_id for style in catalogue.rankable_for(key)}
@@ -73,9 +74,9 @@ def test_rank_shift_is_capped():
     assert out.index("S1") == 2  # S1 wanted to fall to 4th but is capped at 2 places
 
 
-def test_candidates_never_add_or_remove_strategies():
+def test_candidates_never_add_or_remove_strategies(tmp_path):
     cands = compute_candidates(Catalogue.load(), {"first_contact|transition_impact_question|voice|standard": ["S1", "S5", "S2", "S4", "S3"]},
-                               load_outcome_aggregates(), load_thresholds())
+                               load_outcome_aggregates(pinned_outcomes(tmp_path)), load_thresholds())
     c = cands[0]
     assert set(c.candidate) == set(c.previous)
     assert "S6" not in c.candidate
@@ -101,10 +102,9 @@ def test_sparse_snapshot_retains_learned_orders_and_explicit_empty_rankings(tmp_
     from dataclasses import replace
 
     from governedgraph.learning.pipeline_steps import previous_rankings
-    from governedgraph.learning.run_cycle import run_cycle
-    from governedgraph.strategy_service.service import StrategyService
+    from strategy_doubles import local_strategy_service, run_cycle
 
-    service = StrategyService(state_dir=tmp_path)
+    service = local_strategy_service(tmp_path)
     run_cycle(service)
     voice = "first_contact|transition_impact_question|voice|standard"
     chat = "first_contact|transition_impact_question|chat|standard"
@@ -123,18 +123,17 @@ def test_sparse_snapshot_publishes_already_approved_chat_priors_without_outcomes
     from dataclasses import replace
 
     from governedgraph.learning.pipeline_steps import previous_rankings
-    from governedgraph.learning.run_cycle import run_cycle
-    from governedgraph.strategy_service.service import StrategyService
     from governedgraph.strategy_service.snapshot import sign_snapshot
+    from strategy_doubles import local_strategy_service, run_cycle
 
-    service = StrategyService(state_dir=tmp_path, control_share=0)
+    service = local_strategy_service(tmp_path, control_share=0)
     run_cycle(service)
     voice = "first_contact|transition_impact_question|voice|standard"
     chat = "first_contact|transition_impact_question|chat|standard"
     sparse = replace(service.current, snapshot_id="snap-sparse",
                      rankings={voice: service.current.rankings[voice]})
     service.load_snapshot(sign_snapshot(sparse, service.signer))
-    evidence = load_outcome_aggregates()
+    evidence = load_outcome_aggregates(pinned_outcomes(tmp_path))
     assert chat not in evidence
     approved = service.priors["rankings"][chat]
     baseline = previous_rankings(service)
@@ -155,17 +154,17 @@ def test_sparse_snapshot_publishes_already_approved_chat_priors_without_outcomes
     assert "S2" in served.suspended
 
 
-def test_b3_b5_english_chat_has_signed_approved_priors_without_borrowing_standard_outcomes(tmp_path):
-    from governedgraph.agents.counsellor import new_session
+def test_b3_b5_english_chat_has_signed_approved_priors_without_borrowing_standard_outcomes(tmp_path, monkeypatch):
+    from counsellor_doubles import install, new_session
     from governedgraph.learning.pipeline_steps import previous_rankings
-    from governedgraph.learning.run_cycle import run_cycle
-    from governedgraph.strategy_service.service import StrategyService
+    from strategy_doubles import local_strategy_service, run_cycle
 
-    service = StrategyService(state_dir=tmp_path, control_share=0)
+    install(monkeypatch, tmp_path)
+    service = local_strategy_service(tmp_path, control_share=0)
     key = "first_contact|transition_impact_question|chat|english"
     approved = service.priors["default"]
     assert previous_rankings(service)[key] == approved
-    assert key not in load_outcome_aggregates()
+    assert key not in load_outcome_aggregates(pinned_outcomes(tmp_path / "outcomes"))
     result = run_cycle(service)
     assert result.published
     candidate = next(c for c in result.candidates if c.request_key == key)

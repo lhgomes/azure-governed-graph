@@ -12,7 +12,7 @@ import re
 from governedgraph.common.config import DATA_DIR
 from governedgraph.common.io import load_json
 
-PROMPT_NAMES = frozenset({"counsellor", "intent", "understanding", "answer-review"})
+PROMPT_NAMES = frozenset({"counsellor", "answer-review"})
 MESSAGE_KEYS = frozenset({
     "audit_unavailable", "advice_declined", "safety_declined", "component_failure", "conversation_limit",
     "handover_arranged", "clarify_question", "advice_escalation_summary", "journey_closed",
@@ -21,6 +21,7 @@ MESSAGE_KEYS = frozenset({
 DEMO_KEYS = frozenset({
     "member_ref", "other_member_ref", "trace_members", "persona", "persona_voices", "warmup_utterance",
     "proof_explanation_question", "proof_advice_question", "proof_injection_question",
+    "proof_second_contact_question", "proof_recap_question",
 })
 
 
@@ -73,6 +74,17 @@ def vocabulary(data_dir: Path = DATA_DIR) -> dict:
             re.compile(pattern)
     except re.error as error:
         raise DomainPackError("domain vocabulary: advice_patterns must be valid regular expressions") from error
+    criteria = raw.get("decision_criteria")
+    if (not isinstance(criteria, dict) or set(criteria) != {"intent", "concepts"}
+            or any(not isinstance(group, dict) or not group
+                   or any(not isinstance(name, str) or not isinstance(text, str) or not text.strip()
+                          for name, text in group.items())
+                   for group in criteria.values())):
+        raise DomainPackError("domain vocabulary: decision_criteria must describe intent reasons and concepts")
+    if set(criteria["concepts"]) != set(concepts):
+        raise DomainPackError("domain vocabulary: decision_criteria must describe exactly the explanation concepts")
+    if not (set(reasons) - set(historical)) <= set(criteria["intent"]):
+        raise DomainPackError("domain vocabulary: decision_criteria must describe every explanation reason")
     messages = raw.get("messages")
     if (not isinstance(messages, dict) or set(messages) != MESSAGE_KEYS
             or any(not isinstance(text, str) or not text.strip() for text in messages.values())):
@@ -85,7 +97,8 @@ def vocabulary(data_dir: Path = DATA_DIR) -> dict:
             or any(not isinstance(v, str) or not v for v in voices.values())):
         raise DomainPackError("domain vocabulary: demo persona_voices must name the counsellor and the demo persona")
     for name in ("member_ref", "other_member_ref", "warmup_utterance", "proof_explanation_question",
-                 "proof_advice_question", "proof_injection_question"):
+                 "proof_advice_question", "proof_injection_question", "proof_second_contact_question",
+                 "proof_recap_question"):
         if not isinstance(demo[name], str) or not demo[name].strip():
             raise DomainPackError(f"domain vocabulary: demo {name} must be a non-empty string")
     trace_members = _strings(demo["trace_members"], "demo trace_members")
@@ -134,6 +147,7 @@ def vocabulary(data_dir: Path = DATA_DIR) -> dict:
         "historical_reasons": frozenset(historical),
         "explanation_concepts": frozenset(concepts),
         "answer_goals": parsed_goals,
+        "decision_criteria": {name: dict(group) for name, group in criteria.items()},
         "p2_acceptance_request_key": key,
         "benchmark_questions": _strings(raw.get("benchmark_questions"), "benchmark_questions"),
         "advice_patterns": patterns,

@@ -20,12 +20,11 @@ SEQUENCE = ("foundation", "immutable images", "bounded bootstrap", "complete wor
 
 def image_artifacts(runner, foundation: dict, composition, *, subscription: str) -> dict:
     registry = foundation["compute"]["registryName"]
-    ml_registry = foundation["learning"]["mlRegistryId"].rsplit("/", 1)[1]
     core = [ROOT / "src", ROOT / "requirements.txt"]
     framework = {
         "runtime": build(runner, registry, "runtime", "Dockerfile", core + [ROOT / "requirements-azure.txt"], {},
                          subscription=subscription),
-        "p2": build(runner, ml_registry, "p2", "Dockerfile.p2", core + [ROOT / "requirements-p2.txt"], {},
+        "p2": build(runner, registry, "p2", "Dockerfile.p2", core + [ROOT / "requirements-p2.txt"], {},
                     subscription=subscription),
     }
     args = {"FRAMEWORK_RUNTIME": framework["runtime"]["image"]}
@@ -39,9 +38,9 @@ def image_artifacts(runner, foundation: dict, composition, *, subscription: str)
                          domain + [data / "synthetic/members.json", data.parent / "member_values_api",
                                    data / "personas/personas.json", data.parent / "demo/build_simulations.py"], args,
                          subscription=subscription),
-        "p2": build(runner, ml_registry, "p2", composition.p2_dockerfile, domain, p2_args,
+        "p2": build(runner, registry, "p2", composition.p2_dockerfile, domain, p2_args,
                     subscription=subscription),
-        "fixtures": build(runner, ml_registry, "fixtures", composition.p2_dockerfile, domain + [
+        "fixtures": build(runner, registry, "fixtures", composition.p2_dockerfile, domain + [
             data / "synthetic/outcome_aggregates_illustrative.csv", data / "synthetic/uplift_window_illustrative.json",
             data / "fairness/cohort_aggregates_illustrative.csv"], p2_args, subscription=subscription),
         "probe": build(runner, registry, "probe", composition.dockerfile, domain + [
@@ -73,11 +72,11 @@ def environment(runner, inputs, composition) -> None:
     for key, value in values.items():
         runner.run(["azd", "env", "set", key, value, "--environment", inputs.environment])
     os.environ.update(values)
-    sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
 
 
 def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> dict:
-    from governedgraph.strategy_service.provision_auth import GraphError
+    sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
+    from governedgraph.strategy_service.provision_auth import GraphError, graph
 
     stage(runner, "environment", target={"subscription": inputs.subscription, "resource_group": inputs.resource_group,
                                        "naming_seed": inputs.naming_seed, "location": inputs.location,
@@ -88,14 +87,14 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
         print("Resolving delivery operator from the signed-in user...", flush=True)
         os.environ["AZURE_SUBSCRIPTION_ID"] = inputs.subscription
         try:
-            inputs = replace(inputs, operator_id=signed_in_user())
+            inputs = replace(inputs, operator_id=signed_in_user(call=graph))
         except (GraphError, ValueError) as error:
             raise DeliveryError(
                 "Cannot resolve operator_id in the selected subscription's tenant; "
                 f"sign in as a user or supply operator_id explicitly. {error}"
             ) from None
     environment(runner, inputs, composition)
-    from scripts.bootstrap import agents, approve_search_link, persona_agent, release_approval, entra, initial_priors, member_public_jwk, ml_containers
+    from scripts.bootstrap import agents, approve_search_link, persona_agent, release_approval, entra, initial_priors, member_public_jwk
     from scripts.create_agents import provision as agent_plan
 
     plans = {role: agent_plan(None, apply=False, role=role, agent_name=AGENT_NAMES[role]) for role in AGENT_ROLES}
@@ -157,14 +156,11 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
         "adminImage": images["runtime"]["image"], "p2ContainerImage": images["p2"]["image"],
         "counsellorAgentVersion": pins["counsellor"]["agent_version"],
         "voiceCompactAgentVersion": pins["voice-compact"]["agent_version"],
-        "intentAgentVersion": pins["intent"]["agent_version"],
-        "understandingAgentVersion": pins["understanding"]["agent_version"],
-        "reviewAgentVersion": pins["answer-review"]["agent_version"], "writerApproval": approval,
+        "writerApproval": approval,
         "personaAgentVersion": persona_version,
         "memberTokenIssuer": ISSUER, "memberTokenPublicJwk": public_key, "onCallEmail": inputs.on_call_email,
         "deployVoiceDemo": inputs.voice_demo, "traceSyntheticConversations": inputs.voice_demo,
         "adminTraceLookup": inputs.voice_demo,
-        "p2MlArtifactContainers": ml_containers(inputs, foundation),
     }
     print("Deploying complete workloads...", flush=True)
     stage(runner, "complete workloads", agent_pins={

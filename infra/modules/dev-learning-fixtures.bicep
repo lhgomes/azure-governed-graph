@@ -13,7 +13,7 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' existing = {
   name: 'cae-gg-${token}'
 }
 resource registry 'Microsoft.ContainerRegistry/registries@2025-11-01' existing = {
-  name: 'crmlgg${token}'
+  name: 'crgg${take(token, 16)}'
 }
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (enabled) {
   name: 'id-gg-dev-fixtures-${token}'

@@ -4,10 +4,10 @@ from contextvars import ContextVar
 
 import pytest
 
-from governedgraph.agents.counsellor import new_session
+from counsellor_doubles import install, new_session
 from governedgraph.common.config import settings
-from governedgraph.learning.run_cycle import run_cycle
-from governedgraph.strategy_service.service import StrategyService
+from strategy_doubles import run_cycle
+from strategy_doubles import local_strategy_service
 
 
 def test_art50_b8_natural_opening_is_exactly_user_approved_and_versioned():
@@ -26,7 +26,8 @@ def test_art50_b8_natural_opening_is_exactly_user_approved_and_versioned():
 @pytest.fixture
 def counsellor(tmp_path, monkeypatch):
     monkeypatch.setattr(settings.__class__, "run_dir", property(lambda self: tmp_path))
-    strategies = StrategyService(state_dir=tmp_path / "strategy", control_share=0)
+    install(monkeypatch, tmp_path)
+    strategies = local_strategy_service(tmp_path / "strategy", control_share=0)
     run_cycle(strategies)
     agent = new_session("MBR-7Q2K", strategy_service=strategies, journey_id="J-framework")
     agent.start()
@@ -71,9 +72,9 @@ def test_framework_preserves_context_under_an_existing_event_loop(counsellor, mo
     screen = counsellor.screen.screen
     observed = []
 
-    def checked(*args):
+    def checked(*args, **kwargs):
         observed.append(context.get())
-        return screen(*args)
+        return screen(*args, **kwargs)
 
     monkeypatch.setattr(counsellor.screen, "screen", checked)
 
@@ -82,4 +83,33 @@ def test_framework_preserves_context_under_an_existing_event_loop(counsellor, mo
 
     result = asyncio.run(turn())
     assert not result.escalated
-    assert observed == ["synthetic-trace"]
+    # Input screening and approved-document screening both run inside the preserved context.
+    assert observed == ["synthetic-trace"] * 2
+
+
+@pytest.mark.parametrize("utterance,new_question", [
+    ("So the capital is the fund's official calculation of what I've earned, and it replaces the yearly adjustment? "
+     "That sounds clear, but can you confirm if this matches my statements?", True),
+    ("Hello again. I understood the explanation. I am still worried about later years. Could we focus on that?", True),
+    ("Thanks, but what happens in later years?", True),
+    ("So it stays the same on the transition date and can go up or down each year after that.", False),
+    ("So it stays the same on the transition date, right?", False),
+    ("Thank you, that makes sense.", False),
+])
+def test_b9_recap_with_a_new_question_is_not_a_confirmation(utterance, new_question):
+    from governedgraph.orchestrator.workflow import asks_something_new
+
+    assert asks_something_new(utterance) is new_question
+
+
+def test_b9_restating_reading_with_a_new_question_reaches_the_explanation_executor(counsellor, monkeypatch):
+    from governedgraph.agents import decision_agents
+    from governedgraph.common.contracts import IntentDecision
+
+    counsellor.handle("Explain my transition letter")
+    recap = IntentDecision("comprehension", "unclassified", "restating_previous_explanation", "en")
+    monkeypatch.setattr(decision_agents, "run_decision", lambda role, tools, utterance, context: recap)
+    result = counsellor.handle("I understood that. Could we focus on what happens in later years?")
+    assert "explain-with-approved-tools" in result.workflow_steps
+    assert "acknowledge-explanation" not in result.workflow_steps
+    assert {"stage": "intent", "result": "new_question_in_reply", "issues": []} in result.turn_trace

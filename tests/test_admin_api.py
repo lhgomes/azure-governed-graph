@@ -1,4 +1,4 @@
-"""B4/B7/B8/B9/B10: local-only admin authorization, audited protection, no widening actions."""
+"""B4/B7/B8/B9/B10: hosted admin authorization, audited protection, no widening actions."""
 import json
 import re
 from dataclasses import replace
@@ -8,25 +8,24 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 
-from governedgraph.admin import api, sources
+import admin_doubles
+from admin_doubles import LocalSources, ORIGIN, SignedIn, open_console, read_lines
+from governedgraph.admin import api
 from governedgraph.admin.access import AccessPolicy
-from governedgraph.admin.data import read_lines
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import ExplainabilityRecord
 from governedgraph.explainability.store import LocalExplainabilityStore
-from governedgraph.strategy_service.service import StrategyService
 from governedgraph.strategy_service.snapshot import RankingSnapshot, sign_snapshot
-from governedgraph.strategy_service.state import LocalStateStore, StateUnavailable
+from governedgraph.strategy_service.state import StateUnavailable
+from strategy_doubles import local_strategy_service
 
 
 @pytest.fixture
 def console(tmp_path, monkeypatch):
-    monkeypatch.setenv("GOVERNEDGRAPH_ADMIN_ENABLED", "true")
-    service = StrategyService(store=LocalStateStore(tmp_path / "strategy_service" / "state.json"))
-    client = TestClient(api.create_app(service, tmp_path), base_url="http://127.0.0.1:8090")
-    response = client.get("/")
-    token = re.search(r'name="admin-session" content="([^"]+)"', response.text)[1]
-    client.headers["x-admin-session"] = token
+    signed = SignedIn(monkeypatch)
+    service = local_strategy_service(tmp_path / "strategy_service")
+    client = open_console(monkeypatch, LocalSources(service, tmp_path), signed.policy())
+    client.headers.update(signed.bearer([signed.operators]))
     return client, service, tmp_path
 
 
@@ -40,11 +39,11 @@ def payload(client, action="freeze", **extra):
     return {"action": action, "reason": "Synthetic operator protection", "expected_revision": state(client)["revision"], **extra}
 
 
-def test_admin_is_opt_in_loopback_session_and_same_origin_only(console, monkeypatch):
+def test_admin_is_opt_in_session_and_same_origin_only(console, monkeypatch):
     client, _, _ = console
     assert client.get("/api/overview", headers={"x-admin-session": "wrong"}).status_code == 403
-    assert client.get("/api/overview", headers={"host": "attacker.example"}).status_code == 403
-    assert client.post("/api/actions", json=payload(client), headers={"origin": "http://attacker.example"}).status_code == 403
+    assert client.post("/api/actions", json=payload(client), headers={"origin": "https://attacker.example"}).status_code == 403
+    assert client.get("/api/overview", headers={"origin": ORIGIN}).status_code == 200
     assert client.get("/").headers["cache-control"] == "no-store"
     assert "frame-ancestors 'none'" in client.get("/").headers["content-security-policy"]
     assert client.get("/assets/admin.js").status_code == 200
@@ -53,8 +52,9 @@ def test_admin_is_opt_in_loopback_session_and_same_origin_only(console, monkeypa
     monkeypatch.delenv("GOVERNEDGRAPH_ADMIN_ENABLED")
     assert client.get("/").status_code == 404
     monkeypatch.setenv("GOVERNEDGRAPH_ADMIN_ENABLED", "true")
-    monkeypatch.setattr(api, "settings", replace(settings, mode="azure"))
-    assert client.get("/api/overview").status_code == 404
+    monkeypatch.setenv("GOVERNEDGRAPH_ADMIN_PUBLIC_ORIGIN", "http://insecure.example")
+    insecure = TestClient(api.create_app(access=AccessPolicy()), base_url="http://admin.internal")
+    assert insecure.get("/").status_code == 404 and insecure.get("/api/overview").status_code == 404
 
 
 def test_b8_freeze_is_durable_and_audited_before_and_after_mutation(console):
@@ -63,7 +63,7 @@ def test_b8_freeze_is_durable_and_audited_before_and_after_mutation(console):
     response = client.post("/api/actions", json=request)
     assert response.status_code == 200
     assert state(client)["state"]["frozen"]
-    restarted = StrategyService(store=LocalStateStore(directory / "strategy_service" / "state.json"))
+    restarted = local_strategy_service(directory / "strategy_service")
     assert restarted.frozen
     rows = read_lines(directory / "admin" / "actions.jsonl")
     assert [row["status"] for row in rows] == ["requested", "applied"]
@@ -145,7 +145,7 @@ def test_b10_revert_is_protective_and_reinstatement_stays_disabled(console):
 
 def test_b8_no_mutation_when_write_ahead_journal_is_unavailable(console, monkeypatch):
     client, service, _ = console
-    monkeypatch.setattr(sources, "append_action", Mock(side_effect=OSError("private path")))
+    monkeypatch.setattr(admin_doubles, "append_action", Mock(side_effect=OSError("private path")))
     response = client.post("/api/actions", json=payload(client))
     assert response.status_code == 503
     assert not service.frozen
@@ -154,14 +154,14 @@ def test_b8_no_mutation_when_write_ahead_journal_is_unavailable(console, monkeyp
 
 def test_b8_completion_failure_is_not_reported_as_success(console, monkeypatch):
     client, service, _ = console
-    original = sources.append_action
+    original = admin_doubles.append_action
 
     def fail_completion(path, record):
         if record["status"] == "applied":
             raise OSError("private path")
         original(path, record)
 
-    monkeypatch.setattr(sources, "append_action", fail_completion)
+    monkeypatch.setattr(admin_doubles, "append_action", fail_completion)
     response = client.post("/api/actions", json=payload(client))
     assert response.status_code == 503
     assert service.frozen
@@ -207,22 +207,6 @@ def test_b4_journey_drilldown_is_reference_only_and_never_a_learning_input(conso
     assert not (directory / "learning-aggregates").exists()
 
 
-def test_demo_profile_reads_and_protects_the_samples_actual_strategy_store(tmp_path, monkeypatch):
-    monkeypatch.setenv("GOVERNEDGRAPH_ADMIN_ENABLED", "true")
-    monkeypatch.setenv("GOVERNEDGRAPH_ADMIN_DEMO", "true")
-    path = tmp_path / "demo" / "strategy" / "state.json"
-    original = StrategyService(store=LocalStateStore(path))
-    original.freeze()
-    client = TestClient(api.create_app(run_dir=tmp_path), base_url="http://127.0.0.1:8090")
-    token = re.search(r'name="admin-session" content="([^"]+)"', client.get("/").text)[1]
-    client.headers["x-admin-session"] = token
-    result = state(client)
-    assert result["source_profile"] == "demo" and result["state"]["frozen"]
-    assert not (tmp_path / "strategy_service" / "state.json").exists()
-    assert client.post("/api/actions", json=payload(client, "revert_to_static")).status_code == 200
-    assert StrategyService(store=LocalStateStore(path)).frozen
-
-
 def test_trace_lookup_reuses_the_deployments_values_only_when_explicitly_opted_in(tmp_path, monkeypatch):
     project = ("/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-gg-dev"
                "/providers/Microsoft.CognitiveServices/accounts/foundry/projects/gg-dev")
@@ -236,13 +220,13 @@ def test_trace_lookup_reuses_the_deployments_values_only_when_explicitly_opted_i
     readers = []
     original = api.SyntheticTraceReader
     monkeypatch.setattr(api, "SyntheticTraceReader", lambda *a, **k: readers.append(a) or original(*a, **k))
-    api.create_app(run_dir=tmp_path, access=AccessPolicy())
-    assert readers[-1] == ("", "", "")
+    api.create_app(access=AccessPolicy())
+    assert readers[-1] == ("", "", "gg-dev")
     monkeypatch.setenv("GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP", "true")
-    api.create_app(run_dir=tmp_path, access=AccessPolicy())
+    api.create_app(access=AccessPolicy())
     assert readers[-1] == (workspace, project, "gg-dev") and original(*readers[-1]).enabled
     monkeypatch.setenv("GOVERNEDGRAPH_ADMIN_TRACE_WORKSPACE", "00000000-0000-0000-0000-0000000000ff")
-    api.create_app(run_dir=tmp_path, access=AccessPolicy())
+    api.create_app(access=AccessPolicy())
     assert readers[-1][0] == "00000000-0000-0000-0000-0000000000ff"
 
 

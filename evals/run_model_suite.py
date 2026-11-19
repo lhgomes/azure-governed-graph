@@ -26,7 +26,7 @@ from evals.run_evals import load, persona_cases  # noqa: E402
 from evals.run_model_comparison import UsageRecorder, collect_candidate, score_report  # noqa: E402
 
 LABEL = "SIMULATED - ILLUSTRATIVE - synthetic data"
-ROLES = ("intent", "understanding", "answer-review")
+ROLES = ("answer-review",)
 MODELS = {"gpt-4.1", "gpt-4.1-mini", "gpt-5.4-mini"}
 
 

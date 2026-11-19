@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import re
 from typing import TYPE_CHECKING
 
 from agent_framework import Executor, WorkflowBuilder, WorkflowContext, handler
@@ -14,6 +15,23 @@ from governedgraph.orchestrator.state_machine import Event, State
 
 if TYPE_CHECKING:
     from governedgraph.agents.counsellor import Counsellor, TurnResult
+
+_REQUEST = re.compile(
+    r"\b(?:can|could|would|will)\s+(?:you|we|i)\b|\bplease\s+(?:confirm|explain|tell|check|clarify)\b"
+    r"|\b(?:tell|explain|show|clarify)\s+me\b|\bi(?:'d| would) like to (?:know|understand|ask)\b", re.IGNORECASE)
+_WH_QUESTION = re.compile(r"(?:^|[,;]\s*|\b(?:but|and|so|also|then)\s+)(?:what|how|why|when|where|which|who|whether)\b",
+                          re.IGNORECASE)
+
+
+def asks_something_new(utterance: str) -> bool:
+    """True when a reply that recaps an explanation also asks for something (a request, or a wh-question).
+
+    A recap closed by a confirmation tag ("... , right?") is still a recap and does not match."""
+    for sentence in re.findall(r"[^.!?]+[.!?]?", utterance):
+        sentence = sentence.strip()
+        if sentence and (_REQUEST.search(sentence) or (sentence.endswith("?") and _WH_QUESTION.search(sentence))):
+            return True
+    return False
 
 
 @dataclass
@@ -66,7 +84,11 @@ class JourneyStep(Executor):
                     j.response_language = decision.response_language
                     c.tools.trace.note("intent", decision.reason)
                     turn.decision, turn.route = decision, decision.route
-                    if decision.route == "comprehension":
+                    if decision.route == "comprehension" and asks_something_new(turn.utterance):
+                        # A recap that also asks something is a new question: never close it with an acknowledgement.
+                        c.tools.trace.note("intent", "new_question_in_reply")
+                        turn.route = "explanation"
+                    elif decision.route == "comprehension":
                         if j.state == State.RESOLVED:
                             turn.route = "acknowledgment"
                         elif j.state != State.COMPREHENSION_CHECK:
@@ -108,8 +130,11 @@ class JourneyStep(Executor):
                     )
                 elif self.id == "clarify-question":
                     c.tools.trace.note("outcome", "follow_up_question", ["clarification_route"])
+                    # An unclear reply to a teach-back is about the last explanation, not a new question.
+                    retry = j.state == State.COMPREHENSION_CHECK
                     turn.result = TurnResult(
-                        message("clarify_question"),
+                        TEMPLATES["acknowledgements"]["comprehension_retry"][j.response_language]
+                        if retry else message("clarify_question"),
                         j.state.value,
                     )
                 elif self.id == "requested-human-handoff":

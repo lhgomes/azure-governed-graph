@@ -30,18 +30,11 @@ param p2ContainerImage string
 param strategyApiClientId string = ''
 @description('Approved human dev recovery operator; empty disables recovery, never enables strategy reinstatement.')
 param strategyRecoveryOperatorId string = ''
-@description('Verified Azure ML blob datastore container names; no account-wide P2 data role.')
-param p2MlArtifactContainers array = []
 param counsellorAgentName string = 'gg-counsellor'
 @description('Exact version returned by scripts/create_agents.py --apply; never use latest.')
 param counsellorAgentVersion string = ''
 @description('Exact immutable compact voice candidate version (IMP-35); empty fails closed.')
 param voiceCompactAgentVersion string = ''
-@description('Exact immutable contextual decision agents; empty fails closed.')
-param intentAgentVersion string = ''
-param understandingAgentVersion string = ''
-@description('Exact immutable source-grounded answer judge version; empty fails closed.')
-param reviewAgentVersion string = ''
 @description('Verified human Tier-2 writer approval object. Null or empty keeps generated answers suspended.')
 param writerApproval object?
 @description('Explicit synthetic conversation visibility; only effective in the opted-in gg-dev presenter.')
@@ -93,18 +86,17 @@ var token = empty(namingSeed)
   : toLower(uniqueString(subscription().id, rg.id, environmentName, namingSeed))
 var tags = { 'azd-env-name': environmentName, workload: 'gg-journey-graph', data: 'synthetic' }
 
-var network = { outputs: foundation.network }
 var monitoring = { outputs: foundation.monitoring }
 var security = { outputs: foundation.security }
 var data = { outputs: foundation.data }
 var ai = { outputs: foundation.ai }
-var learning = { outputs: foundation.learning }
-module mlArtifactAccess 'modules/ml-artifact-access.bicep' = {
-  name: 'ml-artifact-access'
+module p2Access 'modules/p2-access.bicep' = {
+  name: 'p2-access'
   scope: rg
   params: {
-    storageName: last(split(learning.outputs.mlStorageId, '/'))
-    containers: p2MlArtifactContainers
+    storageName: data.outputs.contentStorageName
+    aggregateStorageName: data.outputs.storageName
+    registryName: foundation.compute.registryName
     pipelinePrincipalId: security.outputs.pipelinePrincipalId
     fairnessPrincipalId: security.outputs.fairnessPrincipalId
   }
@@ -228,12 +220,10 @@ module compute 'modules/compute.bicep' = {
       GOVERNEDGRAPH_SERVICE_NAME: 'gg-orchestrator'
       AZURE_AI_AGENT_VERSION: counsellorAgentVersion
       AZURE_AI_VOICE_COMPACT_VERSION: voiceCompactAgentVersion
-      AZURE_AI_INTENT_AGENT_VERSION: intentAgentVersion
-      AZURE_AI_UNDERSTANDING_AGENT_VERSION: understandingAgentVersion
-      AZURE_AI_REVIEW_AGENT_VERSION: reviewAgentVersion
       AZURE_AI_DECISION_DEPLOYMENT: ai.outputs.decisionDeployment
       AZURE_AI_PERSONA_VERSION: personaAgentVersion
       GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS: traceSyntheticConversations && environmentName == 'gg-dev' && deployVoiceDemo ? 'true' : 'false'
+      GOVERNEDGRAPH_LOG_LLM_CALLS: environmentName == 'gg-dev' ? 'true' : 'false'
       GOVERNEDGRAPH_VOICE_DRAFT_MODEL: voiceDraftModel
       AZURE_AI_COMPACT_DEPLOYMENT: 'gpt-compact'
       OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: 'false'
@@ -317,49 +307,12 @@ module modelGateway 'modules/model-gateway.bicep' = {
     runtimeClientId: security.outputs.runtimeIdentityClientId
     mainAgentVersion: counsellorAgentVersion
     compactAgentVersion: voiceCompactAgentVersion
-    intentAgentVersion: intentAgentVersion
-    understandingAgentVersion: understandingAgentVersion
-    reviewAgentVersion: reviewAgentVersion
     writerApprovalJson: empty(writerApproval) ? '' : string(writerApproval)
     // gg-dev only: a live persona answers in seconds, so a rewrite round can use ~16k tokens in under a minute.
     // The daily token quota below stays unchanged.
     conversationTokensPerMinute: environmentName == 'gg-dev' ? 30000 : 12000
   }
   dependsOn: [ gateway ]
-}
-
-module p2JobMonitorRoles 'modules/p2-job-monitor-rbac.bicep' = {
-  name: 'p2-job-monitor-roles'
-  scope: rg
-  params: {
-    workspaceName: learning.outputs.mlWorkspaceName
-    pipelinePrincipalId: security.outputs.pipelinePrincipalId
-  }
-}
-
-module p2Compute 'modules/p2-compute.bicep' = {
-  name: 'p2-compute'
-  scope: rg
-  params: {
-    location: location
-    tags: tags
-    workspaceName: learning.outputs.mlWorkspaceName
-    subnetId: network.outputs.mlComputeSubnetId
-    pipelineIdentityId: security.outputs.pipelineIdentityId
-    fairnessIdentityId: security.outputs.fairnessIdentityId
-  }
-
-  dependsOn: [ p2JobMonitorRoles ]
-}
-
-module mlTrackingRoles 'modules/ml-tracking-rbac.bicep' = {
-  name: 'ml-tracking-roles'
-  scope: rg
-  params: {
-    workspaceName: learning.outputs.mlWorkspaceName
-    pipelinePrincipalId: security.outputs.pipelinePrincipalId
-    fairnessPrincipalId: security.outputs.fairnessPrincipalId
-  }
 }
 
 module p2ContainerJobs 'modules/p2-jobs.bicep' = if (!empty(p2ContainerImage)) {
@@ -380,7 +333,7 @@ module p2ContainerJobs 'modules/p2-jobs.bicep' = if (!empty(p2ContainerImage)) {
       EXPLAINABILITY_STORAGE_URL: data.outputs.blobEndpoint
       STRATEGY_ADMIN_URL: '${gateway.outputs.gatewayUrl}/strategy-admin'
       STRATEGY_API_CLIENT_ID: strategyApiClientId
-      AZURE_ML_ARTIFACT_URL: 'https://${last(split(learning.outputs.mlStorageId, '/'))}.blob.${environment().suffixes.storage}'
+      P2_ARTIFACT_STORAGE_URL: data.outputs.contentBlobEndpoint
       P2_FAIRNESS_JOB_ID: '${rg.id}/providers/Microsoft.App/jobs/job-gg-p2-fairness'
     })
     pipelineEnv: {
@@ -389,7 +342,7 @@ module p2ContainerJobs 'modules/p2-jobs.bicep' = if (!empty(p2ContainerImage)) {
       GOVERNEDGRAPH_P2_PRINCIPAL_ID: security.outputs.pipelinePrincipalId
     }
   }
-  dependsOn: [mlArtifactAccess]
+  dependsOn: [p2Access]
 }
 
 module p2ContainerMonitor 'modules/p2-container-monitor-rbac.bicep' = if (!empty(p2ContainerImage)) {
@@ -441,12 +394,7 @@ output AZURE_SEARCH_INDEX string = 'approved-content'
 output EXPLAINABILITY_CONTAINER string = 'explainability-records'
 output SNAPSHOT_SIGNING_KEY_NAME string = security.outputs.signingKeyName
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = compute.outputs.registryLoginServer
-output AZURE_ML_WORKSPACE string = learning.outputs.mlWorkspaceName
-output AZURE_ML_STORAGE_ID string = learning.outputs.mlStorageId
-output AZURE_ML_REGISTRY_ID string = learning.outputs.mlRegistryId
-output AZURE_ML_KEY_VAULT_ID string = learning.outputs.mlVaultId
-output AZURE_ML_APP_INSIGHTS_ID string = learning.outputs.mlAppInsightsId
-output AZURE_ML_WORKSPACE_PRINCIPAL_ID string = learning.outputs.workspacePrincipalId
+output P2_ARTIFACT_STORAGE_URL string = data.outputs.contentBlobEndpoint
 output RANKING_STORAGE_URL string = data.outputs.contentBlobEndpoint
 output STRATEGY_TENANT_ID string = subscription().tenantId
 output STRATEGY_API_CLIENT_ID string = strategyApiClientId

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from governedgraph.learning.azure_ml import STEPS, check_component_states
+from governedgraph.learning.p2_components import STEPS, check_component_states
 from governedgraph.learning import container_jobs
 from governedgraph.learning.container_jobs import component_states, read_state, watch
 
@@ -185,14 +185,6 @@ def test_b7_container_monitor_cannot_start_override_or_read_fairness_logs():
     assert "dataActions: []" in source
     for forbidden in ("/start", "/write", "/action", "/log", "/*"):
         assert forbidden not in source
-
-
-def test_b5_ml_component_input_and_output_port_names_are_distinct():
-    root = Path(__file__).resolve().parents[1]
-    source = (root / "src/governedgraph/learning/azure_ml.py").read_text()
-    assert 'inputs={"previous_state": Input(' in source
-    assert 'outputs={"state": Output(' in source
-    assert "components[stage](previous_state=previous)" in source
 
 
 def test_b6_watchdog_has_time_to_freeze_before_the_platform_stops_its_execution():

@@ -38,18 +38,10 @@ resource recordsWorm 'Microsoft.Storage/storageAccounts/blobServices/containers/
   name: 'default'
   properties: { immutabilityPeriodSinceCreationInDays: 30, allowProtectedAppendWrites: true }
 }
-resource snapshots 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
-  parent: blob
-  name: 'ranking-snapshots'
-}
 resource learningAggregates 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
   parent: blob
   name: 'learning-aggregates'
   properties: { publicAccess: 'None' }
-}
-resource governance 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
-  parent: blob
-  name: 'governance-cases'
 }
 // Administration journal: one create-only blob per action step, immutable like the response audit records.
 resource adminActions 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (deployAdminConsole) {
@@ -164,6 +156,11 @@ resource learningAudits 'Microsoft.Storage/storageAccounts/blobServices/containe
   name: 'learning-audits'
   properties: { publicAccess: 'None' }
 }
+resource p2Artifacts 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: contentBlobs
+  name: 'p2-artifacts'
+  properties: { publicAccess: 'None' }
+}
 resource learningEvidence 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
   parent: contentBlobs
   name: 'learning-evidence'
@@ -205,16 +202,6 @@ resource qJourney 'Microsoft.ServiceBus/namespaces/queues@2022-10-01-preview' = 
   parent: sb
   name: 'journey-events'
   properties: { requiresSession: true, requiresDuplicateDetection: false, deadLetteringOnMessageExpiration: true, maxDeliveryCount: 10 }
-}
-resource qLife 'Microsoft.ServiceBus/namespaces/queues@2022-10-01-preview' = {
-  parent: sb
-  name: 'life-events'
-  properties: { requiresDuplicateDetection: true, deadLetteringOnMessageExpiration: true }
-}
-resource qBatch 'Microsoft.ServiceBus/namespaces/queues@2022-10-01-preview' = {
-  parent: sb
-  name: 'conversion-batches'
-  properties: { requiresDuplicateDetection: true, deadLetteringOnMessageExpiration: true } // queue-based load levelling
 }
 resource qEsc 'Microsoft.ServiceBus/namespaces/queues@2022-10-01-preview' = {
   parent: sb

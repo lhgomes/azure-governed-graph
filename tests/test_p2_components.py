@@ -19,6 +19,8 @@ from governedgraph.learning.uplift import ArmOutcome, evaluate_window
 from governedgraph.strategy_service.exploration import explore
 from governedgraph.strategy_service.service import SnapshotRejected, StrategyService
 from governedgraph.strategy_service.snapshot import LocalHmacSigner, RankingSnapshot, sign_snapshot
+from governedgraph.strategy_service.state import LocalStateStore
+from strategy_doubles import import_strategy_api, pinned_to_active
 
 KEY = "first_contact|transition_impact_question|voice|standard"
 REQUEST = {"journey_id": "J-x", "journey_state": "first_contact",
@@ -42,12 +44,17 @@ class Inputs:
         self.evidence = {}
         self.audit = None
 
+    def pinned(self, name):
+        source = DATA_DIR / ("synthetic/outcome_aggregates_illustrative.csv" if name == "outcomes"
+                             else "fairness/cohort_aggregates_illustrative.csv")
+        return pinned_to_active(self.service, source, self.root / "p2-inputs" / f"{name}.csv")
+
     def outcome_bytes(self):
-        return (DATA_DIR / "synthetic" / "outcome_aggregates_illustrative.csv").read_bytes()
+        return self.pinned("outcomes").read_bytes()
 
     def run_fairness(self, service, *, expected_digest):
         assert expected_digest == hashlib.sha256(self.outcome_bytes()).hexdigest()
-        self.audit = run_cohort_audit(load_thresholds())
+        self.audit = run_cohort_audit(load_thresholds(), self.pinned("cohorts"))
         FairnessExplainabilityAgent(service, self.root / "private-cohort-cases").apply_veto_gate(self.audit)
         return self.audit.audit_id
 
@@ -56,7 +63,7 @@ class Inputs:
         projected = copy.deepcopy(self.audit)
         projected.findings = []
         projected.vetoes = [(key, strategy, "protective-veto") for key, strategy, _ in self.audit.vetoes]
-        return load_outcome_aggregates(), projected
+        return load_outcome_aggregates(self.pinned("outcomes"), catalogue=self.service.catalogue), projected
 
     def save_evidence(self, kind, identifier, payload):
         self.evidence[(kind, identifier)] = payload
@@ -66,7 +73,7 @@ class Inputs:
 
 
 def setup(root):
-    service = LocalAdmin(signer=SIGNER, state_dir=root / "ranking", control_share=0.0)
+    service = LocalAdmin(signer=SIGNER, store=LocalStateStore(root / "ranking" / "state.json"), control_share=0.0)
     return service, Inputs(root, service)
 
 
@@ -165,7 +172,7 @@ def test_audit_artifact_cannot_carry_a_cohort_column(tmp_path):
 def test_rank_baseline_changed_after_audit_refuses_publication(tmp_path):
     state, inputs, service = advance(tmp_path, "audit")
     replacement = sign_snapshot(RankingSnapshot("concurrent", service.catalogue.version, "1.0", state.audit_id,
-                                               "tier0", {k: [[sid, "1.0"] for sid in v]
+                                               "tier0", {k: [[sid, service.catalogue.get(sid).version] for sid in v]
                                                          for k, v in state.previous.items()}), SIGNER)
     service.load_snapshot(replacement)
     with pytest.raises(ValueError, match="baseline changed"):
@@ -177,7 +184,7 @@ def test_compare_and_swap_stops_a_racing_publisher(tmp_path):
     service, _ = setup(tmp_path)
     baseline = "expert-priors-" + service.priors["priors_version"]
     snapshot = sign_snapshot(RankingSnapshot("new", service.catalogue.version, "1.0", "audit", "tier0",
-                                            {KEY: [["S5", "1.0"]]}), SIGNER)
+                                            {KEY: [["S5", service.catalogue.get("S5").version]]}), SIGNER)
     service.load_snapshot(snapshot, expected_snapshot_id=baseline)
     with pytest.raises(SnapshotRejected, match="baseline changed"):
         service.load_snapshot(snapshot, expected_snapshot_id=baseline)
@@ -269,19 +276,23 @@ def test_control_frozen_and_fallback_never_explore(tmp_path, caplog):
 
 
 def test_revert_endpoint_uses_existing_protective_authorization(tmp_path, monkeypatch):
-    import governedgraph.strategy_service.api as api
+    import governedgraph.strategy_service.auth as auth
 
+    api = import_strategy_api(monkeypatch, tmp_path)
     _, _, service = advance(tmp_path, "publish")
     monkeypatch.setattr(api, "svc", service)
+    authorized = []
+    monkeypatch.setattr(auth, "authorize", lambda action, authorization: authorized.append(action) or {})
     response = TestClient(api.app).post("/revert-to-static")
-    assert response.status_code == 200
+    assert response.status_code == 200 and authorized == ["freeze"]
     assert service.frozen and service.current is None
 
 
-def test_revert_endpoint_does_not_bypass_entra_authorization(monkeypatch):
-    import governedgraph.strategy_service.api as api
+def test_revert_endpoint_does_not_bypass_entra_authorization(tmp_path, monkeypatch):
     import governedgraph.strategy_service.auth as auth
     from fastapi import HTTPException
+
+    api = import_strategy_api(monkeypatch, tmp_path)
 
     seen = []
     def deny(action, authorization):
@@ -362,7 +373,7 @@ def test_production_image_does_not_embed_cohorts_or_personas():
 
 
 def test_watchdog_fails_closed_on_failed_or_missing_component_metadata():
-    from governedgraph.learning.azure_ml import STEPS, check_component_states
+    from governedgraph.learning.p2_components import STEPS, check_component_states
 
     assert not check_component_states({})
     assert not check_component_states({"audit": "Running"})
@@ -373,9 +384,9 @@ def test_watchdog_fails_closed_on_failed_or_missing_component_metadata():
 
 
 def test_fairness_component_has_no_key_vault_configuration(monkeypatch):
-    from governedgraph.learning.azure_ml import MlConfig, component_environment
+    from governedgraph.learning.p2_components import P2Config, component_environment
 
-    config = MlConfig("sub", "rg", "workspace", "storage", "/registries/registry",
+    config = P2Config("sub", "rg", "https://storage.blob.core.windows.net", "registry.azurecr.io",
                       "p2", "fairness", "principal")
     for name in ("AZURE_KEY_VAULT_URL", "SNAPSHOT_SIGNING_KEY_NAME", "RANKING_STORAGE_URL",
                  "EXPLAINABILITY_STORAGE_URL", "STRATEGY_ADMIN_URL", "STRATEGY_API_CLIENT_ID"):
@@ -386,75 +397,15 @@ def test_fairness_component_has_no_key_vault_configuration(monkeypatch):
     assert component_environment(config, "sign")["AZURE_CLIENT_ID"] == "p2"
 
 
-def test_proposed_watchdog_role_has_no_data_plane_or_broad_read_permissions():
-    text = (REPO_ROOT / "infra/modules/p2-job-monitor-rbac.bicep").read_text()
-    assert "dataActions: []" in text
-    assert "'Microsoft.MachineLearningServices/workspaces/read'" in text
-    assert "'Microsoft.MachineLearningServices/workspaces/jobs/read'" in text
-    assert "scope: workspace" in text
-    assert "*" not in text and "Microsoft.KeyVault" not in text and "Microsoft.Storage" not in text
-
-
 def test_azure_api_enables_exploration_from_start_without_a_rollout_flag():
     text = (REPO_ROOT / "src/governedgraph/strategy_service/api.py").read_text()
-    assert "svc = StrategyService(exploration_enabled=settings.is_azure)" in text
+    assert "svc = StrategyService(exploration_enabled=True)" in text
     with pytest.raises(ValueError, match="boolean"):
         StrategyService(exploration_enabled="true")
 
 
-def test_b7_private_compute_keeps_pipeline_and_fairness_identities_separate():
-    infra = REPO_ROOT / "infra"
-    compute = (infra / "modules/p2-compute.bicep").read_text()
-    assert "{ name: 'gg-p2', identityId: pipelineIdentityId, maxNodes: 2 }" in compute
-    assert "{ name: 'gg-fairness', identityId: fairnessIdentityId, maxNodes: 1 }" in compute
-    assert "enableNodePublicIp: false" in compute
-    assert "disableLocalAuth: true" in compute
-    assert "remoteLoginPortPublicAccess: 'Disabled'" in compute
-    assert "minNodeCount: 0" in compute
-    network = (infra / "modules/network.bicep").read_text()
-    assert "name: 'ml-compute'" in network and "defaultOutboundAccess: false" in network
-    assert "natGateway: { id: mlNat.id }" in network
-    grants = (infra / "modules/rbac.bicep").read_text()
-    assert "resource faBlob " not in grants
-    assert "scope: learningEvidence" in grants
-    learning = (infra / "modules/learning.bicep").read_text()
-    assert "scope: artifactContainers[i]" in learning
-    assert "resource fairnessArtifactAccess" in learning
-    assert "scope: registry" in learning
-    assert "module workspaceNetwork 'ml-workspace-network.bicep'" in learning
-    private_network = (infra / "modules/ml-workspace-network.bicep").read_text()
-    assert "'privatelink.api.azureml.ms'" in private_network
-    assert "'privatelink.notebooks.azure.net'" in private_network
-    assert "groupIds: [ 'amlworkspace' ]" in private_network
-
-
-def test_private_ml_job_completion_uses_status_not_blob_log_streaming(monkeypatch):
-    import governedgraph.learning.azure_ml as ml
-
-    states = iter(["Queued", "Running", "Completed"])
-    sleeps = []
-    monkeypatch.setattr(ml.time, "sleep", sleeps.append)
-    ml.wait_for_job(lambda: next(states), interval=0)
-    assert sleeps == [0, 0]
-
-
-@pytest.mark.parametrize("status", ["Failed", "Canceled", "CancelRequested", "NotResponding", ""])
-def test_ml_job_terminal_failure_or_missing_status_never_enables_schedule(status):
-    from governedgraph.learning.azure_ml import wait_for_job
-
-    with pytest.raises(RuntimeError):
-        wait_for_job(lambda: status)
-
-
-def test_ml_job_timeout_never_reports_success():
-    from governedgraph.learning.azure_ml import wait_for_job
-
-    with pytest.raises(TimeoutError, match="deadline exceeded"):
-        wait_for_job(lambda: "Running", timeout=0)
-
-
-def test_ml_tracking_exports_only_allowlisted_completion_metrics(tmp_path):
-    from governedgraph.learning.azure_ml import component_metrics
+def test_native_components_export_only_allowlisted_completion_metrics(tmp_path):
+    from governedgraph.learning.p2_components import component_metrics
 
     state, _, _ = advance(tmp_path, "uplift")
     assert component_metrics("uplift", asdict(state)) == {
@@ -465,75 +416,6 @@ def test_ml_tracking_exports_only_allowlisted_completion_metrics(tmp_path):
         component_metrics("key-isolation", {})
     with pytest.raises(ValueError, match="invalid"):
         component_metrics("uplift", asdict(PipelineState()))
-
-
-def acceptance_components(snapshot_id):
-    from governedgraph.learning.azure_ml import STEPS
-
-    components = [{"stage": stage, "status": "Completed", "metrics": {"component_success": 1},
-                   "params": {}} for stage in (*STEPS, "watchdog")]
-    components[0]["metrics"]["key_isolation_passed"] = 1
-    uplift = next(c for c in components if c["stage"] == "uplift")
-    uplift["metrics"].update({"tier1_evidence_stored": 1, "uplift_continue": 1})
-    uplift["params"].update({"snapshot_id": snapshot_id, "fairness_audit_id": "audit-synthetic"})
-    return components
-
-
-def test_b10_schedule_requires_live_worked_example_and_static_control(tmp_path):
-    from governedgraph.learning.azure_ml import verify_schedule_acceptance
-
-    state, _, service = advance(tmp_path, "uplift")
-    service.control_share = 0.5
-    verify_schedule_acceptance(acceptance_components(state.snapshot["snapshot_id"]), service)
-
-
-@pytest.mark.parametrize("failure", ["missing", "duplicate", "failed", "metric", "key", "tier1", "uplift", "id"])
-def test_b5_schedule_rejects_incomplete_or_unproven_component_acceptance(tmp_path, failure):
-    from governedgraph.learning.azure_ml import verify_schedule_acceptance
-
-    state, _, service = advance(tmp_path, "uplift")
-    components = acceptance_components(state.snapshot["snapshot_id"])
-    if failure == "missing":
-        components.pop()
-    elif failure == "duplicate":
-        components[-1] = copy.deepcopy(components[0])
-    elif failure == "failed":
-        components[0]["status"] = "Failed"
-    elif failure == "metric":
-        components[1]["metrics"].clear()
-    elif failure == "key":
-        components[0]["metrics"]["key_isolation_passed"] = 0
-    else:
-        uplift = next(c for c in components if c["stage"] == "uplift")
-        if failure == "id":
-            uplift["params"].clear()
-        else:
-            uplift["metrics"]["tier1_evidence_stored" if failure == "tier1" else "uplift_continue"] = 0
-    with pytest.raises(RuntimeError, match="live P2 acceptance"):
-        verify_schedule_acceptance(components, service)
-
-
-@pytest.mark.parametrize("failure", ["snapshot", "ranking", "suspension", "control"])
-def test_b10_schedule_rejects_wrong_live_outputs(tmp_path, failure):
-    from governedgraph.learning.azure_ml import verify_schedule_acceptance
-
-    state, _, service = advance(tmp_path, "uplift")
-    service.control_share = 1 if failure == "control" else 0
-    components = acceptance_components(state.snapshot["snapshot_id"])
-    if failure == "snapshot":
-        next(c for c in components if c["stage"] == "uplift")["params"]["snapshot_id"] = "different"
-    elif failure == "ranking":
-        service.current.rankings[KEY].reverse()
-    elif failure == "suspension":
-        service._suspensions.clear()
-    else:
-        original = service.get_ranked
-        def nonstatic(request):
-            from dataclasses import replace
-            return replace(original(request), exploration=True)
-        service.get_ranked = nonstatic
-    with pytest.raises(RuntimeError, match="live P2 acceptance"):
-        verify_schedule_acceptance(components, service)
 
 
 @pytest.mark.parametrize("outcome", ["stored", "retry", "conflict", "unavailable"])
@@ -560,27 +442,3 @@ def test_b8_durable_evidence_requires_exact_blob_readback(outcome):
         with pytest.raises(ValueError if outcome == "conflict" else OSError):
             inputs.save_evidence("tier1", "snap-synthetic", {"approved": True})
 
-
-@pytest.mark.parametrize(("status", "workload", "image", "accepted"), [
-    ("Completed", "bounded-p2", "registry@sha256:tested", True),
-    ("Failed", "bounded-p2", "registry@sha256:tested", False),
-    ("Completed", "diagnostic", "registry@sha256:tested", False),
-    ("Completed", "bounded-p2", "registry@sha256:untested", False),
-    ("Completed", "bounded-p2", "", False),
-])
-def test_b5_schedule_cannot_reuse_acceptance_for_a_different_image(status, workload, image, accepted):
-    from governedgraph.learning.azure_ml import verify_acceptance_job
-
-    tags = {"gg_workload": workload, "gg_image": image}
-    if accepted:
-        verify_acceptance_job(status, tags, "registry@sha256:tested")
-    else:
-        with pytest.raises(RuntimeError, match="scheduled image"):
-            verify_acceptance_job(status, tags, "registry@sha256:tested")
-
-
-def test_b5_schedule_rejects_missing_governed_job_tags():
-    from governedgraph.learning.azure_ml import verify_acceptance_job
-
-    with pytest.raises(RuntimeError, match="scheduled image"):
-        verify_acceptance_job("Completed", None, "registry@sha256:tested")

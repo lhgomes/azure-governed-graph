@@ -1,4 +1,4 @@
-"""Temporary Container Apps hosting of the unchanged, identity-isolated P2 stages."""
+"""Explicit operator diagnostics for identity-isolated P2 stages on Container Apps."""
 from __future__ import annotations
 
 import argparse
@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from governedgraph.learning.azure_inputs import WATERMARK
-from governedgraph.learning.azure_ml import STEPS, check_component_states, component_metrics, run_component
+from governedgraph.learning.p2_components import STEPS, check_component_states, component_metrics, run_component
 
 
 class P2MetadataUnavailable(ValueError):
@@ -130,8 +130,8 @@ def main() -> None:
     complete = False
     try:
         container = BlobServiceClient(
-            os.environ["AZURE_ML_ARTIFACT_URL"], credential=credential,
-        ).get_container_client("azureml")
+            os.environ["P2_ARTIFACT_STORAGE_URL"], credential=credential,
+        ).get_container_client("p2-artifacts")
         metrics = {}
         state = None
         if args.stage == "watchdog":

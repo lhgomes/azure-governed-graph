@@ -97,7 +97,7 @@ resource guardrailPolicy 'Microsoft.CognitiveServices/accounts/raiPolicies@2024-
 resource counsellor 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
   parent: aiServices
   name: 'gpt-counsellor'
-  sku: { name: 'DataZoneStandard', capacity: 50 } // EU data zone (A-2)
+  sku: { name: 'GlobalStandard', capacity: 300 }
   properties: {
     model: { format: 'OpenAI', name: counsellorModelName, version: counsellorModelVersion }
     raiPolicyName: guardrailPolicy.name
@@ -108,7 +108,7 @@ resource counsellor 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01
 resource compact 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
   parent: aiServices
   name: 'gpt-compact'
-  sku: { name: 'DataZoneStandard', capacity: 50 }
+  sku: { name: 'GlobalStandard', capacity: 300 }
   properties: {
     model: { format: 'OpenAI', name: compactModelName, version: compactModelVersion }
     raiPolicyName: guardrailPolicy.name
@@ -132,7 +132,7 @@ resource embedding 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01'
 resource decision 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
   parent: aiServices
   name: decisionDeployment
-  sku: { name: 'DataZoneStandard', capacity: 10 }
+  sku: { name: 'GlobalStandard', capacity: 500 }
   properties: {
     model: { format: 'Microsoft', name: 'Microsoft-Decision-1.1', version: '1' }
     versionUpgradeOption: 'NoAutoUpgrade'

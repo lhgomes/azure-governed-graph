@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from governedgraph.agents.counsellor import new_session
+from counsellor_doubles import new_session
 from governedgraph.common.contracts import ContractError
 from governedgraph.search import approved_content, ingest
 from governedgraph.search import run_publisher_job as remote
@@ -103,13 +103,19 @@ def test_b3_indexed_corpus_round_trip_keeps_source_version_ids():
     assert load_corpus(json.dumps(doc.index_document()), indexed=True) == [doc]
 
 
-def test_b3_local_retrieval_never_returns_retired_versions(monkeypatch, tmp_path):
+def test_b3_retrieval_never_returns_retired_versions(azure_modules):
     rows = [document(status="retired"), document(id="C-TEST-v1.1", version="1.1")]
-    path = tmp_path / "content"
-    path.mkdir()
-    (path / "approved_content.jsonl").write_text("\n".join(json.dumps(asdict(d)) for d in rows))
-    monkeypatch.setattr(approved_content, "DATA_DIR", tmp_path)
-    hits = approved_content.LocalContentSearch().search("pensioen overgang", "first_contact", language="nl")
+
+    class Index:
+        """Index double that honours the mandatory status filter, as Azure AI Search does."""
+
+        def search(self, **kwargs):
+            assert kwargs["filter"].startswith("status eq 'approved'")
+            return [row.index_document() for row in rows if row.status == "approved"]
+
+    search = object.__new__(approved_content.AzureContentSearch)
+    search.client = Index()
+    hits = search.search("pensioen overgang", "first_contact", language="nl")
     assert [h.version for h in hits] == ["1.1"]
 
 
@@ -137,7 +143,8 @@ def test_b3_azure_always_uses_approved_filter_hybrid_semantic_and_prefilter(azur
 
 @pytest.mark.parametrize("mode", ["standard", "english", "plain_language", "slower_pace", "large_text"])
 @pytest.mark.parametrize("language", ["en", "nl"])
-def test_b3_tool_uses_established_response_language_independently_of_accessibility(mode, language):
+def test_b3_tool_uses_established_response_language_independently_of_accessibility(mode, language,
+                                                                                    local_counsellor):
     counsellor = new_session("MBR-7Q2K", accessibility_mode=mode)
     counsellor.journey.response_language = language
     counsellor.tools.search = Mock()
@@ -230,7 +237,7 @@ def test_b3_indexer_noop_cannot_masquerade_as_a_vectorized_corpus(azure_modules)
     with pytest.raises(RuntimeError, match="provenance or integrated vectors"):
         publisher.verify_index([document()], timeout=0)
 
-def test_b3_tools_replace_previous_passages_instead_of_reusing_retired_content():
+def test_b3_tools_replace_previous_passages_instead_of_reusing_retired_content(local_counsellor):
     tools = new_session("MBR-7Q2K").tools
     tools.search = Mock()
     old = approved_content.ContentHit("C-TEST-v1.0", "C-TEST", "1.0", "Old", "Old passage", "nl")
@@ -242,7 +249,7 @@ def test_b3_tools_replace_previous_passages_instead_of_reusing_retired_content()
     assert tools.trace.content_texts == [new.body]
 
 
-def test_b3_retrieval_uses_current_question_and_a_bounded_broader_evidence_set():
+def test_b3_retrieval_uses_current_question_and_a_bounded_broader_evidence_set(local_counsellor):
     tools = new_session("MBR-7Q2K").tools
     tools.search = Mock()
     tools.search.search.return_value = []
@@ -328,7 +335,15 @@ def test_b3_remote_approval_preserves_full_private_job_template(monkeypatch, rem
     assert container["env"][0] == template["containers"][0]["env"][0]
     assert container["command"] == ["python", "-m", "governedgraph.search.reindex_on_approval"]
     assert container["args"] == ["--from-env"]
-    assert ContentDocument.from_dict(json.loads(container["env"][1]["value"])) == document()
+    assert [ContentDocument.from_dict(item) for item in json.loads(container["env"][1]["value"])] == [document()]
+
+
+def test_b3_batch_approval_publishes_several_versions_in_one_reindex():
+    from governedgraph.search.reindex_on_approval import parse_candidates
+
+    first, second = document(), document(id="C-TEST2-v1.0", content_id="C-TEST2")
+    assert parse_candidates([asdict(first), asdict(second)]) == [first, second]
+    assert parse_candidates(asdict(first)) == [first]
 
 
 def test_b3_remote_failed_job_is_not_success(monkeypatch, remote_settings):
@@ -338,3 +353,43 @@ def test_b3_remote_failed_job_is_not_success(monkeypatch, remote_settings):
     monkeypatch.setattr(remote, "azure_cli", cli)
     with pytest.raises(RuntimeError, match="Failed"):
         remote.run_publisher_job()
+
+
+def _corpus():
+    from governedgraph.common.config import DATA_DIR
+
+    return load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text())
+
+
+def test_b3_every_approved_passage_is_reachable_in_every_journey_state():
+    # A state-scoped passage silently disappeared for returning members and left a question with no grounded source.
+    states = ("first_contact", "second_contact", "letter_received", "values_reviewed", "objection_raised")
+    for doc in (doc for doc in _corpus() if doc.status == "approved"):
+        assert all("*" in doc.journey_states or state in doc.journey_states for state in states), doc.id
+
+
+def test_b3_dutch_content_has_parity_with_english_and_every_passage_lists_its_questions():
+    approved = [doc for doc in _corpus() if doc.status == "approved"]
+    english = {int(doc.content_id[2:]) for doc in approved if doc.language == "en"}
+    dutch = {int(doc.content_id[2:]) - 100 for doc in approved if doc.language == "nl"}
+    assert english == dutch
+    assert all(doc.answers.strip() and "?" in doc.answers for doc in approved)
+
+
+def test_b3_superseded_versions_are_retired_stubs_never_retrievable():
+    docs = _corpus()
+    assert all(doc.body == "SUPERSEDED VERSION - must never be retrieved." for doc in docs if doc.status == "retired")
+
+
+def test_b3_later_years_question_retrieves_the_yearly_adjustment_passage_at_second_contact(local_counsellor):
+    from counsellor_doubles import LocalContentSearch
+
+    hits = LocalContentSearch().search("I am still worried about what could happen in later years", "second_contact")
+    assert "C-003-v1.2" in {hit.id for hit in hits}
+
+
+def test_b3_search_index_ranks_and_searches_the_questions_field():
+    docs = {field.name: field for field in ingest.build_index().fields}
+    assert docs["answers"].searchable
+    semantic = ingest.build_index().semantic_search.configurations[0].prioritized_fields.content_fields
+    assert {field.field_name for field in semantic} == {"body", "answers"}

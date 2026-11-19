@@ -585,8 +585,6 @@
           "pattern": "\\S"
         },
         "content_version": {
-          "const": "1.0",
-          "default": "1.0",
           "title": "Content Version",
           "type": "string",
           "minLength": 1,
@@ -604,7 +602,8 @@
       "required": [
         "step_id",
         "title",
-        "content_id"
+        "content_id",
+        "content_version"
       ],
       "title": "NextStep",
       "type": "object",
@@ -621,7 +620,7 @@
               "const": "C-004"
             },
             "content_version": {
-              "const": "1.0"
+              "const": "1.1"
             }
           }
         },
@@ -637,7 +636,7 @@
               "const": "C-007"
             },
             "content_version": {
-              "const": "1.0"
+              "const": "1.2"
             }
           }
         },
@@ -653,7 +652,7 @@
               "const": "C-003"
             },
             "content_version": {
-              "const": "1.0"
+              "const": "1.2"
             }
           }
         },
@@ -669,7 +668,7 @@
               "const": "C-005"
             },
             "content_version": {
-              "const": "1.0"
+              "const": "1.1"
             }
           }
         },
@@ -685,7 +684,7 @@
               "const": "C-006"
             },
             "content_version": {
-              "const": "1.0"
+              "const": "1.1"
             }
           }
         }

@@ -44,11 +44,13 @@ def channel_transport(failure="", control=False):
                     for index, (jid, journey) in enumerate(journeys.items())
                     if journey["member"] == member for kind in (0, 1)]
             return httpx.Response(200, json={
-                "member_ref": member, "records": rows[:-1] if failure == "report_linkage" else rows,
+                "member_ref": member, "records": rows[1:] if failure == "report_linkage" else rows,
                 "delivered_response_ids": [row["response_id"] for row in rows],
             }, headers={} if failure == "report_cache" else {"Cache-Control": "no-store"})
         if request.url.path == "/journeys":
-            assert json.loads(request.content) == {"channel": "voice", "accessibility_mode": "standard"}
+            posted = json.loads(request.content)
+            assert posted in ({"channel": "voice", "accessibility_mode": "standard"},
+                              {"channel": "voice", "accessibility_mode": "standard", "contact_type": "second_contact"})
             jid = f"J-PROBE{len(journeys)}"
             journeys[jid] = {"member": claims["member_ref"], "handovers": []}
             return httpx.Response(200, json={"journey_id": jid, "text": "You are speaking with an AI assistant."})
@@ -64,15 +66,20 @@ def channel_transport(failure="", control=False):
             return httpx.Response(200, json={"duplicate": failure != "duplicate_turn"})
         requests[key] = True
         text = json.loads(request.content)["utterance"]
-        result = {"strategy_id": "S5", "suspended": ["S2"], "arm": "treatment", "escalated": False}
+        result = {"strategy_id": "S5", "ranked": ["S5", "S4", "S1"], "suspended": ["S2"], "arm": "treatment",
+                  "escalated": False}
         if "recommend" in text:
             result.update(escalated=True, state="escalation_requested")
             journey["handovers"] = [{"reason_code": "advice_intent"}]
         elif "instructions" in text:
             result.update(escalated=True, blocked_reason=None if failure == "injection" else "input blocked: injection")
+        elif "later years" in text and failure == "second_contact":
+            result.update(strategy_id=None, ranked=[])
+        elif "matches my yearly statement" in text and failure == "recap":
+            result.update(strategy_id=None, ranked=[])
         else:
             if failure == "s5":
-                result["strategy_id"] = "S1"
+                result["strategy_id"] = "S9"
             if failure == "s2":
                 result["suspended"] = []
             if control and jid == "J-PROBE1":
@@ -95,7 +102,8 @@ def test_b1_in_network_channel_checks_auth_scope_and_redacts_output(capsys):
     output = capsys.readouterr().out
     assert set(ids) == {"explanation", "advice", "injection"}
     for check in ("missing_token_rejected", "expired_token_rejected", "cross_member_path_rejected",
-                  "s5_selected", "s2_suspended", "exactly_one_advice_handover", "injection_blocked_at_screening",
+                  "served_strategy_selected", "s2_suspended", "exactly_one_advice_handover",
+                  "injection_blocked_at_screening", "second_contact_answered", "recap_question_answered",
                   "member_report_response_linkage", "report_stepup_required", "member_report_scoped"):
         assert "PASS " + check in output
     assert all(line.startswith("PASS ") for line in output.splitlines())
@@ -106,6 +114,7 @@ def test_b1_in_network_channel_checks_auth_scope_and_redacts_output(capsys):
 
 @pytest.mark.parametrize("failure", ["missing_token", "expired_token", "cross_member", "s5", "s2",
                                      "duplicate_turn", "duplicate_handover", "injection",
+                                     "second_contact", "recap",
                                      "report_scope", "report_stepup", "report_cache", "report_linkage"])
 def test_b1_probe_fails_the_exact_acceptance_check(failure, capsys):
     transport, tokens = channel_transport(failure)
@@ -122,7 +131,7 @@ def test_b10_probe_observes_control_without_changing_assignment(capsys):
     with httpx.Client(transport=transport) as client:
         issuer.probe_channel(SyntheticSigner(), "https://synthetic.invalid", URL, client)
     output = capsys.readouterr().out
-    assert "PASS control_stays_static" in output and "PASS s5_selected" in output
+    assert "PASS control_stays_static" in output and "PASS served_strategy_selected" in output
 
 
 def contended_transport(target, failures, *, status=409, body=None, malformed=False):

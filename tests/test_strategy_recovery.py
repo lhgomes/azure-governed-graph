@@ -10,6 +10,7 @@ from governedgraph.common.contracts import ContractError
 from governedgraph.strategy_service.recovery import REASON, RecoveryRequest, latest_successful_audit, release
 from governedgraph.strategy_service.state import StateConflict, StateUnavailable
 from test_strategy_azure import EVENT, authorization, service, snapshot, MemoryState
+from strategy_doubles import import_strategy_api
 
 IMAGE = "registry/p2@sha256:" + "a" * 64
 AUDIT = "job-gg-p2-fairness-healthy"
@@ -195,7 +196,7 @@ def test_b8_blob_recovery_journal_is_create_only_and_requires_exact_readback():
 
 def test_b8_recovery_http_routes_reject_workloads_and_use_server_audit_health(authorization, monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
-    from governedgraph.strategy_service import api
+    api = import_strategy_api(monkeypatch, tmp_path)
 
     auth, token = authorization
     monkeypatch.setattr(auth, "settings", replace(auth.settings, environment_name="gg-dev",

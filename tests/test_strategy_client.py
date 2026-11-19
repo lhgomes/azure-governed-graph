@@ -9,8 +9,7 @@ import pytest
 
 from governedgraph.agents.clients import HttpStrategyClient
 from governedgraph.common.config import settings
-from governedgraph.strategy_service.service import StrategyService
-from governedgraph.strategy_service.snapshot import LocalHmacSigner
+from strategy_doubles import local_strategy_service
 
 REQUEST = {
     "journey_id": "J-SYNTHETIC", "journey_state": "first_contact", "intent": "transition_impact_question",
@@ -20,7 +19,7 @@ REQUEST = {
 
 @pytest.fixture
 def ranking(tmp_path):
-    service = StrategyService(signer=LocalHmacSigner("test"), state_dir=tmp_path, control_share=0)
+    service = local_strategy_service(tmp_path, control_share=0)
     return service.get_ranked(REQUEST).to_dict()
 
 

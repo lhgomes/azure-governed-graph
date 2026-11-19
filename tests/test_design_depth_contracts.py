@@ -162,8 +162,7 @@ def test_ag2_never_compares_or_explains_options_to_steer(facade):
 def test_ag3_never_recommends_an_option(facade):
     for state in ("first_contact", "letter_received", "values_reviewed", "objection_raised", "other"):
         step = facade.adoption.next_step(state, [], False)
-        assert (step.title, step.content_id) == APPROVED_NEXT_STEPS[step.step_id]
-        assert step.content_version == "1.0"
+        assert (step.title, step.content_id, step.content_version) == APPROVED_NEXT_STEPS[step.step_id]
     with pytest.raises(ContractError):
         NextStep.from_dict({"step_id": "OPTION-A", "title": "Choose option A", "content_id": "C-004"})
     with pytest.raises(PermissionError):
@@ -454,6 +453,7 @@ def test_exports_are_current_closed_versioned_and_all_references_resolve():
     assert len(messages["oneOf"]) == 6
     assert "contract_version" not in messages["$defs"]["EscalationRequest"]["properties"]
     schemas = openapi_document()["components"]["schemas"]
-    assert schemas["NextStep"]["properties"]["content_version"]["const"] == "1.0"
+    assert {step["properties"]["content_version"]["const"] for step in schemas["NextStep"]["oneOf"]} == {
+        version for _, _, version in APPROVED_NEXT_STEPS.values()}
     assert len(schemas["NextStep"]["oneOf"]) == len(APPROVED_NEXT_STEPS)
     assert schemas["ScheduleConversion"]["properties"]["capacity"]["minimum"] == 1

@@ -14,6 +14,7 @@ from governedgraph.strategy_service.recovery_azure import BlobRecoveryJournal
 from governedgraph.strategy_service.state import StateUnavailable
 from test_strategy_recovery import AUDIT, HUMAN, Journal, authorization, frozen
 from test_strategy_azure import MemoryState
+from strategy_doubles import import_strategy_api
 
 NEW = "GB-DEV-2026-002"
 OLD = "GB-DEV-2026-001"
@@ -160,7 +161,7 @@ def test_b8_unavailable_history_fails_closed(tmp_path, monkeypatch):
 
 def test_b8_http_readiness_and_post_check_new_reused_and_malformed_refs(authorization, monkeypatch, tmp_path):
     from dataclasses import replace
-    from governedgraph.strategy_service import api
+    api = import_strategy_api(monkeypatch, tmp_path)
 
     auth, token = authorization
     monkeypatch.setattr(auth, "settings", replace(auth.settings, environment_name="gg-dev",

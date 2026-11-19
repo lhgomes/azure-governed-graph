@@ -173,8 +173,7 @@ def initial_priors(runner, inputs, composition, foundation: dict, images: dict, 
                 "GOVERNEDGRAPH_SERVICE_NAME": "gg-bootstrap-initialize",
                 "GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS": "false",
             })
-        registry = (foundation["learning"]["mlRegistryId"].rsplit("/", 1)[1] if role == "sign"
-                    else foundation["compute"]["registryName"])
+        registry = foundation["compute"]["registryName"]
         name = "job-gg-bootstrap-" + role
         command_role = ({"sign": "sign-upgrade", "initialize": "upgrade"}[role]
                         if catalogue_upgrade else role)
@@ -196,18 +195,3 @@ def initial_priors(runner, inputs, composition, foundation: dict, images: dict, 
         raise DeliveryError("initial-prior job returned an invalid acknowledgement")
     return results
 
-
-def ml_containers(inputs, foundation: dict) -> list[str]:
-    from azure.ai.ml import MLClient
-    from azure.ai.ml.entities import AzureBlobDatastore
-    from azure.identity import DefaultAzureCredential
-
-    account = foundation["learning"]["mlStorageId"].rsplit("/", 1)[1]
-    with DefaultAzureCredential() as credential:
-        client = MLClient(credential, inputs.subscription, inputs.resource_group, foundation["learning"]["mlWorkspaceName"])
-        stores = list(client.datastores.list(include_secrets=False))
-    containers = sorted({store.container_name for store in stores
-                         if isinstance(store, AzureBlobDatastore) and store.account_name == account})
-    if not containers or any(not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", name) for name in containers):
-        raise DeliveryError("ML-owned datastore containers unavailable; no guessed containers or broader grants")
-    return containers

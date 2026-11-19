@@ -113,7 +113,7 @@ class VoiceReply:
             object.__setattr__(self, "learning_feedback", manifest.to_dict())
         if (not isinstance(self.workflow_steps, list)
                 or any(step not in ("screen-input", "intent-agent", "understanding-agent",
-                                    "explain-with-approved-tools", "clarify-question",
+                                    "explain-with-approved-tools", "acknowledge-explanation", "clarify-question",
                                     "requested-human-handoff", "personal-advice-handoff",
                                     "service-failure-handoff", "commit-checked-evidence")
                        for step in self.workflow_steps)):
@@ -218,15 +218,12 @@ class OrchestratorChannel:
         result.raise_for_status()
         return JourneyStart.from_dict(result.json())
 
-    async def turn(self, journey_id: str, transcript: str, request_id: str, *,
-                   related_answer: ResponseReference | None = None) -> VoiceReply:
+    async def turn(self, journey_id: str, transcript: str, request_id: str) -> VoiceReply:
         validate_id(journey_id)
         validate_id(request_id)
         headers = {**self._headers(), "Idempotency-Key": request_id, **journey_headers(journey_id)}
-        body: dict[str, object] = {"utterance": transcript}
-        if related_answer is not None:
-            body["related_answer"] = asdict(related_answer)
-        result = await self.client.post(f"journeys/{journey_id}/turns", headers=headers, json=body)
+        result = await self.client.post(f"journeys/{journey_id}/turns", headers=headers,
+                                        json={"utterance": transcript})
         result.raise_for_status()
         return VoiceReply.from_dict(result.json())
 
@@ -441,17 +438,15 @@ class VoiceBridge:
             await self.device.outcome_recorded(submission.response_id, receipt.duplicate)
         return receipt
 
-    async def turn(self, pcm: bytes, *, request_id: str | None = None,
-                   related_answer: ResponseReference | None = None) -> VoiceReply:
-        return await self._turn(pcm=pcm, request_id=request_id, related_answer=related_answer)
+    async def turn(self, pcm: bytes, *, request_id: str | None = None) -> VoiceReply:
+        return await self._turn(pcm=pcm, request_id=request_id)
 
-    async def turn_text(self, text: str, *, request_id: str | None = None,
-                        related_answer: ResponseReference | None = None) -> VoiceReply:
+    async def turn_text(self, text: str, *, request_id: str | None = None) -> VoiceReply:
         """Narrate a text turn through the same authenticated, checked reply path."""
-        return await self._turn(text=text, request_id=request_id, related_answer=related_answer)
+        return await self._turn(text=text, request_id=request_id)
 
     async def _turn(self, *, pcm: bytes | None = None, text: str | None = None,
-                    request_id: str | None = None, related_answer: ResponseReference | None = None) -> VoiceReply:
+                    request_id: str | None = None) -> VoiceReply:
         if not self.disclosed or self.failed or self.inflight:
             raise VoiceError("spoken disclosure and a healthy audio session are required")
         self.inflight = True
@@ -491,10 +486,7 @@ class VoiceBridge:
                 self.pending_outcome = None
                 if self.acknowledgement_audio is not None:
                     acknowledgement = asyncio.create_task(acknowledge())
-            reply = await self.channel.turn(
-                self.journey_id, transcript, turn_id,
-                **({"related_answer": related_answer} if related_answer is not None else {}),
-            )
+            reply = await self.channel.turn(self.journey_id, transcript, turn_id)
             replied = time.monotonic()
             if reply.journey_id is not None and reply.journey_id != self.journey_id:
                 raise ContractError("voice response journey mismatch")

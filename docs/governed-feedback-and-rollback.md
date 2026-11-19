@@ -7,7 +7,9 @@ Response evidence and signed rollback preserve the
 
 The orchestrator records optional per-response outcome choices (yes, no, skip),
 response-linked follow-ups and client-confirmed voice playback, keyed by the
-authenticated member and host-generated opaque response identifiers. Retries use
+authenticated member and host-generated opaque response identifiers. A new in-scope
+question in the same journey is linked by the host to the latest delivered, audited
+explanation; the member selects nothing. Retries use
 idempotency keys; cross-member answer references and undocumented feedback are rejected.
 
 The learning projection exposes the following coverage counts independently:

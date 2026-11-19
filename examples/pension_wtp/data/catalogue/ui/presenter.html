@@ -61,7 +61,6 @@ textarea{display:block;width:100%;min-height:80px;max-height:18dvh;resize:vertic
 <div id="outcome-controls" hidden role="group" aria-label="Optional feedback">
 <div class="controls"><button id="outcome-yes" disabled>Yes</button><button id="outcome-no" disabled>No</button><button id="outcome-skip" disabled>Skip</button></div>
 </div>
-<p id="related-status" class="privacy" hidden>Next question is linked to the selected answer. <button id="clear-related" class="text-button">Cancel link</button></p>
 <p id="conversation-error" role="alert" hidden></p>
 <form id="chat-form" hidden><label for="chat-text">Your message</label><textarea id="chat-text" maxlength="4000" rows="2" placeholder="What would you like to understand?" disabled></textarea><button id="send" class="primary" disabled>Send message</button></form>
 </section>
@@ -103,7 +102,7 @@ let outcome = "", playbackSource, recordingUrl, turnStartedAt = null, firstSampl
     substantiveSamples = [], acknowledgementSamples = [], firstPlayed = false, substantivePlayed = false;
 let nextPlaybackAt = 0;
 let sessionMode = null, waitingForInput = false, handoverPending = false, authenticated = false;
-let currentOffer = null, captionReference = null, selectedRelated = null, relatedButtons = [], replyCaption = null;
+let currentOffer = null, replyCaption = null;
 let replyTimeout;
 const activeSources = new Set();
 const canvas = $("screen"), ctx = canvas.getContext("2d");
@@ -135,15 +134,8 @@ function activity(name){
 }
 function setFeedbackAvailability(){
   for(const choice of ["yes","no","skip"])$("outcome-"+choice).disabled=!waitingForInput;
-  for(const button of relatedButtons)button.disabled=!waitingForInput;
-  $("clear-related").disabled=!waitingForInput;
 }
-function selectRelated(reference){
-  if(!waitingForInput||!socket||socket.readyState!==WebSocket.OPEN)return;
-  selectedRelated=reference;$("related-status").hidden=!reference;
-  if(sessionMode!=="chat")socket.send(JSON.stringify({kind:"related",request_id:crypto.randomUUID(),related_answer:reference}));
-}
-function addCaption(role,text,reference=null,existing=null){
+function addCaption(role,text,existing=null){
   $("conversation-panel").hidden=false;$("empty").hidden=true;
   if(role==="counsellor")$("disclosure").hidden=true;
   const item=existing||document.createElement("li");
@@ -154,31 +146,24 @@ function addCaption(role,text,reference=null,existing=null){
     if(role==="counsellor"&&pendingTurn){attachTurnInfo(item,pendingTurn);pendingTurn=null;}
   }
   item.append(document.createTextNode(text));
-  if(reference){
-    const button=document.createElement("button");button.className="text-button related-answer";
-    button.textContent="Follow up on this answer";button.disabled=!waitingForInput;
-    button.onclick=()=>selectRelated(reference);relatedButtons.push(button);item.append(button);
-  }
   if(item.turnPanel)item.append(item.turnPanel);
   if(!existing)$("conversation").append(item);
   $("conversation").scrollTop=$("conversation").scrollHeight;return item;
 }
 function showOutcome(message){
   currentOffer=message.outcome_offer||null;
-  const responseId=message.response_id||(currentOffer&&currentOffer.response_id);
-  captionReference=responseId&&message.journey_id?{journey_id:message.journey_id,response_id:responseId}:null;
   $("outcome-controls").hidden=!currentOffer;
   if(currentOffer){
     for(const choice of ["yes","no","skip"])$("outcome-"+choice).textContent=currentOffer[choice];
   }
-  selectedRelated=null;$("related-status").hidden=true;setFeedbackAvailability();
+  setFeedbackAvailability();
 }
 const ISSUE_TEXT={relevance:"the draft did not answer the question that was asked",grounding:"a claim was not supported by approved content",language:"the draft was not in the member's language",uncertainty:"the draft implied more certainty than the sources allow",strategy:"the draft did not follow the approved explanation style",advice:"the draft strayed into personal advice",document_context:"the draft implied knowledge of a letter that is not available",grounding_contract:"the draft cited content that was not retrieved for this turn",placeholder_contract:"the draft contained a figure that was not an official-value placeholder",unbound_figure:"a figure was not tied to an official value",numeric_fidelity:"a figure did not match the official value",steers_choice:"the wording could steer the member toward an option",no_approved_fallback:"no approved template fits this question"};
 const ESCALATION_TEXT={safety:"a safety or screening check",advice_intent:"the question asked for a personal choice",component_failure:"a required service was unavailable",conversation_limit:"the conversation reached its automated-assistance limit",member_request:"the member asked for a person",teach_back_failed:"the explanation was not understood after two attempts"};
 const OUTCOME_TEXT={answered:"The guide answered using approved content.",follow_up_question:"The guide asked a follow-up question instead of answering.",advisor_offer:"The guide still could not answer and offered an advisor.",escalated:"The guide arranged a handover to an advisor.",step_up_required:"The guide needs step-up verification before using personal figures.",comprehension_confirmed:"The member's own explanation was confirmed as correct."};
 const words=code=>String(code).replace(/_/g," ");
 const reasons=(codes,table)=>codes.map(code=>table[code]||words(code)).join("; ");
-const PROCESS_TEXT={"screen-input":"Screened your message for safety","intent-agent":"Worked out what you were asking","understanding-agent":"Checked whether your explanation matched","explain-with-approved-tools":"Drafted an answer from approved content and your official figures","clarify-question":"Asked what you would like explained","requested-human-handoff":"Arranged for a person to help","personal-advice-handoff":"Passed a personal-choice question to an advisor","service-failure-handoff":"Handed over because a required service failed","commit-checked-evidence":"Recorded the checked reply in the audit log"};
+const PROCESS_TEXT={"screen-input":"Screened your message for safety","intent-agent":"Worked out what you were asking","understanding-agent":"Checked whether your explanation matched","explain-with-approved-tools":"Drafted an answer from approved content and your official figures","acknowledge-explanation":"Acknowledged your reply","clarify-question":"Asked what you would like explained","requested-human-handoff":"Arranged for a person to help","personal-advice-handoff":"Passed a personal-choice question to an advisor","service-failure-handoff":"Handed over because a required service failed","commit-checked-evidence":"Recorded the checked reply in the audit log"};
 const SOURCE_TEXT={foundry:"drafted by the AI, then reviewed against approved content",template_fallback:"an approved template, because the AI draft did not pass review",template:"an approved template",unanswered:"no answer was released"};
 const OUTCOME_SHORT={answered:"answered",follow_up_question:"asked a follow-up question",advisor_offer:"offered an advisor",escalated:"handed over to an advisor",step_up_required:"asked for step-up verification",comprehension_confirmed:"confirmed the member's understanding"};
 let turnLog=[],pendingTurn=null,turnCounter=0;
@@ -363,8 +348,8 @@ async function connect(mode, handover=false){
   if(mode!=="chat")await setupAudio();sessionMode=mode;waitingForInput=false;handoverPending=handover;
   $("conversation-panel").hidden=false;
   $("chat-form").hidden=mode!=="chat";$("conversation").replaceChildren();$("empty").hidden=false;
-  currentOffer=null;captionReference=null;selectedRelated=null;relatedButtons=[];replyCaption=null;
-  $("outcome-controls").hidden=true;$("related-status").hidden=true;setFeedbackAvailability();
+  currentOffer=null;replyCaption=null;
+  $("outcome-controls").hidden=true;setFeedbackAvailability();
   clearReplyTimeout();$("conversation-error").hidden=true;$("conversation-error").textContent="";
   $("download").hidden=true;outcome="";
   turnLog=[];pendingTurn=null;$("conversation-summary").hidden=true;
@@ -385,8 +370,7 @@ async function connect(mode, handover=false){
         if(message.kind==="audio"){pending=message;}
         else if(message.kind==="caption"){
           if(sessionMode==="chat"&&message.role==="counsellor")clearReplyTimeout();
-          addCaption(message.role,message.text,message.role==="counsellor"?captionReference:null);
-          if(message.role==="counsellor")captionReference=null;
+          addCaption(message.role,message.text);
         }
         else if(message.kind==="thinking"){activity("thinking");status("Preparing your explanation...");}
         else if(message.kind==="chat_ready"){
@@ -418,15 +402,18 @@ async function connect(mode, handover=false){
           addCaption("system","You are now the member. The simulated persona has stopped.");
         }
         else if(message.kind==="session_ended"){
-          clearReplyTimeout();waitingForInput=false;activity("complete");status("Conversation ended.");showSummary();
-          if(sessionMode==="simulator")addCaption("system","Conversation ended. Human support remains available.");
+          clearReplyTimeout();waitingForInput=false;activity("complete");
+          const notice=message.reason==="idle"?
+            "Conversation ended due to inactivity. Select Chat or Voice to start a new conversation. Human support remains available.":
+            "Conversation ended.";
+          status(notice);showSummary();
+          if(message.reason==="idle"||sessionMode==="simulator")addCaption("system",notice);
         }
         else if(message.kind==="progress"){metadata(message);showOutcome(message);outcome="Strategy "+message.strategy+" | suspended: "+message.suspended.join(", ");}
         else if(message.kind==="outcome_recorded"){
           if(currentOffer&&currentOffer.response_id===message.response_id){currentOffer=null;$("outcome-controls").hidden=true;}
           status(message.duplicate?"Feedback already recorded.":"Feedback recorded.");
         }
-        else if(message.kind==="related_selected"){$("related-status").hidden=!message.selected;}
         else if(message.kind==="complete"){
           const p95=values=>values.length?[...values].sort((a,b)=>a-b)[Math.ceil(values.length*.95)-1]:null;
           const p50=values=>values.length?[...values].sort((a,b)=>a-b)[Math.ceil(values.length*.5)-1]:null;
@@ -464,11 +451,9 @@ async function connect(mode, handover=false){
         setTimeout(()=>{if(activeSources.has(source)){
           speaker=message.role==="persona"?simulationName+" (simulated)":"AI guide";
           caption=message.text;
-          const reference=message.role==="counsellor"&&message.final_sentence!==false?captionReference:null;
           const continuing=message.role==="counsellor"&&!message.acknowledgement;
-          const item=addCaption(message.role,message.text,reference,continuing?replyCaption:null);
+          const item=addCaption(message.role,message.text,continuing?replyCaption:null);
           replyCaption=continuing&&message.final_sentence===false?item:null;
-          if(reference)captionReference=null;
           activity("speaking");status("Playing "+speaker);}},Math.max(0,dispatchAt-performance.now()));
         await new Promise(resolve=>{
           source.onended=()=>{activeSources.delete(source);source.disconnect();resolve();};source.start(startAt);
@@ -532,7 +517,6 @@ $("takeover").onclick=()=>{
   socket.send(JSON.stringify({kind:"takeover",request_id:crypto.randomUUID()}));
   $("takeover").disabled=true;status("Taking over after the current line...");
 };
-$("clear-related").onclick=()=>selectRelated(null);
 for(const choice of ["yes","no","skip"])$("outcome-"+choice).onclick=()=>{
   if(!waitingForInput||!currentOffer||!socket||socket.readyState!==WebSocket.OPEN)return;
   socket.send(JSON.stringify({kind:"feedback",request_id:crypto.randomUUID(),
@@ -543,9 +527,8 @@ for(const choice of ["yes","no","skip"])$("outcome-"+choice).onclick=()=>{
 $("chat-form").onsubmit=event=>{
   event.preventDefault();const text=$("chat-text").value;
   if(!waitingForInput||!text.trim()||text.length>4000||!socket||socket.readyState!==WebSocket.OPEN)return;
-  socket.send(JSON.stringify({kind:"chat",request_id:crypto.randomUUID(),text,
-    ...(selectedRelated?{related_answer:selectedRelated}:{})}));addCaption("member",text);
-  selectedRelated=null;$("related-status").hidden=true;$("outcome-controls").hidden=true;
+  socket.send(JSON.stringify({kind:"chat",request_id:crypto.randomUUID(),text}));addCaption("member",text);
+  $("outcome-controls").hidden=true;
   awaitChatReply();
   $("chat-text").value="";$("chat-text").disabled=true;$("send").disabled=true;waitingForInput=false;setFeedbackAvailability();activity("thinking");
   status("Preparing your explanation...");

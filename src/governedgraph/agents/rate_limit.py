@@ -1,7 +1,7 @@
-"""Bounded wait-and-retry for a model request the gateway refused before forwarding it (HTTP 429).
+"""Bounded wait-and-retry for a model request refused with HTTP 429.
 
-A 429 from the per-conversation token limit is a pacing signal, not an outage, and the refused request never reached
-the model, so replaying it is safe. Quota exhaustion (HTTP 403) and every other failure are never retried here.
+A 429 from a gateway or deployment rate limit is a pacing signal, not an accepted model result.
+Quota exhaustion (HTTP 403) and every other failure are never retried here.
 """
 from __future__ import annotations
 
@@ -18,9 +18,10 @@ DEFAULT_WAIT_SECONDS = 5.0
 
 def retry_after_seconds(error: BaseException) -> float | None:
     """The recommended wait for a rate-limited request, or None when it must not be retried."""
-    if getattr(error, "status_code", None) != 429:
+    response = getattr(error, "response", None)
+    if getattr(error, "status_code", getattr(response, "status_code", None)) != 429:
         return None
-    headers = getattr(getattr(error, "response", None), "headers", None) or {}
+    headers = getattr(response, "headers", None) or {}
     try:
         if headers.get("retry-after-ms") is not None:
             seconds = float(headers["retry-after-ms"]) / 1000

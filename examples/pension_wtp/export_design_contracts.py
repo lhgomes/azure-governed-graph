@@ -30,8 +30,8 @@ def definitions() -> dict:
             schema["additionalProperties"] = False
     schemas["NextStep"]["oneOf"] = [{
         "properties": {"step_id": {"const": sid}, "title": {"const": title},
-                       "content_id": {"const": cid}, "content_version": {"const": "1.0"}},
-    } for sid, (title, cid) in APPROVED_NEXT_STEPS.items()]
+                       "content_id": {"const": cid}, "content_version": {"const": version}},
+    } for sid, (title, cid, version) in APPROVED_NEXT_STEPS.items()]
     for name in ("ConversionBatch", "ScheduleConversion"):
         schemas[name]["properties"]["member_refs"]["minItems"] = 1
     schemas["ScheduleConversion"]["properties"]["capacity"]["minimum"] = 1

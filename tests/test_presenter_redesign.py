@@ -34,12 +34,12 @@ from governedgraph.voice.voice_live_bridge import ACKNOWLEDGEMENT, OrchestratorC
     "What happens to my pension payments?",
     "Will my monthly cheque change?",
 ])
-def test_pension_payment_agent_decision_uses_approved_transition_intent(question, tmp_path):
-    from governedgraph.agents.counsellor import new_session
-    from governedgraph.learning.run_cycle import run_cycle
-    from governedgraph.strategy_service.service import StrategyService
+def test_pension_payment_agent_decision_uses_approved_transition_intent(question, tmp_path, monkeypatch):
+    from counsellor_doubles import install, new_session
+    from strategy_doubles import local_strategy_service, run_cycle
 
-    service = StrategyService(state_dir=tmp_path / "strategy", control_share=0)
+    install(monkeypatch, tmp_path)
+    service = local_strategy_service(tmp_path / "strategy", control_share=0)
     run_cycle(service)
     agent = new_session("MBR-7Q2K", strategy_service=service, journey_id="J-payment-fixture")
     agent.start()
@@ -89,10 +89,42 @@ def test_chat_upstream_failure_sends_visible_safe_error_frame_and_closes(monkeyp
                 socket.receive_json()
 
 
+def test_chat_idle_expiry_ends_normally_without_claiming_a_saved_message(monkeypatch):
+    original_wait_for = asyncio.wait_for
+
+    async def idle(awaitable, timeout):
+        if timeout == 300:
+            awaitable.close()
+            raise TimeoutError
+        return await original_wait_for(awaitable, timeout)
+
+    async def serve(socket, claims):
+        channel = SimpleNamespace(start=AsyncMock(return_value=SimpleNamespace(
+            text=DISCLOSURE, journey_id="J-synthetic")))
+        await presenter.serve_chat(socket, channel)
+
+    monkeypatch.setattr(presenter.asyncio, "wait_for", idle)
+    monkeypatch.setattr(presenter, "enabled", lambda: True)
+    monkeypatch.setenv("VOICE_DEMO_ORIGIN", "https://demo.example")
+    monkeypatch.setattr(presenter, "verify", lambda _: {"exp": time.time() + 300})
+    monkeypatch.setattr(presenter, "serve", serve)
+    app = FastAPI()
+    app.include_router(presenter.router)
+    with TestClient(app, base_url="https://demo.example") as client:
+        with client.websocket_connect("/demo-stream", headers={"Origin": "https://demo.example"}) as socket:
+            assert socket.receive_json()["text"] == DISCLOSURE
+            assert socket.receive_json()["kind"] == "chat_ready"
+            assert socket.receive_json() == {"kind": "session_ended", "reason": "idle"}
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+
+
 def _feedback_manifest():
     return {"outcome_digest": "a" * 64, "source_digest": "b" * 64, "baseline_digest": "c" * 64,
             "observed_decisions": 3, "eligible_decisions": 0, "pending_decisions": 3,
-            "observed_resolutions": 1, "watermark": "ILLUSTRATIVE - synthetic data"}
+            "observed_resolutions": 1, "watermark": "ILLUSTRATIVE - synthetic data",
+            "reported_yes": 0, "reported_no": 0, "reported_skip": 0, "unknown_after_window": 0,
+            "attributed_repeats": 0, "ambiguous_contacts": 0}
 
 
 @pytest.mark.parametrize("changes", [
@@ -430,6 +462,7 @@ def test_channel_defaults_to_voice_and_rejects_unknown_channel():
     asyncio.run(scenario())
 
 
+@pytest.mark.usefixtures("sample_simulations")
 def test_ui_chat_states_and_real_workflow_evidence_without_microphone():
     if not shutil.which("node"):
         pytest.skip("Node is needed for the dependency-free DOM harness")
@@ -816,3 +849,12 @@ def test_b9_real_presenter_voice_loop_accepts_followup_after_resolved_then_ends_
     assert messages[-1]["kind"] == "complete" and messages[-1]["state"] == "resolved"
     assert messages[-1]["audit_written"] is True
     assert sum(message["kind"] == "capture" for message in messages) == 3
+
+
+def test_a_closing_acknowledgement_is_a_valid_checked_workflow_step():
+    reply = VoiceReply(text="You're welcome.", state="resolved",
+                       workflow_steps=["screen-input", "intent-agent", "acknowledge-explanation",
+                                       "commit-checked-evidence"])
+    assert "acknowledge-explanation" in reply.workflow_steps
+    with pytest.raises(ContractError):
+        VoiceReply(text="You're welcome.", state="resolved", workflow_steps=["unapproved-step"])

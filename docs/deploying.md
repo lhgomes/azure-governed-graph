@@ -16,7 +16,7 @@ This is a reference topology for **Azure Public**, not a one-command hosted demo
 | Regions and quotas | The bundled `gg-dev` composition references `swedencentral` for the primary deployment and `francecentral` for Content Safety. Verify allowed data movement, each model's regional availability, quota and service limits before deploying or changing the template. |
 | Toolchain | Python **3.14** and pinned `requirements-azure.txt` in an **approved Azure-hosted delivery environment**, plus Azure CLI, Azure Developer CLI and Bicep. `pyproject.toml`'s broader Python metadata is not a guarantee that earlier Python versions are supported by this Azure delivery path. |
 | Private input | Create `.azure/private-delivery.json` from the placeholder example below; provide subscription, on-call destination and composition. The operator ID is optional and defaults to the signed-in user in the selected subscription's tenant. Keep actual identities and all receipts outside Git. The script selects/generates resource-group and naming-seed information as described below. |
-| Budget and cleanup | Estimate recurring charges and set a budget. The sample can provision Foundry model deployments, AI Search, Container Apps, ACR, APIM, Key Vault, Storage, Service Bus, Azure ML, networking, Content Safety and monitoring. Live inference, voice, evaluations, retained telemetry and idle SKUs may all cost money. Read the teardown section before provisioning. |
+| Budget and cleanup | Estimate recurring charges and set a budget. The sample can provision Foundry model deployments, AI Search, Container Apps, ACR, APIM, Key Vault, Storage, Service Bus, networking, Content Safety and monitoring. Live inference, voice, evaluations, retained telemetry and idle SKUs may all cost money. Read the teardown section before provisioning. |
 
 Prices are deployment-dependent: **no cost or latency figure in the repository should be treated as an Azure quote**. Use the [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) and your subscription's actual regional quotas/SKUs. The default reference example and its sample member data are synthetic; do not substitute real members or production records without a separate security, privacy and governance assessment.
 
@@ -37,49 +37,78 @@ az provider list --subscription "$SUBSCRIPTION_ID" \
   --output table
 ```
 
-The current topology uses `Microsoft.ApiManagement`, `Microsoft.App`,
-`Microsoft.Authorization`, `Microsoft.CognitiveServices`,
-`Microsoft.ContainerRegistry`, `Microsoft.Insights`, `Microsoft.KeyVault`,
-`Microsoft.MachineLearningServices`, `Microsoft.ManagedIdentity`,
-`Microsoft.Network`, `Microsoft.OperationalInsights`, `Microsoft.Resources`,
-`Microsoft.Search`, `Microsoft.ServiceBus` and `Microsoft.Storage`.
+Check both declared resources and service-created supporting resources.
+Scanning Bicep resource types alone misses implicit dependencies such as
+Application Insights' automatically created Failure Anomalies alert rule.
+The current foundation and workload composition requires these registrations:
 
-APIM **Standard v2** outbound VNet integration additionally requires
-`Microsoft.Web` registration because its subnet is delegated to
-`Microsoft.Web/serverFarms`, even when no App Service is deployed. An absent
+| Provider | Used by |
+|---|---|
+| `Microsoft.AlertsManagement` | Application Insights' service-created smart-detection alert rule |
+| `Microsoft.ApiManagement` | APIM facade |
+| `Microsoft.App` | Container Apps environments, applications and jobs |
+| `Microsoft.CognitiveServices` | Foundry accounts/projects, models and Content Safety |
+| `Microsoft.ContainerRegistry` | Container image registry and builds |
+| `Microsoft.Insights` | Application Insights, workbooks, diagnostics and alerts |
+| `Microsoft.KeyVault` | Signing vault and keys |
+| `Microsoft.ManagedIdentity` | Role-specific managed identities |
+| `Microsoft.Network` | VNets, subnets, private endpoints, private DNS and networking |
+| `Microsoft.OperationalInsights` | Log Analytics workspace |
+| `Microsoft.Search` | Approved-content search |
+| `Microsoft.ServiceBus` | Journey events and escalation messaging |
+| `Microsoft.Storage` | Content, records, state and learning artifacts |
+| `Microsoft.Web` | APIM Standard v2 outbound VNet integration's subnet delegation |
+
+`Microsoft.Authorization` (RBAC) and `Microsoft.Resources` (resource groups and
+deployments) are also used, but are registration-free core providers; no
+explicit registration command is needed for them.
+
+APIM's `Microsoft.Web` dependency applies even when no App Service is deployed,
+because its subnet is delegated to `Microsoft.Web/serverFarms`. An absent
 registration causes `SubnetSubscriptionMustBeRegisteredWithMicrosoftWeb`.
-Register it and verify completion before retrying delivery:
+The implicit alert dependency can instead fail with
+`MissingSubscriptionRegistration` naming `Microsoft.AlertsManagement`.
+
+An authorized administrator can register the complete required set and inspect
+each resulting state before retrying delivery:
 
 ```bash
-az provider register --subscription "$SUBSCRIPTION_ID" \
-  --namespace Microsoft.Web --wait
-az provider show --subscription "$SUBSCRIPTION_ID" \
-  --namespace Microsoft.Web --query registrationState --output tsv
+providers=(
+  Microsoft.AlertsManagement
+  Microsoft.ApiManagement
+  Microsoft.App
+  Microsoft.CognitiveServices
+  Microsoft.ContainerRegistry
+  Microsoft.Insights
+  Microsoft.KeyVault
+  Microsoft.ManagedIdentity
+  Microsoft.Network
+  Microsoft.OperationalInsights
+  Microsoft.Search
+  Microsoft.ServiceBus
+  Microsoft.Storage
+  Microsoft.Web
+)
+for provider in "${providers[@]}"; do
+  az provider register --subscription "$SUBSCRIPTION_ID" \
+    --namespace "$provider" --wait || exit 1
+  az provider show --subscription "$SUBSCRIPTION_ID" \
+    --namespace "$provider" \
+    --query "{Provider:namespace,State:registrationState}" --output table || exit 1
+done
 ```
 
-The following are **conditional, not additional confirmed foundation
-requirements**. Run only the commands appropriate to an approved topology or
-a provider-specific deployment error:
+The current composition does not deploy Azure Machine Learning, VMs, Batch or
+Fabric; it does not require `Microsoft.MachineLearningServices`,
+`Microsoft.Compute`, `Microsoft.Batch` or `Microsoft.Fabric`.
+Subscription-specific policies can introduce additional supporting resources
+outside this application inventory. Check policy-created deployment failures
+separately: registering providers cannot repair a policy that references a
+nonexistent workspace. Registration also does not certify quota, regional
+availability, RBAC or readiness.
 
-```bash
-# If Microsoft.Compute registration is required for the selected ML compute.
-az provider register --subscription "$SUBSCRIPTION_ID" \
-  --namespace Microsoft.Compute --wait
-
-# Only for a workload requiring Azure Batch registration.
-az provider register --subscription "$SUBSCRIPTION_ID" \
-  --namespace Microsoft.Batch --wait
-```
-
-Azure ML compute instances with integrated notebooks also require
-`Microsoft.Notebooks`; this is distinct from the current `AmlCompute` clusters.
-Use the same registration command with the required namespace for any other
-missing provider. Registration is not a quota, regional availability, RBAC,
-deployment-readiness or evaluation check.
-
-See Microsoft's guidance on [resource-provider registration](https://learn.microsoft.com/azure/azure-resource-manager/management/resource-providers-and-types),
-[APIM outbound VNet integration](https://learn.microsoft.com/azure/api-management/integrate-vnet-outbound)
-and [Azure ML provider prerequisites](https://learn.microsoft.com/azure/machine-learning/how-to-manage-workspace-cli#troubleshoot-resource-provider-errors).
+See Microsoft's guidance on [resource-provider registration](https://learn.microsoft.com/azure/azure-resource-manager/management/resource-providers-and-types)
+and [APIM outbound VNet integration](https://learn.microsoft.com/azure/api-management/integrate-vnet-outbound).
 
 #### Network feature registration failure
 
@@ -306,10 +335,8 @@ implement revocable ranking or reinstatement overrides.
 ### Choose an existing or new deployment
 
 Reusing infrastructure is not the same as migrating governed application state.
-The second-contact release changes the source catalogue and strategy versions.
-Its writer approval is recorded under
-`HR-PENSION-WTP-SECOND-CONTACT-2026-11-17`, with human-supplied reference
-`MB-2026-11-17-001`; see [evaluation](evaluation.md#second-contact-release-approval).
+The second-contact release changes the source catalogue and strategy versions,
+and its writer approval is a recorded human decision.
 Ordinary initialization validates and preserves existing state rather than
 overwriting it. Normal `scripts.deploy` signs and initializes expert priors
 before complete workload provisioning, as usual. It never loads, validates or
@@ -339,25 +366,18 @@ explicit upgrade shares delivery primitives but alone defers strategy
 initialization until compatible workloads have rolled out. Subsequent ordinary
 deployments use `scripts.deploy` again.
 
-Foundry delivery uses a dedicated, certificate-verified P-256 TLS transport
-(`IMP-FOUNDRY-DELIVERY-TLS`). This avoids an observed connection reset when
-OpenSSL 3.5 offers hybrid key shares, without disabling TLS 1.3, changing the
+Foundry delivery uses a dedicated, certificate-verified P-256 TLS transport.
+This avoids connection resets when OpenSSL 3.5 offers hybrid key shares, without disabling TLS 1.3, changing the
 endpoint, bypassing certificates or changing machine-wide OpenSSL settings.
 Explicit CA bundles, client certificates and proxy settings remain supported.
 Foundry request/response transport failures stop delivery and finalize the
 per-attempt receipt as failed at the current stage. If bounded bootstrap fails,
 foundation/image work may already have completed, but catalogue migration has
 not yet run; inspect the receipt before retrying against the same target.
-Azure ACR `dtu` reproduced eight missing-transport/error-handling regressions;
-`dtv` passed 23 focused TLS, failed-receipt, tenant and writer/upgrade regressions.
-Read-only Azure SDK version listings then succeeded for all six delivery agents
-using the corrected client. This validation did not run a deployment or catalogue
-migration and is not live channel acceptance.
 
 The reviewed `catalogue/source_upgrade_v1.json` explicitly
 describes the source 1.1.0 catalogue, its 1.2 expert priors and the exact
-target 1.1.1 catalogue/1.3 priors hashes. Approval
-`HR-PENSION-WTP-RANKING-COVERAGE-2026-11-18` covers all 200 supported explanation
+target 1.1.1 catalogue/1.3 priors hashes. The reviewed upgrade covers all 200 supported explanation
 contexts and the existing `approved_priors` upgrade policy. Strategy definitions
 and versions are unchanged. The upgrade archives the old state and resets live
 ordering to the approved expert baseline; it does not preserve learned ordering
@@ -461,7 +481,7 @@ permissions are reused; delivery never grants access to an unrelated CLI identit
 or changes the global account. Standalone agent provisioning requires
 `AZURE_SUBSCRIPTION_ID`; `scripts.azd_env export --task agents` includes it.
 
-Delivery binds all six agent names explicitly to the workload contract,
+Delivery binds all four required hosted agent names explicitly to the workload contract,
 including `gg-counsellor` and `gg-fairness-explainability`. Ambient agent-name
 settings in the invoking shell cannot redirect deployment planning, version
 creation or fairness endpoint pinning. standalone provisioning still honors its
@@ -483,7 +503,7 @@ only, a `RequestConflict` reporting another operation on a Foundry account.
 These retries wait 30, 60, and 120 seconds. Unclassified private endpoint
 failures are not retried automatically.
 
-**Decision `IMP-FOUNDRY-WRITE-ORDER`:** finish the Foundry model deployments
+Finish the Foundry model deployments
 before creating or updating the project under the same account. This avoids
 competing parent-account writes without a fixed delay on successful deployments.
 
@@ -514,6 +534,8 @@ Subscription, on-call destination and composition are required.
 deploying user's tenant-local object ID live through Microsoft Graph `/me`.
 The lookup uses the selected subscription's tenant, not the ambient CLI
 subscription, and runs before environment writes or foundation provisioning.
+The delivery entry point adds the repository's source paths before importing
+framework helpers; no separate editable package installation is required.
 `--plan` never performs this lookup. A supplied UUID remains unchanged; a stale
 or incorrect supplied ID is not silently replaced. To use discovery instead,
 remove that field from the private file.
@@ -543,14 +565,14 @@ cannot declare tests, evaluation policy, learning proofs or operator recovery.
 
 1. **`infra/main.bicep`: foundation once.** Networking, identities, registry,
    Container Apps environment, storage, monitoring, signing keys, Search,
-   Foundry project/models, APIM parent and dedicated Azure ML dependencies/RBAC.
+   Foundry project/models, APIM parent and resource-scoped RBAC.
    No hello-world images, member routes or prompt-agent ARM resources.
 2. **Immutable images.** `Dockerfile` and `Dockerfile.p2` build framework
    runtime and P2 respectively. The extension's matching Dockerfiles build
    `runtime`/`probe` and `p2`/`fixtures` from their own framework digest references.
    Separate dependency families keep runtime and learning SDKs isolated. Identical
-   extension runtime images serve all five applications. P2/fixtures use the
-   ML registry; runtime/probe use the application registry. Each distinct target
+   extension runtime images serve all five applications. All images use the same
+   application registry with role-scoped managed identity pull access. Each distinct target
    is built once, or its source-keyed immutable image is reused.
 3. **Bounded bootstrap.** Exact prompt definitions are created/reused with
    `AIProjectClient.agents.create_version`, DefaultAzureCredential and pinned
@@ -571,9 +593,10 @@ cannot declare tests, evaluation policy, learning proofs or operator recovery.
    images, approved writer record, actual agent pins and complete domain inputs.
    Native fairness and learning schedules run at the existing four-hour cadence
    from the first release, using the guarded lease/same-cycle-audit runtime.
-   ML datastore names are read without secrets; Bicep grants only verified
-   dedicated-container access, including the scheduler's `azureml` container.
-   ML-owned dependencies and their automatic permissions are retained.
+   Bicep creates the dedicated `p2-artifacts` container in private content storage.
+   Only the two isolated job identities receive artifact-container access; the
+   independent fairness audit, cohort and signing permissions are unchanged.
+   The pipeline reads learning aggregates through a container-scoped reader role.
    The synthetic values adapter has its own identity with registry pull only;
    it never inherits the orchestrator's key/storage/Foundry permissions.
    Optional developer Blob access is limited to the approved-content container;

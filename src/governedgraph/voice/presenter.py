@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from governedgraph.common import domain
 from governedgraph.common.config import DATA_DIR
-from governedgraph.common.contracts import CONTACT_TYPES, ContractError, OutcomeSubmission, ResponseReference, _strict
+from governedgraph.common.contracts import CONTACT_TYPES, ContractError, OutcomeSubmission, _strict
 from governedgraph.voice.voice_demo import run_live_simulator, run_simulator
 from governedgraph.agents.live_persona import connect_live_persona
 from governedgraph.agents.persona_simulator import ScriptedPersona
@@ -36,6 +36,10 @@ from governedgraph.voice.voice_live_bridge import (
 
 router = APIRouter()
 log = logging.getLogger("governedgraph.voice")
+
+
+class ChatIdleTimeout(Exception):
+    pass
 
 
 @dataclass(frozen=True)
@@ -85,31 +89,25 @@ class ChatMessage:
     request_id: str
     text: str = ""
     outcome: OutcomeSubmission | dict | None = None
-    related_answer: ResponseReference | dict | None = None
 
     def __post_init__(self):
         from governedgraph.orchestrator.store import validate_id
 
         validate_id(self.request_id)
-        if self.kind not in ("chat", "handover", "end", "feedback", "related", "takeover"):
+        if self.kind not in ("chat", "handover", "end", "feedback", "takeover"):
             raise ContractError("unknown chat action")
         if isinstance(self.outcome, dict):
             object.__setattr__(self, "outcome", OutcomeSubmission.from_dict(self.outcome))
-        if isinstance(self.related_answer, dict):
-            object.__setattr__(self, "related_answer", ResponseReference.from_dict(self.related_answer))
         if self.outcome is not None and not isinstance(self.outcome, OutcomeSubmission):
             raise ContractError("invalid closed outcome")
-        if self.related_answer is not None and not isinstance(self.related_answer, ResponseReference):
-            raise ContractError("invalid closed answer reference")
         if not isinstance(self.text, str) or len(self.text) > 4000:
             raise ContractError("bounded chat text required")
         if self.kind == "chat" and not self.text.strip():
             raise ContractError("chat text required")
         if self.kind != "chat" and self.text:
             raise ContractError("session actions accept no text")
-        if ((self.kind == "feedback") != (self.outcome is not None)
-                or (self.related_answer is not None and self.kind not in ("chat", "related"))):
-            raise ContractError("feedback and related answers must match their session action")
+        if (self.kind == "feedback") != (self.outcome is not None):
+            raise ContractError("feedback must match its session action")
 
     @classmethod
     def from_dict(cls, body: dict):
@@ -136,7 +134,7 @@ async def serve_chat(socket: WebSocket, channel: OrchestratorChannel, *, contact
     await socket.send_json({"kind": "chat_ready", "journey_id": started.journey_id})
     seen: dict[str, ChatMessage] = {}
     for _ in range(32):
-        message = ChatMessage.from_dict(await asyncio.wait_for(socket.receive_json(), 300))
+        message = await receive_chat_message(socket, started.journey_id)
         if message.kind == "end":
             await socket.send_json({"kind": "session_ended"})
             return
@@ -153,13 +151,9 @@ async def serve_chat(socket: WebSocket, channel: OrchestratorChannel, *, contact
             await socket.send_json({"kind": "chat_ready", "journey_id": started.journey_id,
                                     "duplicate": receipt.duplicate, "request_id": message.request_id})
             continue
-        if message.kind == "related":
-            raise ContractError("chat references accompany the next question")
         reply = await channel.turn(started.journey_id,
                                    "I want a human advisor" if message.kind == "handover" else message.text,
-                                   message.request_id,
-                                   **({"related_answer": message.related_answer}
-                                      if isinstance(message.related_answer, ResponseReference) else {}))
+                                   message.request_id)
         if reply.journey_id is not None and reply.journey_id != started.journey_id:
             raise ContractError("chat response journey mismatch")
         await socket.send_json(reply_metadata(reply))
@@ -259,7 +253,6 @@ class SocketAudio:
         self.pending_playback = []
         self.handover_requested = False
         self.takeover_requested = False
-        self.pending_related: ResponseReference | None = None
 
     async def playback_ack(self, timeout: float):
         async with asyncio.timeout(timeout):
@@ -333,11 +326,6 @@ class SocketAudio:
                     raise HandoverRequested("member requested a person")
                 if action.kind == "feedback" and isinstance(action.outcome, OutcomeSubmission):
                     raise OutcomeSelected(action.outcome, action.request_id)
-                if action.kind == "related":
-                    self.pending_related = (action.related_answer
-                                            if isinstance(action.related_answer, ResponseReference) else None)
-                    await self.socket.send_json({"kind": "related_selected", "selected": self.pending_related is not None})
-                    continue
                 raise ContractError("unsupported voice action")
         else:
             pcm = await asyncio.wait_for(self.socket.receive_bytes(), 35)
@@ -428,22 +416,28 @@ async def run_voice_turns(bridge: VoiceBridge, audio: SocketAudio, replies: list
         except OutcomeSelected as selection:
             await bridge.submit_outcome(selection.submission, selection.request_id)
             continue
-        related = audio.pending_related
-        audio.pending_related = None
-        reply = await bridge.turn(pcm, related_answer=related)
+        reply = await bridge.turn(pcm)
         if reply.feedback_recorded:
-            audio.pending_related = related
             continue
         replies.append(reply)
         if not audio.handover_requested and replies[-1].escalated:
             break
 
 
+async def receive_chat_message(socket: WebSocket, journey_id: str) -> ChatMessage:
+    try:
+        body = await asyncio.wait_for(socket.receive_json(), 300)
+    except TimeoutError:
+        log.info("chat_idle_expired", extra={"journey_id": journey_id})
+        raise ChatIdleTimeout from None
+    return ChatMessage.from_dict(body)
+
+
 async def run_chat_turns(socket: WebSocket, bridge: VoiceBridge, audio: SocketAudio, replies: list) -> bool:
     """The presenter takes over a chat simulation as the member; returns whether the member ended it."""
     await socket.send_json({"kind": "chat_ready", "journey_id": bridge.journey_id})
     for _ in range(16):
-        message = ChatMessage.from_dict(await asyncio.wait_for(socket.receive_json(), 300))
+        message = await receive_chat_message(socket, bridge.journey_id)
         if message.kind == "takeover":
             continue
         if message.kind == "end":
@@ -454,8 +448,6 @@ async def run_chat_turns(socket: WebSocket, bridge: VoiceBridge, audio: SocketAu
             await bridge.submit_outcome(message.outcome, message.request_id)
             await socket.send_json({"kind": "chat_ready", "journey_id": bridge.journey_id})
             continue
-        if message.kind == "related":
-            raise ContractError("chat references accompany the next question")
         await socket.send_json({"kind": "thinking"})
         if message.kind == "handover":
             reply = await bridge.channel.turn(bridge.journey_id, "I want a human advisor", message.request_id)
@@ -465,10 +457,7 @@ async def run_chat_turns(socket: WebSocket, bridge: VoiceBridge, audio: SocketAu
             await audio.response_metadata(reply)
             await bridge._speak(reply.text)
             return False
-        reply = await bridge.turn_text(
-            message.text, request_id=message.request_id,
-            **({"related_answer": message.related_answer}
-               if isinstance(message.related_answer, ResponseReference) else {}))
+        reply = await bridge.turn_text(message.text, request_id=message.request_id)
         if reply.feedback_recorded:
             await socket.send_json({"kind": "chat_ready", "journey_id": bridge.journey_id})
             continue
@@ -607,6 +596,9 @@ async def stream(socket: WebSocket):
     await socket.accept()
     try:
         await serve(socket, claims)
+    except ChatIdleTimeout:
+        if socket.client_state.name == "CONNECTED":
+            await socket.send_json({"kind": "session_ended", "reason": "idle"})
     except (VoiceError, httpx.HTTPError, ContractError, TimeoutError, OSError,
             WebSocketDisconnect, json.JSONDecodeError, KeyError, ValueError) as error:
         frame = traceback.extract_tb(error.__traceback__)[-1]

@@ -19,6 +19,7 @@ from governedgraph.orchestrator.service import InvalidAnswerReference, MemberSco
 from governedgraph.orchestrator.state_machine import Journey
 from governedgraph.orchestrator.store import JourneyRecord
 from governedgraph.strategy_service.catalogue import Catalogue
+from strategy_doubles import install_no_export_tracing
 
 
 @pytest.fixture(autouse=True)
@@ -70,7 +71,9 @@ def test_test_channel_pins_style_and_keeps_both_tokens_in_request_headers(contac
 
 
 @pytest.mark.parametrize("contact_type", ["first_contact", "second_contact"])
-def test_b4_b7_contact_type_persists_as_stage_without_restoring_conversation(contact_type, isolated_conversations):
+def test_b4_b7_contact_type_persists_as_stage_without_restoring_conversation(
+        contact_type, isolated_conversations, monkeypatch):
+    install_no_export_tracing(monkeypatch)
     transaction = SimpleNamespace(record=None, save=Mock())
     store = Mock()
     store.transaction.return_value = nullcontext(transaction)
@@ -147,7 +150,7 @@ def test_b8_member_turn_cannot_resume_a_pinned_test_without_admin_authorization(
     with pytest.raises(MemberScopeViolation):
         runtime.turn(journey.journey_id, "question", MemberIdentity(journey.member_ref, True), "synthetic-bearer", "Explain.")
     with pytest.raises(InvalidAnswerReference):
-        runtime._linked_answer(JourneyRecord(journey), ResponseReference("J-member", "member-response"),
+        runtime._linked_answer(JourneyRecord(journey), ResponseReference("J-member", "b" * 32),
                                MemberIdentity(journey.member_ref, True), before=datetime.now(timezone.utc))
 
 
@@ -156,7 +159,7 @@ def test_b4_b10_test_answers_and_journeys_do_not_change_any_learning_projection(
     record = ExplainabilityRecord(
         journey.journey_id, journey.member_ref, "S1", "1.0", "signed-test", "control",
         [], [], [], "pinned-model", "counsellor", "1", "1", True, True, journey.request_key(), True,
-        response_kind="explanation", response_id="test-response",
+        response_kind="explanation", response_id="c" * 32,
     )
     now = datetime.now(timezone.utc)
     assert project_feedback([journey], [record], now=now) == project_feedback([], [], now=now)
