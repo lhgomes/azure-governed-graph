@@ -69,6 +69,7 @@ az provider register --subscription "$SUBSCRIPTION_ID" \
 # Only for a workload requiring Azure Batch registration.
 az provider register --subscription "$SUBSCRIPTION_ID" \
   --namespace Microsoft.Batch --wait
+```
 
 Azure ML compute instances with integrated notebooks also require
 `Microsoft.Notebooks`; this is distinct from the current `AmlCompute` clusters.
