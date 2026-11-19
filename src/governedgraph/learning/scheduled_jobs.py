@@ -14,7 +14,7 @@ from agent_framework import Executor, WorkflowBuilder, WorkflowContext, handler
 from governedgraph.common.config import settings
 from governedgraph.common.workflow import run_sync
 from governedgraph.learning.azure_inputs import BlobLearningInputs, WATERMARK
-from governedgraph.learning.azure_ml import run_component
+from governedgraph.learning.p2_components import run_component
 from governedgraph.learning.pipeline_steps import PipelineState, run_guarded_stage
 from governedgraph.learning.ranking_pipeline import load_thresholds
 from governedgraph.orchestrator.store import BlobRecordStore
@@ -238,11 +238,11 @@ def main() -> None:
     role, cadence, image = os.environ["GOVERNEDGRAPH_P2_ROLE"], int(os.environ["GOVERNEDGRAPH_P2_CADENCE_SECONDS"]), os.environ["GOVERNEDGRAPH_P2_IMAGE"]
     if cadence == 300 and settings.environment_name != "gg-dev":
         raise ValueError("shortened schedule proof is dev-only")
-    account = os.environ["AZURE_ML_ARTIFACT_URL"]
+    account = os.environ["P2_ARTIFACT_STORAGE_URL"]
     with DefaultAzureCredential() as credential:
-        artifacts = BlobServiceClient(account, credential=credential).get_container_client("azureml")
+        artifacts = BlobServiceClient(account, credential=credential).get_container_client("p2-artifacts")
         inputs = BlobLearningInputs()
-        lease_store = BlobRecordStore(account, "azureml", json.loads)
+        lease_store = BlobRecordStore(account, "p2-artifacts", json.loads)
         execute(role, cadence, image, artifacts, inputs.private.get_container_client("learning-audits"),
                 lease_store, inputs, StrategyAdminClient(protective_only=True),
                 execution_checker(credential, os.environ["P2_FAIRNESS_JOB_ID"]) if role == "pipeline" else lambda _: None,

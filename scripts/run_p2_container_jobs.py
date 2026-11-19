@@ -20,7 +20,7 @@ from collections.abc import Callable
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "examples")]
 
-from governedgraph.learning.azure_ml import STEPS, MlConfig, component_environment
+from governedgraph.learning.p2_components import STEPS, P2Config, component_environment
 from governedgraph.learning.container_jobs import component_states
 
 
@@ -146,13 +146,13 @@ def resume_cycle(jobs: dict, cycle: str, image: str) -> tuple[str, dict[str, str
     return watchdog["name"], stages
 
 
-def start(jobs: dict, config: MlConfig, stage: str, cycle: str, image: str, *, fail_audit: bool = False) -> str:
+def start(jobs: dict, config: P2Config, stage: str, cycle: str, image: str, *, fail_audit: bool = False) -> str:
     role = "fairness" if stage == "audit" else "pipeline"
     job = jobs[role]
     env = component_environment(config, "audit" if role == "fairness" else "aggregate")
     env.update({
         "GOVERNEDGRAPH_P2_ROLE": role, "GOVERNEDGRAPH_P2_STAGE": stage, "GOVERNEDGRAPH_P2_CYCLE_ID": cycle, "GOVERNEDGRAPH_P2_IMAGE": image,
-        "AZURE_ML_ARTIFACT_URL": "https://" + config.storage_id.rsplit("/", 1)[-1] + ".blob.core.windows.net",
+        "P2_ARTIFACT_STORAGE_URL": config.artifact_storage_url,
         "P2_PIPELINE_JOB_ID": jobs["pipeline"]["id"], "P2_FAIRNESS_JOB_ID": jobs["fairness"]["id"],
     })
     container = job["properties"]["template"]["containers"][0]
@@ -218,10 +218,10 @@ def main(argv: list[str] | None = None) -> None:
     raw = dotenv_values(stream=StringIO(subprocess.check_output(["azd", "env", "get-values", *flags], text=True)))
     values = {name: value for name, value in raw.items() if value is not None}
     os.environ.update(values)
-    config = MlConfig.from_environment()
-    registry = config.registry_id.rsplit("/", 1)[-1] + ".azurecr.io/"
+    config = P2Config.from_environment()
+    registry = config.registry_endpoint.rstrip("/") + "/"
     if not args.image.startswith(registry) or "@sha256:" not in args.image:
-        raise ValueError("an immutable dedicated-ML-registry image is required")
+        raise ValueError("an immutable deployment-registry image is required")
     if args.fail_audit and values.get("AZURE_ENV_NAME") != "gg-dev":
         raise ValueError("synthetic audit failure is restricted to gg-dev")
     if args.resume_cycle and values.get("AZURE_ENV_NAME") != "gg-dev":
