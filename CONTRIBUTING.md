@@ -21,4 +21,4 @@ GovernedGraph is an Azure Public reference framework with a synthetic example. C
 
 Explain the purpose, affected boundaries, security and privacy implications, compatibility with the deployed state, and evidence actually collected. Document known limitations and explicitly identify changes requiring Tier-2/human release approval. Do not claim that source review, a deployment-ready result or a mocked test constitutes live acceptance.
 
-For vulnerabilities, follow [SECURITY.md](SECURITY.md) rather than opening a public issue. For the limits of available evidence, see [validation status](docs/validation-status.md).
+For vulnerabilities, follow [SECURITY.md](SECURITY.md) rather than opening a public issue. 

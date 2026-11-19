@@ -86,12 +86,6 @@ advice routing, authorized lookups, full-draft gates and durable audit still fin
 before substantive speech is synthesized. Returned sentences are validated and
 queued in order; unchecked or overlapping speech is never released.
 
-The [evaluation method](../../../docs/evaluation.md#voice-measurements) and
-[illustrative SLO table](../../../docs/architecture.md#voice-slo-table) distinguish
-acknowledgement dispatch, first substantive dispatch and complete-audio readiness.
-Measure actual sample counts, failures, warm/cold controls and stage boundaries.
-Server dispatch is not acoustic or browser-playback certification.
-
 From the approved Azure-hosted validation environment, with the assigned
 presenter/operator identity and voice dependencies:
 

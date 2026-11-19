@@ -96,8 +96,6 @@ Also: guidance, not advice (option-level questions escalate), and an AI disclosu
 
 **Not production-validated.** GovernedGraph is an Azure Public reference implementation with a synthetic example, not a certified or supported production service. The repository contains regression and evaluation source, but has no mandatory GitHub CI workflow; their presence is not evidence of execution or a pass. The checked-in simulated model-comparison report from 30 October 2026 records a **failed deterministic acceptance gate**, and no subsequent passing end-to-end evidence for the latest `main` was verified during this publication review. Model quality, effectiveness, fairness, latency and operational cost must be measured for a specific deployed workload.
 
-Read [validation status and evidence limitations](docs/validation-status.md) before interpreting test claims or publishing results. Public release itself remains subject to the [publication checklist](docs/public-release-checklist.md), including ownership and security review.
-
 ## What this is not
 
 A synthetic reference, **not a production service**. Passing Azure-hosted regression gates is not by itself evidence of conversational quality, live
@@ -116,9 +114,6 @@ integration or production acceptance. See the [limits to state with any result](
 | [Architecture](docs/architecture.md) | Azure P1/P2 flows, persistence, security and governance boundaries |
 | [Administration console](docs/administration.md) | Rankings, vetoes, suspensions, decisions, conversations; protective actions and access control |
 | [Deploying](docs/deploying.md) | Governed Azure delivery and teardown |
-| [Evaluation method](docs/evaluation.md) | Hard gates, model comparison and what a result can claim |
-| [Validation status](docs/validation-status.md) | What has and has not been verified; how to record current evidence |
-| [Public-release checklist](docs/public-release-checklist.md) | Required ownership, security, asset and evidence reviews |
 | [Agent workflow diagram](docs/diagrams/agent-workflow.md) | The detailed agents-and-gates diagram, step-by-step explanation and editable Mermaid sources |
 
 | The sample | |

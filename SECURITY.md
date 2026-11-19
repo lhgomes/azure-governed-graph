@@ -17,5 +17,3 @@ Include a concise description, affected commit/component, reproducible condition
 - Never bypass member authorization, managed-identity separation, signed snapshots, deterministic value binding, fairness veto, escalation, or the B1–B10 guardrails to make a test green.
 - Keep the synthetic member-token issuer, mock values adapter and demo presenter isolated from actual member workloads. This sample is not a production identity provider.
 - Do not publish private approval decisions, person-level cohorts, conversations, internal traces, or documents generated in customer environments.
-
-For release preparation and historical content review, use [the public-release checklist](docs/public-release-checklist.md).
