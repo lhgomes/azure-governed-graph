@@ -1,27 +1,22 @@
 # Agent workflow and coordination
 
-New to the project? Start with the simpler [overview diagram](overview.svg) ([PNG](overview.png)), which the README uses:
+New to the project? Start with the simpler [overview diagram](overview.svg) , which the README uses:
 the framework, what you supply, the people involved and the learning loop in one picture. This page is the detail behind it.
 
-[Vector SVG](agent-workflow.svg): 1920 x 1080, 16:9, white background. It scales
-without loss and can be inserted into documents. The
-[3840 x 2160 PNG](agent-workflow.png) is a font-independent alternative.
+[Vector SVG](agent-workflow.svg) (1600 × 900, 16:9, white background). The [overview SVG](overview.svg) is 1200 × 650. Both are canonical, scalable diagram assets. Export a PNG when required, for example with `inkscape agent-workflow.svg --export-type=png --export-width=3840 --export-filename=agent-workflow.png` from this directory.
 
 The diagram presents the implemented member-guidance workflow and separate
 governed learning loop, not an unrestricted agent-to-agent conversation.
 All examples and data are **ILLUSTRATIVE - synthetic data**.
 Boxes outlined in dashed gold (the approved-content and official-values columns) are what **your domain supplies**:
 the domain pack's content and your read-only system of record. The rose box is the [administration console](../administration.md),
-where people observe the evidence and can only freeze or suspend.
+where authorized operators observe evidence and can freeze or suspend; separately authorized owners can record governed owner and catalogue decisions.
 
 ## How to read the diagram
 
 - **The host coordinates.** Microsoft Agent Framework executes explicit branches.
   The host owns authentication, input screening, state, authorization and release.
-- **Agents have bounded roles.** Intent Routing selects a closed branch;
-  Understanding Assessment evaluates the actual taught concepts.
-  The Counsellor explains approved content and official-value references.
-  The independent Answer Quality Judge may request one repair and recheck.
+- **Semantic work has bounded roles.** Microsoft Decision 1.1 provides intent routing, teach-back understanding and answer-quality review through the direct SystemOne API. The two pinned Counsellor prompt agents draft explanations using approved evidence and official-value references. The host controls at most one repair and recheck.
 - **AI never calculates official values.** The host binds placeholders to the
   read-only deterministic Values API, checks numeric fidelity and advice
   boundaries, and durably records evidence before releasing a response.
@@ -34,8 +29,8 @@ where people observe the evidence and can only freeze or suspend.
 - **Learning changes ranking, not knowledge or entitlement.** Only immutable
   outcome aggregates enter bounded reordering of the approved catalogue.
   Raw conversations and operational telemetry are not learning inputs.
-- **Fairness can veto performance.** The isolated cohort audit can suspend a
-  strategy for all members. Runtime receives universal suspensions, never
+- **Fairness can veto performance.** The deterministic isolated cohort audit can suspend a
+  strategy for all members. The separately authorized fairness prompt agent is retained for explicit operator proof, not the scheduled veto. Runtime receives universal suspensions, never
   demographics or cohort-specific routing.
 - **Governance is tiered.** Tier 0 adjustments are automatic within bounds.
   Tier 1 moves require agentic assurance checks. Material changes and
@@ -57,7 +52,8 @@ flowchart TD
     end
     subgraph Runtime["Host-controlled member journey"]
         host["Journey Orchestrator - Agent Framework"]
-        roles["Foundry specialist agents"]
+        decision["Decision 1.1 - SystemOne API"]
+        roles["Foundry Agent Service - pinned writers"]
         gates["Deterministic gates and durable audit"]
         human["Human handover - synthetic adapter"]
     end
@@ -72,8 +68,10 @@ flowchart TD
         governance["Tiered governance and signed publication"]
     end
     channel -->|"authenticated and screened turn"| host
-    host -->|"bounded task"| roles
-    roles -->|"draft or closed decision"| host
+    host -->|"closed semantic task"| decision
+    decision -->|"closed label and confidence"| host
+    host -->|"bounded drafting task"| roles
+    roles -->|"grounded draft"| host
     host -->|"approved retrieval"| search
     host -->|"official value references"| values
     host -->|"approved explanation strategy"| strategy
@@ -92,7 +90,8 @@ flowchart TD
 | Layer | Technology | Version policy | Purpose |
 |---|---|---|---|
 | Coordination | Python, Microsoft Agent Framework | Repository-pinned dependencies | Explicit workflow and host-owned state |
-| Agent reasoning | Microsoft Foundry Agent Service | Versioned agent definitions | Bounded semantic decisions and explanations |
+| Closed semantic decisions | Microsoft Decision 1.1 / SystemOne API | Pinned model deployment and domain criteria | Intent, understanding, answer review |
+| Explanation | Microsoft Foundry Agent Service | Pinned agent definitions | Primary and compact Counsellor |
 | Approved reads | APIM, AI Search, Strategy Service | Versioned contracts/content/snapshots | Official values, grounded content and governed strategies |
 | Evidence and learning | Blob storage, Service Bus, Container Apps Jobs | Versioned schemas and release images | Durable audit, aggregate projection and isolated learning |
 
@@ -119,19 +118,19 @@ flowchart LR
         branch["Clarify, explain, assess or hand over"]
         commit["Host gates and evidence commit"]
     end
-    subgraph Semantic["Bounded agent roles"]
-        intent["Intent Routing"]
-        understanding["Understanding Assessment"]
-        writer["Counsellor"]
-        judge["Answer Quality Judge"]
+    subgraph Semantic["Bounded semantic roles; all invoked by host"]
+        intent["Decision 1.1 - Intent Routing"]
+        understanding["Decision 1.1 - Understanding"]
+        writer["Foundry - Counsellor / compact"]
+        judge["Decision 1.1 - Answer Review"]
     end
     subgraph Tools["Governed data access"]
         reads["Approved content, official values and signed strategies"]
     end
-    subgraph Offline["Governed learning"]
+    subgraph Learning["Scheduled governed learning"]
         outcomes["Outcome aggregate projection"]
         rank["Bounded ranking"]
-        fairness["Fairness and Explainability"]
+        fairness["Deterministic isolated fairness audit"]
         assurance["Assurance checks and tier routing"]
         publish["Sign and publish"]
     end
@@ -141,8 +140,8 @@ flowchart LR
     understanding -->|"understood, uncertain or not understood"| branch
     branch -->|"explanation branch"| writer
     writer -->|"host-authorized reads"| reads
-    writer -->|"host-validated draft"| judge
-    judge -.->|"one bounded repair then recheck"| writer
+    writer -->|"host validates and invokes review"| judge
+    judge -.->|"host controls one bounded repair then recheck"| writer
     judge -->|"pass or approved fallback"| commit
     branch -->|"clarification, checked outcome or handover"| commit
     commit -->|"confirmed journey events"| outcomes
@@ -159,19 +158,23 @@ flowchart LR
 | Component | Layer / type | Responsibility |
 |---|---|---|
 | Journey Orchestrator | Runtime host | Authenticate, screen, maintain state and execute explicit branches |
-| Intent Routing | Semantic agent | Return a closed routing decision |
-| Understanding Assessment | Semantic agent | Assess only concepts targeted by the accepted teach-back |
-| Counsellor | Explanation agent | Draft from approved evidence and value placeholders |
-| Answer Quality Judge | Independent semantic agent | Check grounding, relevance and language; bound repair |
+| Intent Routing | Decision 1.1 | Return a closed routing decision |
+| Understanding Assessment | Decision 1.1 | Assess only concepts targeted by the accepted teach-back |
+| Counsellor and compact Counsellor | Pinned Foundry prompt agents | Draft from approved evidence and value placeholders |
+| Answer Quality Review | Decision 1.1 | Check grounding, relevance and language; bound repair |
 | Host gates and evidence commit | Deterministic host | Bind values, enforce safety and audit before release |
 | Approved read surfaces | Data-access contracts | Serve approved knowledge, official values and signed strategies |
-| Bounded ranking | Offline deterministic pipeline | Reorder approved strategies within evidence and shift limits |
-| Fairness and Explainability | Protective agent and isolated audit | Apply universal vetoes and open governance cases |
+| Bounded ranking | Scheduled deterministic pipeline | Reorder approved strategies within evidence and shift limits |
+| Fairness audit | Scheduled deterministic isolated audit | Apply universal protective vetoes and record evidence |
+| Fairness and Explainability | Pinned Foundry prompt agent | Explicit separately authorized operator proof; not required for scheduled veto |
 | Assurance checks and tier routing | Governed review | Validate Tier 1 moves; reserve material changes for humans |
-| Sign and publish | Offline host | Publish the governed signed ranking snapshot |
+| Sign and publish | Scheduled host | Publish the governed signed ranking snapshot |
 
 ## Source references
 
+- [Decision 1.1 client](../../src/governedgraph/agents/decision_model.py)
+- [Semantic decision definitions](../../src/governedgraph/agents/decision_agents.py)
+- [Native scheduled jobs](../../src/governedgraph/learning/scheduled_jobs.py)
 - [Runtime workflow](../../src/governedgraph/orchestrator/workflow.py)
 - [Counsellor, review and release gates](../../src/governedgraph/agents/counsellor.py)
 - [Learning workflow](../../src/governedgraph/learning/run_cycle.py)

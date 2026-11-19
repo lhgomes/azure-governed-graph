@@ -34,7 +34,7 @@ journeys are isolated from customer history. See
 
 - **Orchestrator**: owns journey state, authorization, escalation and audit-before-release. Human escalation is reachable from every state (B9).
 - **Counsellor** (generative): drafts a question-specific explanation using placeholders and approved passages. Cannot compute, round or select outside the served ranking.
-- **Intent routing, understanding assessment, answer-quality judge** (generative, tool-free): closed semantic decisions and one bounded repair.
+- **Intent routing, understanding assessment, answer-quality review** (Microsoft Decision 1.1 via SystemOne): closed semantic decisions; the host controls the single bounded repair.
 - **Strategy Service**: verifies and serves the signed Ranking Snapshot; applies suspension overlays at read time for all members (B3, B6).
 - **Fairness & Explainability Agent** (protective only): audits segregated cohort aggregates and can suspend a strategy for every member (B6).
 - **Assurance committee and tiers**: bounded ranking moves are autonomous (Tier 0/1); anything that widens what the system may say, use or decide is a human Tier 2 decision (B8).

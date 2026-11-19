@@ -6,9 +6,9 @@ The standard pension WTP reference composition deploys the following services. O
 | --- | --- |
 | Foundry account and project | Model and agent execution |
 | gpt-counsellor | Primary approved writer |
-| gpt-compact | Compact writer, understanding, fairness operator and optional persona |
+| gpt-compact | Compact writer, fairness operator and optional persona |
 | embedding | Approved-content search vectorization |
-| configured Microsoft Decision 1.1 deployment | Direct intent and answer-review decisions |
+| configured Microsoft Decision 1.1 deployment | Direct intent, understanding and answer-review decisions |
 | Content Safety | Explicit Prompt Shields before inference |
 | AI Search | Approved-content grounding and indexing |
 | APIM | Governed member/strategy/admin APIs and pinned Responses |
@@ -31,4 +31,4 @@ Retain distinct runtime, member-values, strategy, P2 pipeline, fairness and cont
 
 ## Fresh Azure validation
 
-Confirm the resource inventory contains no MachineLearningServices workspace/compute or ML-specific dependency resources, only the two consumed queues, four mandatory hosted agents and four standard model deployments. Verify isolated job execution, same-cycle fairness evidence, bounded ranking, signing, veto, publication, recovery/freeze, content ingestion, inference, and operational monitoring. No deployment or measured cost savings are certified by this inventory.
+Confirm the resource inventory contains no MachineLearningServices workspace/compute or ML-specific dependency resources, only the two consumed queues, three mandatory hosted agents and four standard model deployments. Verify isolated job execution, same-cycle fairness evidence, bounded ranking, signing, veto, publication, recovery/freeze, content ingestion, inference, and operational monitoring. No deployment or measured cost savings are certified by this inventory.

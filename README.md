@@ -2,8 +2,8 @@
 ### A framework for governed journey graphs: deterministic facts, bounded learning, auditable controls, and human oversight.
 
 Organisations want AI to help people understand official information (a balance, a status, a rule), but cannot let a model
-*decide*, *calculate* or *advise*. GovernedGraph is a reference framework for exactly that: a generative model **explains**,
-your deterministic systems **decide**, and a learning loop improves **how** things are explained, inside hard, auditable limits.
+*make authoritative business decisions*, *calculate* or *advise*. GovernedGraph is a reference framework for exactly that: bounded AI classifies and reviews language, a generative model **explains**,
+your deterministic systems **make authoritative decisions**, and a learning loop improves **how** things are explained, inside hard, auditable limits.
 
 > **Terminology.** "Member" is the framework's word for the person being guided; read it as customer, participant, patient,
 > citizen or whatever your domain calls them. "Journey" is a multi-step interaction with your organisation, and "official values"

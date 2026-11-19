@@ -37,7 +37,7 @@ not deployed administrator integrations.
 | Chat and voice channels | Authenticated entry points through APIM; voice is an adapter to the same governed journey |
 | Orchestrator | Container App owning the state machine, authorization, audit barrier and durable outbox |
 | Counsellor | Version-pinned Microsoft Foundry prompt agent; writes explanations using official-value placeholders |
-| Intent, understanding and answer-review agents | Separate, tool-free semantic roles with closed decisions |
+| Intent, understanding and answer review | Closed semantic decisions via the pinned Microsoft Decision 1.1 deployment and SystemOne API; not hosted prompt agents |
 | Values facade | APIM-protected, read-only deterministic system-of-record API |
 | Approved retrieval | Azure AI Search over human-approved, versioned passages |
 | Strategy Service | Identity-separated service verifying signed catalogue rankings and applying universal vetoes |
@@ -159,7 +159,7 @@ teach-back. After an explanation is already resolved, confirmation, thanks or a
 voluntary recap with no new request receives the approved bilingual closing
 acknowledgment instead of restarting clarification. This preserves the resolved
 state and does not manufacture a comprehension event or learning success.
-A pending meaning check still requires the Understanding Assessment Agent's
+A pending meaning check still requires the Decision model's understanding
 verdict; gratitude alone is insufficient. New explanation, advice and human
 requests retain their own routes, including after the natural close; this is not
 a terminal journey lock.
@@ -208,8 +208,8 @@ and surfaces an error for retry. Immutable audit/event history is not deleted.
 A released reply is not proof of receipt, voice playback or comprehension.
 
 Prior dialogue is re-screened through Prompt Shields in provider-bounded batches.
-Historical numbers are masked before the intent, understanding, writer and
-answer-review agents receive the role-labelled dialogue as untrusted reference
+Historical numbers are masked before the intent, understanding and
+answer-review Decision model calls and the writer receive role-labelled dialogue as untrusted reference
 data. Current authorization, authoritative value reads, approved retrieval,
 signed ranking and all output gates still run. History never authorizes tools,
 restores an old journey state or becomes approved factual evidence. Demographic
@@ -393,7 +393,7 @@ the control.
 Azure integrations use managed identity / `DefaultAzureCredential`, not keys
 or connection strings. Each role has its own identity. Shared-store permissions
 are container-scoped; signing and verification permissions are key-scoped.
-ML platform dependencies are dedicated and separate from application signing keys.
+The scheduled fairness and ranking jobs use the application registry and private artifact container; fairness cannot sign ranking snapshots.
 
 APIM and backends independently validate signature, tenant, audience, expiry
 and required role or delegated scope. Publication belongs to P2, suspension to
@@ -441,7 +441,7 @@ screening. Figure-free acknowledgements are distinguished from substantive answe
 and cannot claim that checks or audit have completed.
 
 Warm-up supplies an explicitly empty conversation context to the same
-decision-agent request path used by live turns; it never loads a customer's
+Decision model request path used by live turns; it never loads a customer's
 history or creates a journey. A presenter connection that closes before
 confirmed completion becomes a visible error, including during startup; an
 explicit service error is preserved. B1-B10 and disclosure playback are
