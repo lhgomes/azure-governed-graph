@@ -123,11 +123,11 @@ B1-B10, channel authorization, catalogue approval or learning.
    suspensions and protective state. The control arm retains approved expert order.
 7. Compose a question-specific draft with `{{value:<id>}}` references. Bind only
    authorized official display strings; reject literal invented figures and steering.
-8. An independent grounded judge checks support, relevance and language.
+8. The Decision model's answer review checks support, relevance and language.
    At most one evidence-preserving repair is allowed across the deterministic output
-   gate and independent review. A literal-digit contract failure without a usable
-   approved fallback can use that repair before judging; all deterministic gates
-   and the independent judge must then pass. An internal answer failure never asks
+   gate and answer review. A literal-digit contract failure without a usable
+   approved fallback can use that repair before review; all deterministic gates
+   and the answer review must then pass. An internal answer failure never asks
    the member to repeat an already classified question: the approved answer-failure
    acknowledgment offers human help in the same journey, or escalates if that offer
    cannot safely be delivered. Genuine clarification remains an intent-routing decision.
@@ -479,7 +479,7 @@ verified usage, allocation and ingestion completeness are required for financial
 reporting. Native Responses gateway limitations do not authorize silent agent
 or model failover. See [observability](observability.md).
 
-Azure readiness, hard-gate regression, hosted semantic quality, speech performance
+Azure readiness, hard-gate regression, semantic quality, speech performance
 and production acceptance are separate claims. No checked-in document certifies
 a deployment. Execution and evidence requirements are in
 [Azure-only execution](azure-only-execution.md).

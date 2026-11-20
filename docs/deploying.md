@@ -177,8 +177,7 @@ Use Python 3.14, Azure CLI, Azure Developer CLI, Bicep and the existing verified
 it makes no cloud calls, prompts or writes and does not verify/select an Azure
 target. Obtain the required authorized Azure preview before
 applying the delivery. Delivery prints each major operation and each image
-build/reuse, without exposing private inputs. The evaluation command is separate and incurs model and
-judge usage; it never provisions, starts channel probes or issues member tokens.
+build/reuse, without exposing private inputs. The evaluation command is separate and incurs model usage; it never provisions, starts channel probes or issues member tokens.
 An output file must be new, preserving previous evidence.
 
 The foundation provisions Microsoft-Decision-1.1 (version `1`,
@@ -481,7 +480,7 @@ permissions are reused; delivery never grants access to an unrelated CLI identit
 or changes the global account. Standalone agent provisioning requires
 `AZURE_SUBSCRIPTION_ID`; `scripts.azd_env export --task agents` includes it.
 
-Delivery binds all four required hosted agent names explicitly to the workload contract,
+Delivery binds all three required hosted agent names explicitly to the workload contract,
 including `gg-counsellor` and `gg-fairness-explainability`. Ambient agent-name
 settings in the invoking shell cannot redirect deployment planning, version
 creation or fairness endpoint pinning. standalone provisioning still honors its
