@@ -75,7 +75,7 @@ def test_b9_successful_teach_back_continues_help_without_routine_handover(svc):
     result = c.handle("It stays the same on the transition date and can go up or down each year after that.")
     assert result.state == "resolved" and not result.escalated
     assert result.text == (
-        "Thank you. We can leave it here for now. You can ask another question or request a person at any time."
+        "Thank you. If anything else comes to mind, you can ask another question or request a person at any time."
     )
     follow_up = c.handle("Please explain my transition letter.")
     assert follow_up.state == "comprehension_check" and not follow_up.escalated and follow_up.fidelity.passed

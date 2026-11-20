@@ -437,7 +437,8 @@ def test_b5_pending_meaning_checks_still_require_the_understanding_verdict(confi
     passed = [event for event in c.journey.events if event.event == "teach_back_passed"]
     assert bool(passed) is (outcome == "understood")
     if outcome == "understood":
-        assert result.state == "resolved" and "We can leave it here for now." in result.text
+        assert result.state == "resolved" and result.text == TEMPLATES["acknowledgements"]["comprehension_confirmed"]["en"]
+        assert "leave it here" not in result.text
         assert "clarify-question" not in result.workflow_steps and not c._explain.called
     elif outcome == "uncertain":
         assert result.state == "comprehension_check" and "clarify-question" in result.workflow_steps

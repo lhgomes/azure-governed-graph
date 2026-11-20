@@ -147,13 +147,17 @@ def _pack_criteria() -> dict:
 
 
 @lru_cache(maxsize=None)
-def _intent_criteria() -> dict[str, str]:
-    """The pack's description of every selectable reason; the host's closed reason set must be fully described."""
+def _intent_criteria(follow_up: bool = False) -> dict[str, str]:
+    """The pack's description of every selectable reason; the host's closed reason set must be fully described.
+
+    A follow-up reading classifies a message already known to ask something new, so recapping is not selectable."""
     allowed = {row[2] for row in INTENT_DECISIONS} - HISTORICAL_REASONS
     described = _pack_criteria()["intent"]
     if set(described) != allowed:
         raise domain.DomainPackError(
             f"domain vocabulary: decision_criteria.intent must describe exactly {sorted(allowed)}")
+    if follow_up:
+        allowed -= {"restating_previous_explanation"}
     return {reason: described[reason] for reason in sorted(allowed)}
 
 
@@ -466,15 +470,32 @@ def run_decision(role: str, tools, utterance: str,
                  context: DecisionContext) -> IntentDecision | UnderstandingDecision:
     if role == "understanding":
         return _run_understanding(tools, utterance, context)
-    if role != "intent":
+    if role not in {"intent", "follow_up_intent"}:
         raise ValueError("unknown routing decision role")
     from governedgraph.agents.decision_model import DecisionModelUnavailable
 
+    follow_up = role == "follow_up_intent"
     state = _state_text(tools, context, utterance)
     reason_question = {"reason": {
         "type": "choice", "instructions": "What is the customer's current message about?",
-        "criteria": _intent_criteria(),
+        "criteria": _intent_criteria(follow_up),
     }}
+    if follow_up:
+        # The language was already read for this message; only the new question's topic is open.
+        (routed,) = _ask_each(tools, state, [reason_question])
+        if isinstance(routed, DecisionModelUnavailable):
+            tools.trace.note("intent", "unavailable")
+            raise DecisionUnavailable("Decision model follow-up intent unavailable") from routed
+        matches = [row for row in INTENT_DECISIONS if row[2] == routed["reason"]
+                   and row[2] not in HISTORICAL_REASONS and row[2] != "restating_previous_explanation"]
+        if len(matches) != 1:
+            raise DecisionUnavailable("invalid closed follow-up intent classification")
+        decision = IntentDecision(*matches[0], context.response_language)
+        # The follow-up reading supersedes the earlier mistaken one; evidence holds one routing decision per role.
+        tools.trace.decision_evidence[:] = [
+            item for item in tools.trace.decision_evidence if item.role != "intent"]
+        _record_model_decision(tools, "intent", decision)
+        return decision
     language_question = {"response_language": {
         "type": "choice",
         "instructions": ("Follow an explicit supported language request; otherwise use the current "

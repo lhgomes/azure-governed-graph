@@ -10,6 +10,13 @@
       "en": "Thank you. We can leave it here for now. You can ask another question or request a person at any time.",
       "nl": "Dank je. We kunnen het hier voor nu bij laten. Je kunt een andere vraag stellen of op elk moment om een medewerker vragen."
     },
+    "comprehension_confirmed": {
+      "approval_ref": "HR-PENSION-WTP-CONFIRMED-CLOSING-2026-11-20",
+      "label": "ILLUSTRATIVE - synthetic data",
+      "version": "1.0",
+      "en": "Thank you. If anything else comes to mind, you can ask another question or request a person at any time.",
+      "nl": "Dank je. Als je nog iets te binnen schiet, kun je een andere vraag stellen of op elk moment om een medewerker vragen."
+    },
     "comprehension_retry": {
       "approval_ref": "IMP-COMPREHENSION-RETRY-2026-11-19",
       "label": "ILLUSTRATIVE - synthetic data",
@@ -54,8 +61,17 @@
     }
   },
   "disclosure": {
+    "version": "1.1",
     "approval_ref": "IMP-102-user-approval-2026-11-14",
     "label": "ILLUSTRATIVE - synthetic data",
-    "en": "Hello, welcome! I'm your AI pension guide. We can take your pension questions one step at a time. You can ask for a person at any time. Where would you like to start?"
+    "en": "Hello, welcome! I'm your AI pension guide. We can take your pension questions one step at a time. You can ask for a person at any time. Where would you like to start?",
+    "returning": {
+      "approval_ref": "IMP-CUSTOMER-STARTUP-CONTINUITY-2026-11-20",
+      "en": "Hello again! I'm your AI pension guide. I have our earlier conversation available, so we can pick up from there. You can ask for a person at any time. What would you like to follow up on?"
+    },
+    "second_contact": {
+      "approval_ref": "IMP-CUSTOMER-STARTUP-CONTINUITY-2026-11-20",
+      "en": "Hello again! I'm your AI pension guide. I don't have an earlier conversation available here, but we can focus on your remaining question. You can ask for a person at any time. What would you like to follow up on?"
+    }
   }
 }

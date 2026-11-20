@@ -186,6 +186,20 @@ not a memory reset. A new customer or absent earlier exchange gets no invented
 recollection. Each administrator test journey has a separate conversation;
 it neither reads nor updates ordinary customer history.
 
+Session start recovers the verified customer's conversation before releasing
+the audited greeting, using the same customer-before-journey lock order as a
+turn. Retained dialogue selects an approved returning greeting regardless of
+the contact selector. `second_contact` without retained dialogue selects an
+approved follow-up greeting that explicitly states the earlier conversation
+is unavailable; it does not create fictional history. New customers retain
+the existing first-contact greeting. Every variant includes the AI disclosure
+and human-help offer, and the disclosure version is recorded in the audit.
+The [closed channel start contract](../src/governedgraph/voice/voice_live_bridge.py)
+accepts only these approved greetings, not arbitrary text containing an AI label.
+Greetings neither replay historical text or figures nor append a customer turn.
+Recovery failures prevent greeting release; a busy customer produces the
+retryable conflict rather than an uncontextualized first-contact greeting.
+
 The [continuity adapter](../src/governedgraph/orchestrator/continuity.py) keeps
 only an opaque owner key, Foundry conversation ID and pending commit references
 under `customer-context/` in the existing `journey-state` container. Ordinary

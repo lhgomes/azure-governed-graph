@@ -140,6 +140,8 @@ def start(body: StartJourney, request: Request, authorization: str = Header(""))
     try:
         return request.app.state.runtime.start(
             identity, body.channel, body.accessibility_mode, contact_type=body.contact_type)
+    except JourneyBusy:
+        raise HTTPException(409, "journey busy; retry the start") from None
     except Exception as error:
         log.error("journey_start_failed", extra={"error_type": type(error).__name__})
         raise HTTPException(503, domain.message("journey_unavailable")) from None

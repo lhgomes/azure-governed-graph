@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import httpx
 
-from governedgraph.agents.counsellor import DISCLOSURE, TEMPLATES
+from governedgraph.agents.counsellor import START_GREETINGS, TEMPLATES
 from governedgraph.common import domain
 from governedgraph.common.contracts import (
     ContractError, OutcomeOffer, OutcomeSubmission, ResponseReference, _strict,
@@ -52,7 +52,7 @@ class JourneyStart:
 
     def __post_init__(self):
         validate_id(self.journey_id)
-        if self.text != DISCLOSURE or not isinstance(self.state, str) or not self.state:
+        if self.text not in START_GREETINGS.values() or not isinstance(self.state, str) or not self.state:
             raise ContractError("the authenticated orchestrator must provide the AI disclosure")
 
     @classmethod

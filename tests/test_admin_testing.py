@@ -11,7 +11,7 @@ import pytest
 
 from governedgraph.admin.testing import TestChannel as SelectedStyleChannel
 from governedgraph.admin.testing import TestSession as SelectedStyleSession
-from governedgraph.agents.counsellor import Counsellor, DependencyFailure, DISCLOSURE
+from governedgraph.agents.counsellor import Counsellor, DependencyFailure, DISCLOSURE, START_GREETINGS
 from governedgraph.common.contracts import ContractError, ExplainabilityRecord, ResponseReference
 from governedgraph.common.member_auth import MemberIdentity
 from governedgraph.learning.feedback import project_feedback
@@ -86,7 +86,7 @@ def test_b4_b7_contact_type_persists_as_stage_without_restoring_conversation(
     assert restored.last_explanation is None
     assert len(restored.events) == 1
     assert restored.events[0].event == "disclosed_and_authenticated"
-    assert result["text"] == DISCLOSURE
+    assert result["text"] == (DISCLOSURE if contact_type == "first_contact" else START_GREETINGS["second_contact"])
     assert restored.state.value == "identified"
 
 

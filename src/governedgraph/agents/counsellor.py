@@ -37,6 +37,11 @@ from governedgraph.strategy_service.catalogue import ESCALATION_STRATEGY, Catalo
 TEMPLATES = load_json(DATA_DIR / "catalogue" / "templates_v1.json")
 log = logging.getLogger("governedgraph.counsellor")
 DISCLOSURE = TEMPLATES["disclosure"]["en"]
+START_GREETINGS = {
+    "first_contact": DISCLOSURE,
+    "returning": TEMPLATES["disclosure"]["returning"]["en"],
+    "second_contact": TEMPLATES["disclosure"]["second_contact"]["en"],
+}
 
 
 class DependencyFailure(RuntimeError):
@@ -189,7 +194,7 @@ class Counsellor:
     def decide(self, role: str, utterance: str) -> IntentDecision | UnderstandingDecision:
         from governedgraph.agents.decision_agents import DecisionContext, run_decision
 
-        selected = self.tools.related_answer_context if role == "intent" else None
+        selected = self.tools.related_answer_context if role in {"intent", "follow_up_intent"} else None
         context = DecisionContext(
             self.journey.state.value, selected.previous_intent if selected else self.journey.intent,
             (selected.previous_template_id if selected else
@@ -198,7 +203,7 @@ class Counsellor:
         )
         agent = self.decision_agents.get(role)
         operation = agent.run if agent is not None else lambda *args: run_decision(role, *args)
-        with self.tools.trace.measure("intent_routing" if role == "intent" else "understanding_assessment"):
+        with self.tools.trace.measure("understanding_assessment" if role == "understanding" else "intent_routing"):
             return dependency(f"{role}_agent", operation, self.tools, utterance, context)
 
     # ---- session start: Art. 50 disclosure + authentication ----

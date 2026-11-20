@@ -13,7 +13,7 @@ from governedgraph.agents.tools import Trace
 from governedgraph.common.contracts import ContractError
 from governedgraph.common.member_auth import MemberIdentity
 from governedgraph.explainability.store import AuditUnavailable
-from governedgraph.orchestrator.continuity import CustomerConversation, CustomerConversations
+from governedgraph.orchestrator.continuity import ContinuityUnavailable, CustomerConversation, CustomerConversations
 from governedgraph.orchestrator.service import DeliveryPending, MemberScopeViolation, OrchestratorService
 from governedgraph.orchestrator.state_machine import Event
 from governedgraph.orchestrator.store import BlobJourneyStore, JourneyBusy, JourneyRecord, Transaction
@@ -144,6 +144,109 @@ def begin(case, identity=MEMBER, *, channel="chat", contact_type="first_contact"
 
 def say(case, journey, request, identity=MEMBER, text="Please explain this remaining concern.", **kwargs):
     return case.runtime().turn(journey, request, identity, "synthetic-token-never-retained", text, **kwargs)
+
+
+@pytest.mark.parametrize("contact_type,channel", [("second_contact", "voice"), ("first_contact", "chat")])
+def test_b9_returning_greeting_recovers_customer_context_before_any_new_turn(continuity_runtime, contact_type, channel):
+    from governedgraph.guardrails.numeric_fidelity import check
+
+    case = continuity_runtime
+    first = begin(case)
+    say(case, first, "first")
+    earlier = case.foundry.messages()
+    result = case.runtime().start(MEMBER, channel, "standard", contact_type=contact_type)
+    assert "Hello again!" in result["text"] and "earlier conversation available" in result["text"]
+    assert "AI pension guide" in result["text"] and "person at any time" in result["text"]
+    assert "Where would you like to start?" not in result["text"]
+    assert check(result["text"], None, []).passed
+    assert len(case.observed) == 1 and len(case.foundry.rows) == 1 and case.foundry.messages() == earlier
+    audit = case.runtime().audit_store.append.call_args.args[0]
+    assert audit.journey_id == result["journey_id"] and audit.disclosure_given and audit.escalation_offered
+    assert audit.template_version == "disclosure-1.1" and audit.request_key["journey_state"] == contact_type
+
+
+@pytest.mark.parametrize("contact_type", ["first_contact", "second_contact"])
+def test_contact_type_selects_opening_without_inventing_customer_history(continuity_runtime, contact_type):
+    case = continuity_runtime
+    result = case.runtime().start(MEMBER, "chat", "standard", contact_type=contact_type)
+    if contact_type == "second_contact":
+        assert "Hello again!" in result["text"] and "remaining question" in result["text"]
+        assert "don't have an earlier conversation available" in result["text"]
+    else:
+        assert "Hello, welcome!" in result["text"] and "Where would you like to start?" in result["text"]
+        assert "earlier conversation" not in result["text"]
+    assert "AI pension guide" in result["text"] and "person at any time" in result["text"]
+    assert not case.observed and case.foundry.messages() == [[]]
+
+
+@pytest.mark.parametrize("identity,test_strategy_id", [
+    (OTHER, ""), (MemberIdentity(MEMBER.member_ref, False), ""), (MEMBER, "S1"),
+])
+def test_b7_startup_greeting_cannot_claim_another_customer_or_unverified_or_admin_history(
+        continuity_runtime, identity, test_strategy_id):
+    case = continuity_runtime
+    first = begin(case)
+    say(case, first, "first", text="The synthetic customer's earlier private question.")
+    result = case.runtime().start(identity, "chat", "standard", contact_type="second_contact",
+                                  test_strategy_id=test_strategy_id)
+    assert "don't have an earlier conversation available" in result["text"]
+    assert "private question" not in result["text"] and len(case.observed) == 1
+
+
+def test_startup_discards_uncommitted_dialogue_before_choosing_a_returning_greeting(continuity_runtime):
+    case = continuity_runtime
+    first = begin(case)
+    case.foundry.fail_append = True
+    with pytest.raises(OSError):
+        say(case, first, "ambiguous")
+    assert len(case.foundry.messages()[0]) == 2
+    result = case.runtime().start(MEMBER, "chat", "standard", contact_type="second_contact")
+    assert "don't have an earlier conversation available" in result["text"]
+    assert case.foundry.messages() == [[]] and len(case.observed) == 1
+
+
+def test_startup_recovers_a_committed_turn_before_returning_a_greeting(continuity_runtime):
+    case = continuity_runtime
+    first = begin(case)
+    case.publisher.send.side_effect = TimeoutError("synthetic delivery outage")
+    with pytest.raises(DeliveryPending):
+        say(case, first, "pending")
+    before = len(case.journeys.rows)
+    with pytest.raises(DeliveryPending):
+        case.runtime().start(MEMBER, "chat", "standard", contact_type="second_contact")
+    assert len(case.journeys.rows) == before
+    case.publisher.send.side_effect = None
+    result = case.runtime().start(MEMBER, "chat", "standard", contact_type="second_contact")
+    assert "I have our earlier conversation available" in result["text"]
+    assert len(case.observed) == 1 and len(case.foundry.messages()[0]) == 2
+    with case.journeys.transaction(first) as transaction:
+        assert not transaction.record.pending
+
+
+def test_startup_history_failure_never_releases_a_fresh_greeting(continuity_runtime, caplog):
+    case = continuity_runtime
+    begin(case)
+    case.foundry.retrieve = Mock(side_effect=ContinuityUnavailable("synthetic private history detail"))
+    before = len(case.journeys.rows)
+    case.runtime().audit_store.reset_mock()
+    with pytest.raises(ContinuityUnavailable):
+        case.runtime().start(MEMBER, "chat", "standard", contact_type="second_contact")
+    assert len(case.journeys.rows) == before and not case.runtime().audit_store.append.called
+    assert "customer_continuity_unavailable" in caplog.text and "private history detail" not in caplog.text
+
+
+@pytest.mark.parametrize("failure,status", [(JourneyBusy("synthetic"), 409), (ContinuityUnavailable("synthetic"), 503)])
+def test_startup_api_surfaces_busy_and_unavailable_customer_context(monkeypatch, failure, status):
+    from fastapi import HTTPException
+    from governedgraph.orchestrator import api
+
+    runtime = Mock()
+    runtime.start.side_effect = failure
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(runtime=runtime)))
+    monkeypatch.setattr(api, "authenticate", lambda _: ("synthetic", MEMBER))
+    with pytest.raises(HTTPException) as error:
+        api.start(api.StartJourney(contact_type="second_contact"), request, authorization="Bearer synthetic")
+    assert error.value.status_code == status
 
 
 def test_customer_history_survives_runtime_reconstruction_and_a_new_contact_and_channel(continuity_runtime):

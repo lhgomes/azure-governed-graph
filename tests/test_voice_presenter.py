@@ -21,7 +21,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import ContractError
-from governedgraph.agents.counsellor import DISCLOSURE
+from governedgraph.agents.counsellor import DISCLOSURE, START_GREETINGS
 from governedgraph.dev import member_issuer_api
 from governedgraph.voice import access, presenter
 from governedgraph.voice.voice_live_bridge import AudioFailure, PCM_RATE
@@ -304,8 +304,11 @@ def test_authenticated_presenter_socket_is_bound_to_assigned_operator(presenter_
 
 @pytest.mark.parametrize("mode", ["chat", "presenter"])
 @pytest.mark.parametrize("issuer_status", [200, 503])
+@pytest.mark.parametrize("contact_type,has_history", [
+    ("first_contact", False), ("second_contact", False), ("second_contact", True),
+])
 def test_hosted_startup_delivers_disclosure_only_after_member_authorization(
-        presenter_auth, monkeypatch, mode, issuer_status):
+        presenter_auth, monkeypatch, mode, issuer_status, contact_type, has_history):
     from azure.identity import aio
     from governedgraph.voice import warmup
 
@@ -313,6 +316,7 @@ def test_hosted_startup_delivers_disclosure_only_after_member_authorization(
     credential = SimpleNamespace(get_token=AsyncMock(return_value=SimpleNamespace(token="synthetic-app-token")))
     speech = SimpleNamespace(synthesize=AsyncMock(return_value=b"\0\0"))
     warmed = MagicMock()
+    greeting = START_GREETINGS["returning" if has_history else contact_type]
 
     @asynccontextmanager
     async def identity(*, client_id):
@@ -334,9 +338,10 @@ def test_hosted_startup_delivers_disclosure_only_after_member_authorization(
         if request.url.path == "/journeys":
             assert json.loads(request.content) == {
                 "channel": "chat" if mode == "chat" else "voice", "accessibility_mode": "standard",
+                **({"contact_type": contact_type} if contact_type != "first_contact" else {}),
             }
             return httpx.Response(200, json={
-                "journey_id": "J-synthetic-start", "text": DISCLOSURE, "state": "disclosed",
+                "journey_id": "J-synthetic-start", "text": greeting, "state": "disclosed",
             })
         assert request.url.path.endswith("/explainability-report")
         return httpx.Response(200, json={"records": [], "delivered_response_ids": []})
@@ -363,13 +368,13 @@ def test_hosted_startup_delivers_disclosure_only_after_member_authorization(
         assert response.status_code == 200
         with client.websocket_connect("wss://demo.example/demo-stream",
                                       headers={"Origin": "https://demo.example"}) as socket:
-            socket.send_json({"mode": mode})
+            socket.send_json({"mode": mode, "contact_type": contact_type})
             first = socket.receive_json()
             if issuer_status != 200:
                 assert first["kind"] == "error"
                 assert first["error_type"] == "HTTPStatusError"
             else:
-                assert first["text"] == DISCLOSURE
+                assert first["text"] == greeting
                 assert first["role"] == "counsellor"
                 if mode == "chat":
                     assert first["kind"] == "caption"
@@ -387,3 +392,13 @@ def test_hosted_startup_delivers_disclosure_only_after_member_authorization(
     assert calls[:2] == (["/issue", "/journeys"] if issuer_status == 200 else ["/issue"])
     assert warmed.call_count == (1 if mode == "presenter" and issuer_status == 200 else 0)
     assert speech.synthesize.await_count == warmed.call_count
+
+
+@pytest.mark.parametrize("text", [
+    "Hello, welcome!", "I'm your AI pension guide.", DISCLOSURE + " Choose an option.",
+])
+def test_b9_channel_start_still_rejects_unapproved_or_incomplete_disclosure(text):
+    from governedgraph.voice.voice_live_bridge import JourneyStart
+
+    with pytest.raises(ContractError):
+        JourneyStart.from_dict({"journey_id": "J-synthetic-start", "text": text, "state": "disclosed"})

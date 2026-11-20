@@ -11,7 +11,7 @@ from time import perf_counter
 from typing import Callable
 from uuid import uuid4
 
-from governedgraph.agents.counsellor import DISCLOSURE, Counsellor, TurnResult
+from governedgraph.agents.counsellor import DISCLOSURE, START_GREETINGS, TEMPLATES, Counsellor, TurnResult
 from governedgraph.common.contracts import (
     CONTACT_TYPES, INTENT_DECISIONS, ContractError, EscalationRequest, ExplainabilityRecord, ExplanationContext,
     OutcomeOffer, OutcomeSubmission, RequestKey, ResponseReference,
@@ -144,21 +144,32 @@ class OrchestratorService:
                           stage=contact_type)
         with operation(journey.journey_id, "governedgraph.orchestrator.start",
                       agent_name="gg-orchestrator", server=True):
-            journey.fire(Event.DISCLOSED_AND_AUTHENTICATED)
-            record = JourneyRecord(journey)
-            with self.store.transaction(journey.journey_id) as transaction:
-               response_id = response_reference(journey.journey_id, "disclosure")
-               self._audit(transaction, record, system_record(journey, response_id, "disclosure"))
-               journey.record_response(response_id, 0)
-               self._events(record, 0)
-               transaction.save(record)
-               self._flush(transaction, record)
+            with self.continuity.session(identity, journey.journey_id, "disclosure",
+                                         test=bool(test_strategy_id), journeys=self.store,
+                                         flush=self._flush) as conversation:
+                text = DISCLOSURE
+                if conversation.messages:
+                    text = START_GREETINGS["returning"]
+                elif contact_type == "second_contact":
+                    text = START_GREETINGS["second_contact"]
+                journey.fire(Event.DISCLOSED_AND_AUTHENTICATED)
+                record = JourneyRecord(journey)
+                with self.store.transaction(journey.journey_id) as transaction:
+                    response_id = response_reference(journey.journey_id, "disclosure")
+                    self._audit(transaction, record, replace(
+                        system_record(journey, response_id, "disclosure"),
+                        template_version=f"disclosure-{TEMPLATES['disclosure']['version']}",
+                    ))
+                    journey.record_response(response_id, 0)
+                    self._events(record, 0)
+                    transaction.save(record)
+                    self._flush(transaction, record)
             emit("journey_started", event_id=f"{journey.journey_id}:start", journey_id=journey.journey_id,
                  contact_key=contact_key(identity.member_ref), agent_name="gg-orchestrator")
             from governedgraph.agents.foundry_tracing import record_synthetic_conversation
 
-            record_synthetic_conversation(journey.journey_id, identity.member_ref, None, DISCLOSURE, response_id)
-        return {"journey_id": journey.journey_id, "text": DISCLOSURE, "state": journey.state.value}
+            record_synthetic_conversation(journey.journey_id, identity.member_ref, None, text, response_id)
+        return {"journey_id": journey.journey_id, "text": text, "state": journey.state.value}
 
     def _explanation(self, record: JourneyRecord, reference: ResponseReference, identity: MemberIdentity,
                      *, offered: bool = False, require_playback: bool = True,

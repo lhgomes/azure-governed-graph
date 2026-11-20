@@ -86,8 +86,12 @@ class JourneyStep(Executor):
                     turn.decision, turn.route = decision, decision.route
                     if decision.route == "comprehension" and asks_something_new(turn.utterance):
                         # A recap that also asks something is a new question: never close it with an acknowledgement.
+                        # Read its topic so the ranking request carries a real intent, not "unclassified".
                         c.tools.trace.note("intent", "new_question_in_reply")
-                        turn.route = "explanation"
+                        follow_up = c.decide("follow_up_intent", turn.utterance)
+                        if not isinstance(follow_up, IntentDecision) or follow_up.route == "comprehension":
+                            raise DependencyFailure("invalid follow-up intent contract")
+                        turn.decision, turn.route = follow_up, follow_up.route
                     elif decision.route == "comprehension":
                         if j.state == State.RESOLVED:
                             turn.route = "acknowledgment"
@@ -103,7 +107,7 @@ class JourneyStep(Executor):
                                strategy=(strategy.strategy_id, strategy.version) if strategy else None)
                         c.tools.trace.note("outcome", "comprehension_confirmed")
                         turn.result = TurnResult(
-                            TEMPLATES["acknowledgements"]["conversation_complete"][j.response_language],
+                            TEMPLATES["acknowledgements"]["comprehension_confirmed"][j.response_language],
                             j.state.value, c._current_strategy,
                         )
                     elif decision.outcome == "uncertain":
