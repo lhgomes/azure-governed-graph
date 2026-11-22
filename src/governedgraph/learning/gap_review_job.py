@@ -24,18 +24,40 @@ from governedgraph.search.corpus import load_corpus
 
 log = logging.getLogger("governedgraph.learning.gap_review")
 DEFAULT_LOOKBACK_DAYS = 30
+# Fail closed: no proposal may be based on a truncated response-record scan.
+MAX_RECORDS = 25000
+MAX_RESPONSE_BLOB_BYTES = 1048576
+MAX_TOTAL_RESPONSE_BYTES = 134217728
 
 
-def read_records(container, since: datetime) -> list[ExplainabilityRecord]:
-    """Every response record written since ``since``; response records are immutable, so last-modified is their age."""
+class GapReviewCapacityError(RuntimeError):
+    """The batch exceeds its safe capacity; an operator must investigate."""
+
+
+
+def read_records(container, since: datetime, *, max_records: int = MAX_RECORDS,
+                 max_total_bytes: int = MAX_TOTAL_RESPONSE_BYTES) -> list[ExplainabilityRecord]:
+    """Bounded full-lookback scan. Abort on capacity limits; never analyze only part."""
     records = []
+    consumed = 0
+    if max_records <= 0 or max_total_bytes <= 0:
+        raise ValueError("gap review capacity must be positive")
     for item in container.list_blobs(name_starts_with=""):
         if not item.name.endswith((".json", ".jsonl")) or item.last_modified < since:
             continue
-        text = container.get_blob_client(item.name).download_blob().readall().decode("utf-8")
-        records.extend(ExplainabilityRecord.from_dict(json.loads(line)) for line in text.splitlines() if line.strip())
+        if getattr(item, "size", 0) > MAX_RESPONSE_BLOB_BYTES:
+            raise GapReviewCapacityError("oversized response blob")
+        raw = container.get_blob_client(item.name).download_blob().readall()
+        consumed += len(raw)
+        if len(raw) > MAX_RESPONSE_BLOB_BYTES or consumed > max_total_bytes:
+            raise GapReviewCapacityError("response bytes exceed the safe scan budget")
+        for line in raw.decode("utf-8").splitlines():
+            if not line.strip():
+                continue
+            if len(records) >= max_records:
+                raise GapReviewCapacityError("response count exceeds the safe scan budget")
+            records.append(ExplainabilityRecord.from_dict(json.loads(line)))
     return records
-
 
 def excluded_test_journeys(journeys, journey_ids: set[str]) -> set[str]:
     """Selected-style test journeys, and journeys that cannot be verified, are left out of every count."""
@@ -71,6 +93,44 @@ def read_questions(container, response_ids: set[str]) -> dict[str, str]:
             raise ValueError("kept question does not match its response")
         found[response_id] = question.text
     return found
+
+
+def supplemental_feedback_counts(records, journeys) -> dict:
+    """Synthetic gg-dev only. Observational closed feedback; not a ranking input."""
+    from azure.core.exceptions import ResourceNotFoundError
+    from governedgraph.orchestrator.store import JourneyRecord, validate_id
+
+    eligible = {}
+    for record in records:
+        if record.response_kind != "explanation" or not record.response_id:
+            continue
+        intent = next((item.decision for item in reversed(record.decision_evidence)
+                       if item.role == "intent"), None)
+        if intent and intent.get("route") == "explanation":
+            eligible.setdefault(record.journey_id, set()).add(record.response_id)
+    negative, followups = set(), set()
+    scanned = 0
+    for journey_id in sorted(eligible):
+        validate_id(journey_id)
+        try:
+            raw = journeys.get_blob_client(f"{journey_id}.json").download_blob().readall()
+        except ResourceNotFoundError:
+            continue
+        if len(raw) > MAX_RESPONSE_BLOB_BYTES:
+            raise GapReviewCapacityError("oversized journey state during closed feedback review")
+        record = JourneyRecord.decode(raw.decode("utf-8"))
+        if record.journey.test_strategy_id:
+            continue
+        scanned += 1
+        expected = eligible[journey_id]
+        for event in record.journey.events:
+            if event.event == "outcome_reported" and event.outcome_choice == "no" and event.outcome_response_id in expected:
+                negative.add(event.outcome_response_id)
+            if event.event == "contact_linked" and event.related_response_id in expected:
+                followups.add(event.related_response_id)
+    return {"status": "synthetic_gg_dev_observational", "eligible_response_references": sum(map(len, eligible.values())),
+            "journeys_scanned": scanned, "reported_no": len(negative),
+            "linked_followups_observed": len(followups)}
 
 
 def suggest(proposal, drafter, label: str, corpus, vocabulary, catalogue):
@@ -119,8 +179,13 @@ def run(*, records, journeys, proposals, approvals, catalogue, vocabulary, seed,
         written += improvement_store.create_once(proposals, proposal.blob_name, proposal.encode())
         current[proposal.proposal_id] = proposal.evidence_digest
     redacted = improvement_store.redact_expired_questions(proposals, now)
+    extra = (supplemental_feedback_counts(observed, journeys)
+             if os.getenv("AZURE_ENV_NAME") == "gg-dev"
+             and os.getenv("GOVERNEDGRAPH_GAP_REVIEW_SYNTHETIC_FEEDBACK") == "true"
+             else {"status": "disabled", "eligible_response_references": 0,
+                   "journeys_scanned": 0, "reported_no": 0, "linked_followups_observed": 0})
     summary = {**summary, "proposals": len(found), "questions_read": len(kept), "suggestions_drafted": drafted,
-               "current": current}
+               "supplemental_signals": extra, "current": current}
     if not improvement_store.create_once(proposals, f"batches/{summary['batch_id']}.json",
                                          json.dumps(summary, sort_keys=True).encode()):
         raise FileExistsError("this review batch is already recorded")
@@ -149,7 +214,8 @@ def main() -> None:
         records_account = BlobServiceClient(settings.explainability_account_url, credential=credential, **options)
         journey_account = BlobServiceClient(settings.journey_storage_url, credential=credential, **options)
         drafter = connect_gap_drafter(credential)
-        result = run(
+        try:
+            result = run(
             records=records_account.get_container_client(settings.explainability_container),
             journeys=journey_account.get_container_client("journey-state"),
             proposals=records_account.get_container_client(settings.improvement_container),
@@ -160,6 +226,10 @@ def main() -> None:
             vocabulary=domain.vocabulary(),
             seed=load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text()),
             lookback_days=lookback)
+        except Exception as error:
+            # Operational telemetry must not include member text or Blob contents.
+            log.error("gap_review_failed", extra={"error_type": type(error).__name__})
+            raise
     print(json.dumps(result, sort_keys=True), flush=True)
 
 

@@ -5,6 +5,8 @@ param logAnalyticsId string
 param serviceBusId string
 @minLength(3)
 param onCallEmail string
+@description('Enable scheduled gap-review freshness monitoring only with the admin review job.')
+param monitorGapReview bool = false
 @minValue(1)
 param promptShieldsFailureThreshold int = 3
 
@@ -80,6 +82,13 @@ var rules = [
     threshold: promptShieldsFailureThreshold
   }
   {
+    name: 'gap-review-failed'
+    severity: 2
+    description: 'Nightly review failed or exceeded its safe scan budget; an operator must investigate.'
+    filter: '| where tostring(signal.event) == "gap_review_failed"'
+    threshold: 1
+  }
+  {
     name: 'strategy-protective-state'
     severity: 1
     description: 'Strategy Service frozen or serving static fallback outside the control arm.'
@@ -117,5 +126,45 @@ resource signals 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = [for rule
     actions: { actionGroups: [ onCall.id ] }
   }
 }]
+
+// A missing daily batch emits no error, so a separate freshness query detects silent failure.
+resource gapReviewFreshness 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = if (monitorGapReview) {
+  name: 'alert-gg-gap-review-stale-${token}'
+  location: location
+  tags: tags
+  kind: 'LogAlert'
+  properties: {
+    displayName: 'GovernedGraph gap-review freshness'
+    description: 'No successful gap-review batch logged in 36 hours; check job execution and ingestion.'
+    severity: 2
+    enabled: true
+    scopes: [ logAnalyticsId ]
+    evaluationFrequency: 'PT1H'
+    windowSize: 'PT1H'
+    autoMitigate: true
+    skipQueryValidation: true
+    criteria: {
+      allOf: [
+        {
+          query: '''
+let latest = toscalar(
+  union isfuzzy=true ContainerAppConsoleLogs_CL, ContainerAppConsoleLogs
+  | extend Raw=tostring(column_ifexists("Log_s", column_ifexists("Log", "")))
+  | where tostring(parse_json(Raw).event) == "gap_review_completed"
+  | summarize max(TimeGenerated)
+);
+print missed=iif(isnull(latest) or latest < ago(36h), 1, 0)
+| where missed == 1
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 1
+          failingPeriods: { numberOfEvaluationPeriods: 1, minFailingPeriodsToAlert: 1 }
+        }
+      ]
+    }
+    actions: { actionGroups: [ onCall.id ] }
+  }
+}
 
 output actionGroupId string = onCall.id

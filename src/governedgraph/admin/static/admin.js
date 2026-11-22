@@ -641,7 +641,11 @@ function improvementNote() {
   const last = improvements.batches[0];
   const base = last ? `Last review ${date(last.created_at)}: ${last.declined_signals} declined answers from ${last.records_read} saved records.`
     : "No review has run yet.";
-  return base + (improvements.truncated ? " There are more ideas than this page can hold." : "");
+  const extra = last?.supplemental_signals;
+  const supplemental = extra?.status === "synthetic_gg_dev_observational"
+    ? ` Synthetic-only feedback: ${extra.reported_no} reported-no responses and ${extra.linked_followups_observed} linked follow-ups in inspected stored journeys (not comprehensive).`
+    : "";
+  return base + supplemental + (improvements.truncated ? " There are more ideas than this page can hold." : "");
 }
 async function improvementDetail(row) {
   activeTest?.stop(); activeTest = null;

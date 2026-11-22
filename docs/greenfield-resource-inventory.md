@@ -12,7 +12,7 @@ The standard pension WTP reference composition deploys the following services. O
 | Content Safety | Explicit Prompt Shields before inference |
 | AI Search | Approved-content grounding and indexing |
 | APIM | Governed member/strategy/admin APIs and approved-agent Responses |
-| Container Apps environment | Orchestrator, strategy, member values, optional admin/contact-centre and voice; bootstrap, scheduled P2 and optional daily gap-review jobs |
+| Container Apps environment | Orchestrator, strategy, member values, optional admin/contact-centre and voice; bootstrap, scheduled P2, daily gap review and optional owner-approved-content reconciliation jobs |
 | Application ACR | Runtime, bootstrap, probe, P2 and fixture images |
 | Main storage | Explainability records, learning aggregates, optional immutable administration journal, optional improvement proposals, kept declined questions (30-day expiry) and immutable content approvals |
 | Private content storage | Approved content, ranking state, journey state/inbox, learning audits, cohort zone, P2 artifacts/evidence and optional handovers |
@@ -23,7 +23,7 @@ The standard pension WTP reference composition deploys the following services. O
 
 ## Hosted agents
 
-The standard agent provisioning set is gg-counsellor, gg-counsellor-voice-compact and gg-fairness-explainability. The fairness agent is used by the explicit protective operator proof; native scheduled fairness is deterministic and remains independent. gg-persona-demo is optional. gg-counsellor-modern and its model are confined to explicit model evaluation. Intent, understanding and answer review use Microsoft Decision 1.1 directly via Entra ID rather than hosted agents.
+The standard agent provisioning set is gg-counsellor, gg-counsellor-voice-compact and gg-fairness-explainability. The fairness agent is used by the explicit protective operator proof; native scheduled fairness is deterministic and remains independent. gg-persona-demo is optional. Intent, understanding and answer review use Microsoft Decision 1.1 directly via Entra ID rather than hosted agents.
 
 ## Workload permissions
 

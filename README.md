@@ -111,7 +111,14 @@ Also: guidance, not advice (option-level questions escalate), and an AI disclosu
 
 ## Validation status
 
-**Not production-validated.** GovernedGraph is an Azure Public reference implementation with a synthetic example, not a certified or supported production service. The repository contains regression and evaluation source, but has no mandatory GitHub CI workflow; their presence is not evidence of execution or a pass. The checked-in simulated model-comparison report from 30 October 2026 records a **failed deterministic acceptance gate**, and no subsequent passing end-to-end evidence for the latest `main` was verified during this publication review. The new gap-review job, its Foundry drafting calls and subsequent publication path have not been demonstrated by an end-to-end Azure execution record in this repository. Model quality, effectiveness, fairness, latency and operational cost must be measured for a specific deployed workload.
+**Not production-validated.** GovernedGraph is an Azure Public reference implementation with a synthetic example, not a certified or supported production service. The repository contains regression and evaluation source and a deployment-independent documentation link check; none of these is evidence that Azure integration, safety or quality acceptance has passed. No current Azure end-to-end acceptance evidence has been published for this commit. The full gap-review, owner decision and publication path must be independently validated in the authorized Azure environment. Model quality, effectiveness, fairness, latency and operational cost must be measured for a specific deployed workload. See the [verification status](docs/validation-status.md) and [evaluation evidence contract](docs/evaluation.md).
+
+## What changed in continuous improvement
+
+- The nightly gap-review scan now has a **bounded, fail-closed capacity budget**; a failed or missing batch must not be treated as a complete review. Alerts monitor job failures and last successful run.
+- Synthetic `gg-dev` can display additional **closed negative-feedback and observed follow-up counters**. These are diagnostic, incomplete, and not learning inputs or production evidence.
+- Owner-approved passages are reconciled by a separate scheduled **P3 content-publisher identity**, with the same immutable journal verification and stale-content refusal as the manual publisher.
+- [Outcome-impact reporting](docs/improvement-effectiveness.md) can describe changes from complete private before/after aggregate windows. No impact is assumed from approval or publication.
 
 ## What this is not
 
@@ -132,7 +139,11 @@ integration or production acceptance. See the [limits to state with any result](
 | [Gap-review architecture](docs/architecture-gap-review.md) | Nightly eligibility, proposal categories, agent boundaries, owner decisions and content publication |
 | [Administration console](docs/administration.md) | Rankings, vetoes, suspensions, decisions, conversations, improvement ideas from declined answers; protective actions and access control |
 | [Deploying](docs/deploying.md) | Governed Azure delivery and teardown |
-| [Agent workflow diagram](docs/diagrams/agent-workflow.md) | The detailed semantic roles and gates diagram, step-by-step explanation and editable Mermaid sources |
+| [Agent workflow diagram](docs/diagrams/agent-workflow.md) | Detailed semantic roles and gate diagram, step-by-step explanation and Mermaid sources |
+| [Evaluation and validation](docs/evaluation.md) | Azure-only acceptance, proof criteria, safety and effectiveness evidence |
+| [Validation status](docs/validation-status.md) | Current evidence limitations; no unsupported production claims |
+| [Synthetic walkthrough](docs/synthetic-walkthrough.md) | Presenter recording storyboard and gated demo steps |
+| [Public release checklist](docs/public-release-checklist.md) | Privacy, security, documentation and release checks |
 
 | The sample | |
 |---|---|

@@ -13,7 +13,7 @@ GovernedGraph is an Azure Public reference framework with a synthetic example. C
 ## Execution and tests
 
 - **Azure Public only** is supported for application execution and the project-specific Azure test/evaluation workflow. There is no supported local application runtime, local auth/signing fallback or generic GitHub-hosted application-test runner.
-- Tests and validation scripts in the tree express intended regression and evidence contracts; **they are not proof that the latest commit passed**. No mandatory GitHub Actions CI workflow is configured because the tests and infrastructure checks require a separately authorized Azure environment.
+- Tests and validation scripts in the tree express intended regression and evidence contracts; **they are not proof that the latest commit passed**. A deployment-independent Markdown link workflow runs on GitHub; application integration, infrastructure and model tests still require a separately authorized Azure environment and are not claimed as passing by the static check.
 - Run B1–B10 checks, infrastructure verification, synthetic journey probes and model/voice evaluations **only when authorized in the target Azure environment**. Keep evidence outside Git if it includes scoped identifiers or nonpublic values. Record the exact commit, model deployments, the agent versions served, test configuration, commands, date, gate results and any unrun checks in your PR.
 - A test that cannot run without a deployment-specific resource is not a reason to hardcode those values or weaken its safety assertion. An unrun or unavailable check must be reported as such.
 

@@ -139,7 +139,7 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
         "resourceGroupName": inputs.resource_group, "location": inputs.location, "foundation": foundation,
         "runtimeImage": images["runtime"]["image"], "probeImage": images["probe"]["image"],
         "fixturesImage": images["fixtures"]["image"], "domainEnv": composition.domain_environment,
-        "memberTokenIssuer": ISSUER, "deployDevIssuer": True,
+        "memberTokenIssuer": ISSUER, "deployDevIssuer": True, "deployAdminConsole": True,
     })
     public_key = member_public_jwk(runner, inputs, jobs["issuerJob"], run_job(runner, inputs, jobs["issuerJob"]))
     initial = None
