@@ -74,7 +74,7 @@ resource improvementLifecycle 'Microsoft.Storage/storageAccounts/managementPolic
           type: 'Lifecycle'
           definition: {
             filters: { blobTypes: [ 'blockBlob' ], prefixMatch: [ 'declined-questions/' ] }
-            actions: { baseBlob: { delete: { daysAfterModificationGreaterThan: 30 } } }
+            actions: { baseBlob: { delete: { daysAfterModificationGreaterThan: 30 } }, version: { delete: { daysAfterCreationGreaterThan: 30 } } }
           }
         }
         {
@@ -83,7 +83,7 @@ resource improvementLifecycle 'Microsoft.Storage/storageAccounts/managementPolic
           type: 'Lifecycle'
           definition: {
             filters: { blobTypes: [ 'blockBlob' ], prefixMatch: [ 'improvement-proposals/' ] }
-            actions: { baseBlob: { delete: { daysAfterModificationGreaterThan: 90 } } }
+            actions: { baseBlob: { delete: { daysAfterModificationGreaterThan: 30 } }, version: { delete: { daysAfterCreationGreaterThan: 30 } } }
           }
         }
       ]

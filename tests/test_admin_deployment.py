@@ -216,7 +216,10 @@ def test_b3_b4_b8_gap_review_has_its_own_identity_reads_records_and_cannot_write
     # Member text must stay erasable: no immutability on the containers that hold it, and a lifecycle expiry instead.
     assert "improvementProposalsWorm" not in data and "declinedQuestionsWorm" not in data
     lifecycle = block(data, "resource improvementLifecycle", "\n}\n")
-    assert "'declined-questions/'" in lifecycle and "daysAfterModificationGreaterThan: 30" in lifecycle
+    assert "'declined-questions/'" in lifecycle and "'improvement-proposals/'" in lifecycle
+    # Blob versioning is on: expiry must remove noncurrent versions too, and example questions expire with the questions.
+    assert lifecycle.count("daysAfterModificationGreaterThan: 30") == 2 and lifecycle.count("version: { delete:") == 2
+    assert "daysAfterModificationGreaterThan: 90" not in lifecycle
 
 
 def test_b4_only_the_runtime_writes_declined_questions_and_only_the_gap_review_reads_them():

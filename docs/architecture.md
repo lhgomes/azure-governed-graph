@@ -462,7 +462,7 @@ count as declined answers and can propose a new style; protective and member-req
 `declined-questions` container (best effort, after the audit record, never logged, skipped for selected-style test
 journeys). The container is not immutable, so an erasure request can be honoured, and a lifecycle rule expires blobs after
 30 days. Up to five distinct questions per proposal appear to owners as examples, and the same questions go to the
-drafting agent. Proposal blobs expire after 90 days. This text never feeds learning, ranking, prompts, templates, models
+drafting agent. Proposal blobs, which hold those examples, expire after 30 days too, and both lifecycle rules remove noncurrent versions. This text never feeds learning, ranking, prompts, templates, models
 or the catalogue; it reaches behaviour only through an owner approving a passage or style (B4 as amended by that decision).
 
 **Drafting agent.** `gg-gap-review` is a pinned, tool-free Foundry agent (`agents/gap_drafter.py`), called once for each

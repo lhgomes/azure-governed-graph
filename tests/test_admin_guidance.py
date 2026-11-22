@@ -546,7 +546,7 @@ assert.equal(run("data.actions[0].status"), "pending_signature");
 IDEA = r"""
 run(`
 window.idea = (kind, draft, status = "open") => ({
-  proposal_id: "GP-" + "a".repeat(24), evidence_digest: "b".repeat(64), batch_id: "GRB-20261122T060000Z", kind,
+  proposal_id: "GP-" + "a".repeat(24), evidence_digest: "b".repeat(64), content_digest: "c".repeat(64), batch_id: "GRB-20261122T060000Z", kind,
   rationale: "Six declined answers from five journeys.", draft, status: {code: status, label: "Open: waiting for an owner"},
   allowed_decisions: kind === "false_negative_review" ? ["acknowledge", "defer", "reject"] : ["approve", "defer", "reject"],
   situation: {topic: "payment_continuity", journey_state: "first_contact", channel: "chat"}, created_at: "2026-11-22T06:00:00+00:00",

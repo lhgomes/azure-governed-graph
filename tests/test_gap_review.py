@@ -479,3 +479,43 @@ def test_b3_b4_the_drafting_agent_is_pinned_tool_free_and_provisioned_as_its_own
     with pytest.raises(ValueError):
         gap_drafter.GapDrafter(client=None, agent_version="latest")
     assert gap_drafter.GapDrafter(client=None, agent_version="3").label == "gg-gap-review:3"
+
+
+def test_b2_grounding_is_per_sentence_and_covers_number_words_dutch_steering_and_partial_copies():
+    request = passages(("C-001-v1.3", "The transition period ends on 1 January 2028. The minimum age is 65 for the pension."))
+    request["member_questions"] = ["Mijn buurman zegt dat mijn pensioen eind volgend jaar helemaal verandert, klopt dat?"]
+    bad = {
+        "a number written as a word": {**GOOD, "body": "The period lasts twenty years."},
+        "a Dutch number word": {**GOOD, "body": "De periode duurt vijftig jaar."},
+        "a source figure in a new claim": {**GOOD, "body": "The maximum is 65 for the pension."},
+        "Dutch steering": {**GOOD, "body": "U moet bezwaar maken."},
+        "English steering": {**GOOD, "body": "You ought to wait."},
+        "a copied part of a question in the title": {**GOOD, "title": "Mijn buurman zegt dat mijn pensioen verandert"},
+        "a copied part in a gap": {**GOOD, "gaps": ["Eind volgend jaar helemaal verandert, klopt dat?"]},
+    }
+    for name, raw in bad.items():
+        with pytest.raises(ContractError):
+            gap_review.accept_suggestion(raw, request, "gg-gap-review:3")
+    good = {**GOOD, "body": "The transition period ends on 1 January 2028. The minimum age is 65 for the pension.",
+            "title": "When the transition period ends"}
+    assert gap_review.accept_suggestion(good, request, "gg-gap-review:3")["title"] == "When the transition period ends"
+
+
+def test_b8_a_decision_is_bound_to_everything_the_owner_saw_including_a_suggestion():
+    proposal = content_gap_proposal()
+    request = gap_review.drafting_request(proposal, CORPUS, VOCABULARY)
+    assert request is not None
+    suggested = gap_review.sealed({**asdict(proposal), "draft": {**proposal.draft, "suggested": gap_review.validate_suggestion(
+        {**GOOD, "agent": "gg-gap-review:3"})}})
+    assert suggested.evidence_digest == proposal.evidence_digest and suggested.content_digest != proposal.content_digest
+    with pytest.raises(ContractError, match="content digest"):
+        gap_review.Proposal.from_dict({**asdict(suggested), "draft": proposal.draft})
+
+
+def test_a_queued_audit_in_journey_state_carries_no_empty_decline_reason_for_earlier_readers():
+    from governedgraph.orchestrator.state_machine import Journey
+    from governedgraph.orchestrator.store import JourneyRecord
+
+    ordinary, declined = record(1, kind="explanation", strategy="S1", content=["C-001-v1.3"]), record(2, decline="answer_review")
+    stored = json.loads(JourneyRecord(Journey("J-1", "M-1"), pending_audits=[ordinary, declined]).encode())["pending_audits"]
+    assert "decline_reason" not in stored[0] and stored[1]["decline_reason"] == "answer_review"

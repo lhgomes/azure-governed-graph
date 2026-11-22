@@ -139,7 +139,7 @@ every other owner decision. **Approve** never makes a change live by itself:
   the publisher has indexed it, then *Published to approved content*. An operator starts the publisher with
   `python -m governedgraph.search.run_publisher_job --approved-proposals`.
 
-An idea shows counts, labels and up to five of the questions members asked (kept for 30 days) with example journey IDs;
+An idea shows counts, labels and up to five of the questions members asked (kept for 30 days, shown to owners only) with example journey IDs;
 open the journeys in **Conversations** to judge an answer. For missing or revisable content, an AI agent may add a draft
 passage, grounded in approved passages and labelled *Not checked by a person*. It is a starting point in the editor: read
 every statement, compare it with an approved source and change it before approving. Where the facts are not in an

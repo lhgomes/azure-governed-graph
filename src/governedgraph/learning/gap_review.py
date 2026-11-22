@@ -261,6 +261,7 @@ class Proposal:
     draft: dict
     evidence_digest: str
     watermark: str
+    content_digest: str
 
     def __post_init__(self):
         if (not isinstance(self.proposal_id, str) or not PROPOSAL_ID.fullmatch(self.proposal_id)
@@ -275,6 +276,8 @@ class Proposal:
         _text(self.rationale, 1000)
         if self.evidence_digest != digest_of(evidence, self.draft):
             raise ContractError("proposal evidence digest mismatch")
+        if not isinstance(self.content_digest, str) or self.content_digest != content_digest_of(asdict(self)):
+            raise ContractError("proposal content digest mismatch")
 
     @classmethod
     def from_dict(cls, payload: dict) -> Proposal:
@@ -286,6 +289,16 @@ class Proposal:
 
     def encode(self) -> bytes:
         return json.dumps(asdict(self), sort_keys=True).encode()
+
+
+def content_digest_of(payload: dict) -> str:
+    """Seals everything an owner sees, including example questions and a drafted suggestion, so a decision is bound to it."""
+    body = {key: value for key, value in payload.items() if key not in {"content_digest", "batch_id", "created_at"}}
+    return hashlib.sha256(canonical_json(body)).hexdigest()
+
+
+def sealed(fields: dict) -> Proposal:
+    return Proposal.from_dict({**fields, "content_digest": content_digest_of(fields)})
 
 
 def digest_of(evidence: Evidence, draft: dict) -> str:
@@ -380,6 +393,18 @@ def content_document(*, draft: dict, content: dict, corpus: list[ContentDocument
 
 # ----- drafting with an agent: closed request, grounded and bounded answer -----
 FIGURE = re.compile(r"\d+(?:[.,]\d+)*")
+# Numbers written as words are figures too. "one" and "een" are left out: they are ordinary articles.
+NUMBER_WORDS = frozenset(
+    "two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen "
+    "twenty thirty forty fifty sixty seventy eighty ninety hundred thousand million percent half double triple "
+    "twee drie vier vijf zes zeven acht negen tien elf twaalf dertien veertien vijftien zestien zeventien achttien negentien "
+    "twintig dertig veertig vijftig zestig zeventig tachtig negentig honderd duizend miljoen procent helft dubbel".split())
+# The shared steering check is narrow and covers one language; suggestions also get this wider two-language screen.
+STEERING_EXTRA = re.compile(
+    r"\byou (?:should|ought to|must|need to|had better)\b|\bi (?:would )?(?:suggest|recommend|advise)\b|"
+    r"\bthe (?:best|better|right) (?:option|choice)\b|\bwe (?:advise|recommend)\b|"
+    r"\bu (?:moet|moeten|dient|zou moeten|kunt het beste)\b|\bje (?:moet|zou moeten|kunt het beste)\b|"
+    r"\bik (?:raad|adviseer|beveel)\b|\bde (?:beste|betere|juiste) (?:optie|keuze)\b|\braden wij\b", re.IGNORECASE)
 
 
 def drafting_request(proposal: Proposal, corpus: list[ContentDocument], vocabulary: dict) -> dict | None:
@@ -398,7 +423,34 @@ def drafting_request(proposal: Proposal, corpus: list[ContentDocument], vocabula
 
 
 def _figures(*texts: str) -> set[str]:
-    return {token.replace(",", ".") for text in texts for token in FIGURE.findall(text)}
+    found = {token.replace(",", ".") for text in texts for token in FIGURE.findall(text)}
+    return found | {word for text in texts for word in re.findall(r"[a-zà-ÿ]+", text.lower()) if word in NUMBER_WORDS}
+
+
+def _sentences(text: str) -> list[str]:
+    return [item.strip() for item in re.split(r"(?<=[.!?;])\s+|\n+", text) if item.strip()]
+
+
+def _words(text: str) -> set[str]:
+    return {word for word in re.findall(r"[a-zà-ÿ]{4,}", text.lower())}
+
+
+def _shingles(text: str, size: int = 5) -> set[tuple[str, ...]]:
+    words = re.findall(r"\w+", text.lower())
+    return {tuple(words[index:index + size]) for index in range(len(words) - size + 1)}
+
+
+def _sentence_grounded(sentence: str, sources: list[str]) -> bool:
+    """A sentence holding a figure must be close to one source sentence that holds the same figures, not just any text."""
+    figures = _figures(sentence)
+    if not figures:
+        return True
+    mine = _words(sentence)
+    for source in sources:
+        for candidate in _sentences(source):
+            if figures <= _figures(candidate) and len(mine & _words(candidate)) >= 0.6 * len(mine):
+                return True
+    return False
 
 
 def accept_suggestion(raw, request: dict, agent: str) -> dict:
@@ -409,19 +461,21 @@ def accept_suggestion(raw, request: dict, agent: str) -> dict:
     passages = {item["id"]: item for item in request["approved_passages"]}
     if not set(suggestion["sources"]) <= set(passages):
         raise ContractError("the suggestion cites a passage it was not given")
-    for text in (suggestion["title"], suggestion["answers"], suggestion["body"]):
-        if "{{" in text or "}}" in text or response_steers_choice(text):
+    written = (suggestion["title"], suggestion["answers"], suggestion["body"], *suggestion["gaps"])
+    for text in written:
+        if "{{" in text or "}}" in text or response_steers_choice(text) or STEERING_EXTRA.search(text):
             raise ContractError("a suggestion may not hold value placeholders or steer a choice")
-    given = _figures(*(item["body"] + " " + item["title"] for item in passages.values()))
-    if _figures(suggestion["title"], suggestion["answers"], suggestion["body"]) - given:
+    texts = [item["body"] + " " + item["title"] for item in passages.values()]
+    if _figures(*written) - _figures(*texts):
         raise ContractError("a suggestion may not contain a figure that no source passage contains")
+    if any(not _sentence_grounded(sentence, texts) for text in written for sentence in _sentences(text)):
+        raise ContractError("a sentence with a figure must stay close to a source sentence with the same figures")
     if suggestion["body"].strip() and not suggestion["sources"]:
         raise ContractError("a suggested passage must cite the approved passages it is grounded in")
     if not suggestion["body"].strip() and not suggestion["gaps"]:
         raise ContractError("a suggestion without text must say what the owner has to supply")
-    lowered = (suggestion["answers"] + " " + suggestion["body"]).lower()
-    if any(len(" ".join(question.split())) >= 20 and " ".join(question.split()).lower() in lowered
-           for question in request["member_questions"]):
+    copied = set().union(*(_shingles(text) for text in written))
+    if any(_shingles(question) & copied for question in request["member_questions"]):
         raise ContractError("a suggestion may not copy a member's question")
     return suggestion
 
@@ -505,8 +559,10 @@ def review(records: list[ExplainabilityRecord], *, catalogue: Catalogue, corpus:
     proposals: list[Proposal] = []
 
     def add(kind: str, situation: dict, evidence: Evidence, rationale: str, draft: dict) -> None:
-        proposals.append(Proposal(proposal_id(kind, situation), kind, batch, created, RULES_VERSION, situation,
-                                  asdict(evidence), rationale, draft, digest_of(evidence, draft), WATERMARK))
+        proposals.append(sealed({
+            "proposal_id": proposal_id(kind, situation), "kind": kind, "batch_id": batch, "created_at": created,
+            "rules_version": RULES_VERSION, "situation": situation, "evidence": asdict(evidence), "rationale": rationale,
+            "draft": draft, "evidence_digest": digest_of(evidence, draft), "watermark": WATERMARK}))
 
     for (state, topic, channel, mode, language), items in sorted(clusters.items()):
         declined = [item for item in items if item.outcome != "escalated"]

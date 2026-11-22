@@ -52,7 +52,7 @@ def publish(proposals, records):
 
 
 def decision(proposal, kind, **extra):
-    return {"proposal_id": proposal.proposal_id, "evidence_digest": proposal.evidence_digest, "decision": kind,
+    return {"proposal_id": proposal.proposal_id, "content_digest": proposal.content_digest, "decision": kind,
             "reason": "Synthetic owner decision", "confirmed": True, **extra}
 
 
@@ -74,7 +74,7 @@ def test_b8_a_rejection_is_journalled_before_and_after_and_closes_the_proposal(d
     _, as_owner, _, _, proposals, directory = desk
     found = publish(proposals, unanswered(6))
     owner = as_owner()
-    stale = decision(found["content_gap"], "reject") | {"evidence_digest": "0" * 64}
+    stale = decision(found["content_gap"], "reject") | {"content_digest": "0" * 64}
     assert owner.post("/api/proposals/decision", json=stale).status_code == 409
     assert journal(directory) == []
     response = owner.post("/api/proposals/decision", json=decision(found["content_gap"], "reject"))
@@ -116,7 +116,8 @@ def test_b8_approved_content_is_handed_to_the_publisher_not_published_by_the_con
     assert approval.content.approval_ref == reference and approval.content.status == "approved"
     rows = journal(directory)
     assert [row["status"] for row in rows] == ["requested", "pending_publication"]
-    assert rows[0]["proposal"] == {"proposal_id": proposal.proposal_id, "evidence_digest": proposal.evidence_digest}
+    assert rows[0]["proposal"] == {"proposal_id": proposal.proposal_id, "evidence_digest": proposal.evidence_digest,
+                                   "content_digest": proposal.content_digest}
     assert owner.get("/api/proposals").json()["proposals"][0]["status"]["code"] == "queued_publication"
     improvement_store.mark_published(source.approvals, approval, "job-1")
     source._cache = {}
@@ -246,3 +247,18 @@ def test_a_truncated_journal_is_an_error_because_it_could_hide_an_approval():
         source.proposal_decisions()
     source.max_journal_blobs = 3
     assert len(source.proposal_decisions()) == 3
+
+
+def test_readers_never_see_member_questions_or_drafted_text_but_owners_do(desk):
+    client, as_owner, _, _, proposals, _ = desk
+    kept = {record(i).response_id: f"Will my payment change? ({i})" for i in range(6)}
+    found, summary = run(unanswered(6, decline="output_gate"), questions=kept)
+    for item in found:
+        improvement_store.create_once(proposals, item.blob_name, item.encode())
+    improvement_store.create_once(proposals, f"batches/{summary['batch_id']}.json", json.dumps(summary).encode())
+    (row,) = client.get("/api/proposals").json()["proposals"]
+    assert row["evidence"]["examples"] == [] and "Will my payment change" not in json.dumps(row)
+    detail = client.get(f"/api/proposals/{row['proposal_id']}").json()["proposal"]
+    assert detail["evidence"]["examples"] == []
+    owner = as_owner()
+    assert owner.get("/api/proposals").json()["proposals"][0]["evidence"]["examples"]

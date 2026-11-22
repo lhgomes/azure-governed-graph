@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import replace
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 
 from governedgraph.common.config import DATA_DIR, settings
@@ -83,7 +83,7 @@ def suggest(proposal, drafter, label: str, corpus, vocabulary):
         log.warning("gap_review_suggestion_dropped", extra={"proposal_id": proposal.proposal_id,
                                                            "error_type": type(error).__name__})
         return proposal, False
-    return replace(proposal, draft={**proposal.draft, "suggested": suggestion}), True
+    return gap_review.sealed({**asdict(proposal), "draft": {**proposal.draft, "suggested": suggestion}}), True
 
 
 def run(*, records, journeys, proposals, approvals, catalogue, vocabulary, seed, questions=None, drafter=None,

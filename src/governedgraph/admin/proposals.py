@@ -29,7 +29,7 @@ UNRESOLVED = {"requested", "uncertain"}
 @dataclass(frozen=True)
 class ProposalDecision:
     proposal_id: str
-    evidence_digest: str
+    content_digest: str
     decision: str
     reason: str
     confirmed: bool
@@ -39,7 +39,7 @@ class ProposalDecision:
 
     def __post_init__(self):
         if (not isinstance(self.proposal_id, str) or not PROPOSAL_ID.fullmatch(self.proposal_id)
-                or not isinstance(self.evidence_digest, str) or not DIGEST.fullmatch(self.evidence_digest)
+                or not isinstance(self.content_digest, str) or not DIGEST.fullmatch(self.content_digest)
                 or self.decision not in {"approve", "reject", "defer", "acknowledge"}
                 or not isinstance(self.reason, str) or not 8 <= len(self.reason.strip()) <= 500
                 or self.confirmed is not True
@@ -114,11 +114,18 @@ def status_of(proposal: Proposal, journal: list[dict], state: dict, published: s
     return {"code": "open", "label": "Open: waiting for an owner", "decision_ref": ""}
 
 
-def view(improvement: dict, journal: list[dict], state: dict) -> dict:
+def redact(row: dict) -> dict:
+    """Member questions and drafted text are for owners; readers see counts, labels and status only."""
+    evidence = {**row["evidence"], "examples": []}
+    draft = {key: value for key, value in row["draft"].items() if key != "suggested"}
+    return {**row, "evidence": evidence, "draft": draft}
+
+
+def view(improvement: dict, journal: list[dict], state: dict, *, owner: bool = False) -> dict:
     """Proposals newest first with their status, ready for the console."""
     rows = []
     for proposal in improvement["proposals"]:
-        rows.append({**asdict(proposal), "status": status_of(proposal, journal, state, improvement["published"],
+        rows.append({**(asdict(proposal) if owner else redact(asdict(proposal))), "status": status_of(proposal, journal, state, improvement["published"],
                                             improvement.get("approved", set())),
                      "allowed_decisions": sorted(DECISIONS[proposal.kind])})
     return {"proposals": rows, "batches": improvement["batches"], "truncated": improvement["truncated"]}

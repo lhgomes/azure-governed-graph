@@ -284,7 +284,8 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
     @application.get("/api/proposals")
     def proposal_list(identity: Identity = Depends(require_read)):  # noqa: B008
         source = backend()
-        return {**proposal_review.view(source.improvement(), source.proposal_decisions(), source.state()),
+        return {**proposal_review.view(source.improvement(), source.proposal_decisions(), source.state(),
+                                                  owner=identity.can_own),
                 "stages": sorted(stages() | {"*"}), "can_own": identity.can_own}
 
     @application.get("/api/proposals/{proposal_id}")
@@ -297,7 +298,8 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
         if proposal is None:
             raise HTTPException(404, "no such proposal")
         row = next(item for item in proposal_review.view({**improvement, "proposals": [proposal]},
-                                                         source.proposal_decisions(), source.state())["proposals"])
+                                                         source.proposal_decisions(), source.state(),
+                                                         owner=identity.can_own)["proposals"])
         corpus = {doc.id: doc for doc in source.content_corpus()} if proposal.kind.startswith("content") else {}
         base = corpus.get(proposal.draft.get("base_id", ""))
         related = [{"id": doc_id, "title": corpus[doc_id].title} for doc_id in proposal.draft.get("related_content_ids", [])
@@ -322,7 +324,7 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
             proposal = next((item for item in improvement["proposals"] if item.proposal_id == decision.proposal_id), None)
             if proposal is None:
                 raise HTTPException(404, "no such proposal")
-            if proposal.evidence_digest != decision.evidence_digest:
+            if proposal.content_digest != decision.content_digest:
                 raise HTTPException(409, "the proposal changed; refresh and review it again")
             status = proposal_review.status_of(proposal, source.proposal_decisions(), source.state(), improvement["published"],
                                                improvement["approved"])
@@ -330,7 +332,8 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
                 raise HTTPException(409, "this proposal already has a decision")
             if decision.decision not in proposal_review.DECISIONS[proposal.kind]:
                 raise HTTPException(400, "this decision is not available for this proposal")
-            marker = {"proposal_id": proposal.proposal_id, "evidence_digest": proposal.evidence_digest}
+            marker = {"proposal_id": proposal.proposal_id, "evidence_digest": proposal.evidence_digest,
+                      "content_digest": proposal.content_digest}
             if decision.decision == "approve" and proposal.kind == "strategy_gap":
                 if not decision.expected_revision or decision.content is not None:
                     raise HTTPException(400, "a style approval needs the revision shown and no content")

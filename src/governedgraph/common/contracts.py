@@ -407,6 +407,13 @@ class ExplainabilityRecord:
         if set(self.request_key) != {"journey_state", "intent", "channel", "accessibility_mode"}:
             raise ContractError("request_key must be exactly journey_state/intent/channel/accessibility_mode")
 
+    def to_dict(self) -> dict:
+        """Stored fields. An absent decline reason is omitted, so earlier readers still accept the record."""
+        payload = asdict(self)
+        if not self.decline_reason:
+            payload.pop("decline_reason")
+        return payload
+
     @classmethod
     def from_dict(cls, d: dict) -> "ExplainabilityRecord":
         return _strict(cls, d)

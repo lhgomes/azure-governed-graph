@@ -78,5 +78,7 @@ def default_question_store() -> BlobDeclinedQuestionStore | None:
     if os.getenv("GOVERNEDGRAPH_CAPTURE_DECLINED_QUESTIONS", "").lower() != "true":
         return None
     if not settings.explainability_account_url:
-        raise ValueError("declined-question capture needs the explainability storage endpoint")
+        # A side channel must never stop a member turn, so a missing endpoint disables capture loudly instead.
+        log.error("declined_question_capture_disabled", extra={"reason": "explainability storage endpoint missing"})
+        return None
     return BlobDeclinedQuestionStore(settings.explainability_account_url, settings.declined_questions_container)

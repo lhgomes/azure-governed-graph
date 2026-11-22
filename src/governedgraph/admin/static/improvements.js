@@ -127,7 +127,7 @@ window.AdminImprovements = {
         if (extras.style && !Object.values(extras.style).every((value) => value.length)) throw new Error("Select at least one choice in each group.");
         if (extras.content && !extras.content.journey_states.length) throw new Error("Select at least one journey stage.");
         const result = await api("/api/proposals/decision", { proposal_id: proposal.proposal_id,
-          evidence_digest: proposal.evidence_digest, decision, reason: reason.value.trim(), confirmed: true, ...extras });
+          content_digest: proposal.content_digest, decision, reason: reason.value.trim(), confirmed: true, ...extras });
         await saved(result, decision);
       } catch (failure) {
         error.textContent = `${failure.message} Refresh before retrying; the decision may already be recorded.`; error.hidden = false;
