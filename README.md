@@ -20,7 +20,7 @@ your deterministic systems **make authoritative decisions**, and two governed fe
 
 ## How it works
 
-[![GovernedGraph overview: member guidance is controlled by the host and deterministic release gate, with distinct domain, content, authoritative-value and strategy dependencies; confirmed outcomes drive bounded ranking while eligible declined explanations feed a separate owner-reviewed improvement loop](docs/diagrams/overview.svg)](docs/diagrams/overview.svg)
+[![GovernedGraph overview: member guidance is controlled by the host and deterministic release gate, with distinct domain, content, authoritative-value and strategy dependencies; confirmed outcomes drive bounded ranking while eligible declined explanations feed a separate owner-reviewed improvement loop](docs/diagrams/overview.png)](docs/diagrams/overview.png)
 
 *Select the diagram for the full-size view. For a step-by-step walkthrough of one answer and a glossary, see
 [getting started](docs/getting-started.md); for every semantic role and gate, see the
