@@ -146,6 +146,12 @@ explicit decision while preserving the approved-name check and all host gates.
 Until a compatible integration is independently approved and verified, retain
 the approved-agent front door; on model failure, use permitted checked text or human handover.
 
+## Nightly gap-review and content-reconciliation operations
+
+When the administration console is deployed, the gap-review job emits content-free `gap_review_completed` and `gap_review_failed` operational events. Azure Monitor alerts on explicit failure and on **36 hours without a logged successful batch**. The job refuses a partial response-record scan once its bounded record/byte budget is exceeded; operators should investigate and size a scalable checkpointed worker before increasing the limits, rather than publishing incomplete findings. These monitoring signals do not contain member questions or draft text.
+
+The separate P3 approved-content reconciler runs at 04:00 UTC after the 03:30 UTC gap-review window. Check its Container Apps Job execution state plus the immutable content approval/published/refused markers before declaring a passage live. An absent failure log is not proof the job executed. These jobs use different managed identities and cannot approve their own work.
+
 ## Workbook and queries
 
 The shared Azure Monitor workbook uses these exact queries:

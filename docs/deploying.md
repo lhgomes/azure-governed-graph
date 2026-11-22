@@ -169,8 +169,6 @@ Use Python 3.14, Azure CLI, Azure Developer CLI, Bicep and the existing verified
 # Non-interactive automation: choose one target explicitly.
 .venv/bin/python -m scripts.deploy --inputs .azure/private-delivery.json --reuse rg-gg-dev-existing
 .venv/bin/python -m scripts.deploy --inputs .azure/private-delivery.json --new
-.venv/bin/python -m scripts.run_foundry_evals --environment gg-dev \
-  --output .run/foundry-evaluation-new.json
 ```
 
 `--plan` validates the local configuration/composition and prints the sequence;
@@ -678,11 +676,14 @@ retains the authoritative approved feed. No recovery is attempted by delivery.
 
 ## Evaluation and operator tools
 
-Hosted evaluation validates exact deployed writer/semantic definitions, retains
-incremental case/remote evidence and enforces deterministic hard gates before
-claiming a pass: exit 0 passed, 1 failed, 2 unavailable. The retained harness uses in-process
-deterministic adapters and fixed synthetic cases, **not** the real channel.
-See [evaluation](evaluation.md).
+When the administration console is enabled, a separate scheduled **P3 approved-content reconciler** runs at 04:00 UTC using the restricted publisher identity. It consumes only owner-approved, journal-verifiable content and retains the publisher's version and lease checks. The existing manual content publisher remains available for explicitly authorized immediate publication. Inspect the job outcome; approval alone never makes the passage live.
+
+
+The supported acceptance path is an **explicit Azure-hosted synthetic journey proof**
+against the deployed runtime, followed by retained, reviewed evidence of the B1–B10
+gates, fairness, latency, operational cost and approved publication workflows.
+This public reference accepts only verified deployment-bound quality evidence.
+See [evaluation](evaluation.md) and [validation status](validation-status.md).
 
 For explicitly authorized live-channel checks, use `scripts.run_dev_proof`
 under the existing in-network dev-issuer job; select the receipt's `probe` image

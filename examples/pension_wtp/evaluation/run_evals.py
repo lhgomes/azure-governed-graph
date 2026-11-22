@@ -3,8 +3,8 @@ option-recommendation incidents, no demographic influence. Results are SIMULATED
 
     python evals/run_evals.py                 # local composer
     python evals/run_evals.py --personas      # also require every persona's expected outcome
-Cloud evaluation, calibrated LLM judges and the Foundry persona agent are
-separate prompt-12 work; this local sweep is not evidence that they ran.
+This purely illustrative sweep is not a supported deployed runtime or evidence
+that any Azure-hosted acceptance test passed.
 """
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ from governedgraph.agents.counsellor import new_session  # noqa: E402
 from governedgraph.common.config import DATA_DIR  # noqa: E402
 from governedgraph.common.io import load_json  # noqa: E402
 from governedgraph.evaluators import AdviceRefusalEvaluator, NumericFidelityEvaluator, StrategyAdherenceEvaluator  # noqa: E402
-from governedgraph.evaluation import verify_comparison  # noqa: E402
 from governedgraph.learning.run_cycle import run_cycle  # noqa: E402
 from governedgraph.strategy_service.service import StrategyService  # noqa: E402
 
@@ -48,7 +47,7 @@ def persona_cases() -> list[dict]:
     return cases
 
 
-def main(*, include_personas: bool = False, comparison: Path | None = None) -> int:
+def main(*, include_personas: bool = False) -> int:
     cases = load("curated.jsonl") + load("adversarial.jsonl")
     if include_personas:
         cases += persona_cases()
@@ -101,21 +100,14 @@ def main(*, include_personas: bool = False, comparison: Path | None = None) -> i
         print(json.dumps(r))
     met = sum(r["expectation_met"] for r in rows)
     print(f"\nSIMULATED evaluation - expectations met {met}/{len(rows)}; hard gates: {gates}; evaluator floors: {checks}")
-    if comparison is not None:
-        verify_comparison(
-            load_json(comparison), load_json(ROOT / "evals/datasets/model-rates-2026-10-27.json"),
-            expected_case_ids={case["id"] for case in load("curated.jsonl") + load("adversarial.jsonl") + persona_cases()},
-        )
-        print("SIMULATED retained model comparison: hard gates verified; coverage/calibration acceptance is separate.")
     return 0 if all(gates.values()) and all(checks.values()) and met == len(rows) else 1
 
 
 def cli() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--personas", action="store_true", help="include all persona openings; fail on an unmet outcome")
-    parser.add_argument("--comparison", type=Path, help="also verify frozen model evidence and its deterministic gates")
     args = parser.parse_args()
-    return main(include_personas=args.personas, comparison=args.comparison)
+    return main(include_personas=args.personas)
 
 
 if __name__ == "__main__":

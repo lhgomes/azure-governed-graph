@@ -1,3 +1,0 @@
-# Azure-hosted synthetic Foundry evaluation jobs; never installed in P1 runtime images.
--r requirements-azure.txt
-azure-ai-evaluation>=1.0

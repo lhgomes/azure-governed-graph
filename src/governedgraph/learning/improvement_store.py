@@ -32,7 +32,7 @@ MAX_PROPOSALS = 500
 MAX_BLOBS = 5000
 BATCH_FIELDS = {"batch_id", "created_at", "rules_version", "watermark", "records_read", "declined_signals",
                 "test_records_excluded", "situations", "proposals", "window_start", "window_end", "questions_read",
-                "suggestions_drafted", "current"}
+                "suggestions_drafted", "supplemental_signals", "current"}
 
 
 class StoreTooLarge(ValueError):
@@ -142,10 +142,21 @@ def read_proposals(container, limit: int = MAX_PROPOSALS) -> tuple[list[Proposal
 
 def _batch(container, name: str) -> dict:
     row = _load(container, name)
-    if (set(row) != BATCH_FIELDS or row["watermark"] != WATERMARK or not isinstance(row["current"], dict)
+    # Historical batches predate optional synthetic feedback telemetry; preserve read compatibility.
+    old_fields = BATCH_FIELDS - {"supplemental_signals"}
+    if (set(row) not in (BATCH_FIELDS, old_fields) or row["watermark"] != WATERMARK or not isinstance(row["current"], dict)
             or any(not PROPOSAL_ID.fullmatch(str(key)) or not re.fullmatch(r"[a-f0-9]{64}", str(value))
                    for key, value in row["current"].items())):
         raise ValueError("unexpected batch summary")
+    row.setdefault("supplemental_signals", {"status": "not_recorded", "eligible_response_references": 0,
+                                          "journeys_scanned": 0, "reported_no": 0, "linked_followups_observed": 0})
+    extra = row["supplemental_signals"]
+    if (not isinstance(extra, dict) or set(extra) != {
+            "status", "eligible_response_references", "journeys_scanned", "reported_no", "linked_followups_observed"}
+            or extra["status"] not in {"not_recorded", "disabled", "synthetic_gg_dev_observational"}
+            or any(type(extra[key]) is not int or extra[key] < 0 for key in (
+                "eligible_response_references", "journeys_scanned", "reported_no", "linked_followups_observed"))):
+        raise ValueError("invalid closed supplemental feedback counters")
     return row
 
 

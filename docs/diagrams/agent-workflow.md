@@ -1,9 +1,9 @@
 # Agent workflow and coordination
 
-New to the project? Start with the simpler [overview diagram](overview.svg), which the README uses:
+New to the project? Start with the simpler [overview diagram](overview.png), which the README uses:
 the framework, what you supply, the people involved and the learning loop in one picture. This page is the detail behind it.
 
-[Vector SVG](agent-workflow.svg) (1600 × 1100, white background). The [overview SVG](overview.svg) is 1648 × 928, redrawn as editable vector artwork from the latest approved three-section layout. Both are canonical, scalable diagram assets. Export a PNG when required, for example with `inkscape agent-workflow.svg --export-type=png --export-width=3840 --export-filename=agent-workflow.png` (or substitute `overview` for `agent-workflow`) from this directory.
+[Vector SVG](agent-workflow.svg) (1600 × 1100, white background). The [approved overview PNG](overview.png) is the canonical first-time-reader image (1671 × 941 pixels), while this page's [detailed workflow SVG](agent-workflow.svg) remains scalable and editable. To export only the detailed workflow as PNG, use `inkscape agent-workflow.svg --export-type=png --export-width=3840 --export-filename=agent-workflow.png`.
 
 The diagram presents the implemented member-guidance workflow and **two complementary improvement loops**: bounded aggregate ranking and separately owner-reviewed gap proposals. It is not an unrestricted agent-to-agent conversation.
 All examples and data are **ILLUSTRATIVE - synthetic data**.

@@ -17,6 +17,10 @@ Eligibility requires an **explanation-routed** request and one of the recognized
 
 Interactions are grouped by a closed situation (journey stage, topic, channel, accessibility mode and language). A proposal requires **at least five eligible declined responses in three distinct journeys in the lookback window**; fewer cases produce no proposal. This job complements—but does not consume inputs from—the aggregate-only bounded-ranking pipeline.
 
+## Supplementary negative-feedback discovery (synthetic only)
+
+In the authorized `gg-dev` reference, the nightly review also computes **closed observational counters** from saved outcome events for inspected eligible explanation responses: distinct reported-no feedback and locally observed linked follow-ups. These counts are shown beside the latest batch in the console. They are **not exhaustive** population metrics, not used in bounded ranking, and do not generate/approve content or instructions. The extra scan is disabled outside synthetic `gg-dev`; production introduction would need separate B8 approval and a complete coverage projection. Unknown, skipped and inaccessible events are never treated as positive results.
+
 ## Inputs
 
 **Closed decline reason.** Each acknowledgment or escalation record carries an optional closed `decline_reason`
@@ -117,6 +121,10 @@ Every listing the console, the job and the publisher rely on fails closed when i
 of acting on part of the history.
 
 `content-approvals` carries a 30-day WORM immutability policy; owner decisions also have an immutable action journal. By contrast, `improvement-proposals` and `declined-questions` are **not WORM**: a 30-day Blob lifecycle policy expires their data, and the gap-review job can overwrite proposal records specifically to redact question text when its original retention period expires. The proposal store is create-once for new evidence revisions as an application rule, not a storage-enforced write prohibition. This difference matters for erasure and 30-day data minimization.
+
+## Workload limits and failure monitoring
+
+The scheduled worker reads eligible response records across its lookback window. It now imposes strict byte and record caps (25,000 response records, 128 MiB total, 1 MiB per response blob). If the cap is reached, the batch fails and emits a content-free failure event **instead of constructing proposals from partial evidence**. The Azure Monitor alert checks both explicit failure and the absence of a successful batch for 36 hours. These bounds are safeguards, not scalable incremental checkpoints; higher-volume adopters should implement a source-of-truth cursor/checkpoint design and demonstrate its completeness before widening caps.
 
 ## Validation and evaluation
 

@@ -126,6 +126,7 @@ module alerts 'modules/alerts.bicep' = {
     location: location
     tags: tags
     token: token
+    monitorGapReview: deployAdminConsole
     logAnalyticsId: monitoring.outputs.logAnalyticsId
     serviceBusId: data.outputs.serviceBusId
     onCallEmail: onCallEmail
@@ -378,6 +379,7 @@ module gapReview 'modules/gap-review-job.bicep' = if (deployAdminConsole) {
       GOVERNEDGRAPH_IMPROVEMENT_CONTAINER: 'improvement-proposals'
       GOVERNEDGRAPH_APPROVALS_CONTAINER: 'content-approvals'
       GOVERNEDGRAPH_DECLINED_QUESTIONS_CONTAINER: 'declined-questions'
+      GOVERNEDGRAPH_GAP_REVIEW_SYNTHETIC_FEEDBACK: environmentName == 'gg-dev' ? 'true' : 'false'
       AZURE_AI_PROJECT_ENDPOINT: ai.outputs.projectEndpoint
       AZURE_AI_GAP_REVIEW_AGENT: gapReviewAgentPublished ? 'gg-gap-review' : ''
       JOURNEY_STORAGE_URL: data.outputs.contentBlobEndpoint
@@ -415,6 +417,7 @@ output CONTENT_STORAGE_URL string = data.outputs.contentBlobEndpoint
 output CONTENT_STORAGE_RESOURCE_ID string = data.outputs.contentStorageId
 output CONTENT_CONTAINER string = 'approved-content'
 output CONTENT_PUBLISH_JOB_NAME string = 'job-gg-content-publisher'
+output CONTENT_APPROVALS_RECONCILER_JOB_NAME string = deployAdminConsole ? 'job-gg-approved-content-reconciler' : ''
 output GAP_REVIEW_JOB_NAME string = deployAdminConsole ? 'job-gg-gap-review' : ''
 output CONTENT_SEARCH_SHARED_LINK_ID string = data.outputs.contentSharedLinkId
 output AZURE_KEY_VAULT_URL string = security.outputs.keyVaultUri

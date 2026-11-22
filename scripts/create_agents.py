@@ -136,10 +136,6 @@ def provision(project, *, apply: bool, role: str = "counsellor", agent_name: str
         model_deployment = gap_review_deployment()
         definition = gap_review_definition(model_deployment)
         name, decision = GAP_REVIEW_AGENT_NAME, "IMP-GAP-REVIEW-3"
-    elif role == "evaluation":
-        model_deployment = "gpt-modern"
-        definition = agent_definition(INSTRUCTIONS, model=model_deployment, reasoning_effort="none")
-        name, decision = "gg-counsellor-modern", "IMP-69"
     elif role in ("counsellor", "voice-compact"):
         compact = role == "voice-compact"
         definition = (agent_definition(INSTRUCTIONS, model=settings.compact_deployment) if compact
@@ -185,7 +181,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--role", choices=("counsellor", "fairness", "voice-compact",
-                                        "evaluation", "persona", "gap-review"),
+                                        "persona", "gap-review"),
                         default="counsellor")
     args = parser.parse_args()
     if args.apply:

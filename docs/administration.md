@@ -118,6 +118,8 @@ live decisions rather than claiming that every aggregate interaction was observe
 
 ## Improvement ideas: declined answers and proposed fixes
 
+A `gg-dev` batch additionally shows observed **closed negative-feedback and linked-follow-up counts** for eligible explanation records. These are observational and incomplete (they inspect only scanned stored journeys), never automatically ranked or converted to owner actions. Outside synthetic `gg-dev`, supplementary collection is disabled; see the [gap-review scope](architecture-gap-review.md).
+
 The scheduled `job-gg-gap-review` (03:30 UTC daily by default) examines **eligible explanation-routed declined responses**, including delivered responses flagged by their final answer review. It is not an analysis of all unsuccessful conversations. The review excludes selected-style test journeys and other nonqualifying cases, groups the remaining signals by journey stage, topic, channel, accessibility mode and language, and proposes ideas only when a situation has at least **five declines from three journeys** within the default 30-day lookback. **Improvement ideas** lists proposals that an authorized owner may investigate; see [Gap review](architecture-gap-review.md) for exact rules and the limitations of AI drafts.
 
 | Idea | What an owner decides |
@@ -137,7 +139,7 @@ every other owner decision. **Approve** never makes a change live by itself:
   the publisher refuses it and the status reads *Not published*; decide again on the new idea that follows. An operator starts the publisher with
   `python -m governedgraph.search.run_publisher_job --approved-proposals`.
 
-**Approval is not measured improvement:** once a change is activated, evaluate subsequent outcomes and safety/fairness against the governed static-control baseline. A rejected or acknowledged false-refusal finding does not relax the deterministic output gates.
+**Approval is not measured improvement:** once a change is activated, evaluate subsequent complete aggregate windows and safety/fairness against the governed static-control baseline. See the [private outcome-impact contract](improvement-effectiveness.md). A rejected or acknowledged false-refusal finding does not relax the deterministic output gates.
 
 An idea lists up to ten declined answers, one per journey, each with a link to its journey in **Conversations**, the outcome,
 the reason, the member's question (owners only) and the approved passages found. *What was available* names the styles that
