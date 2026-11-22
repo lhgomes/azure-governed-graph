@@ -146,6 +146,7 @@ const context = vm.createContext({
 vm.runInContext(fs.readFileSync(process.argv[1] + "/guide.js", "utf8"), context);
 vm.runInContext(fs.readFileSync(process.argv[1] + "/testing.js", "utf8"), context);
 vm.runInContext(fs.readFileSync(process.argv[1] + "/catalogue.js", "utf8"), context);
+vm.runInContext(fs.readFileSync(process.argv[1] + "/improvements.js", "utf8"), context);
 vm.runInContext(fs.readFileSync(process.argv[1] + "/admin.js", "utf8"), context);
 const run = (script) => vm.runInContext(script, context);
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -539,4 +540,79 @@ assert.equal(run("activityRows()[0].status"), "Override active");
 run("data.state.owner_overrides = []");
 assert.equal(run("activityRows()[0].status"), "No longer in force");
 assert.equal(run("data.actions[0].status"), "pending_signature");
+""")
+
+
+IDEA = r"""
+run(`
+window.idea = (kind, draft, status = "open") => ({
+  proposal_id: "GP-" + "a".repeat(24), evidence_digest: "b".repeat(64), batch_id: "GRB-20261122T060000Z", kind,
+  rationale: "Six declined answers from five journeys.", draft, status: {code: status, label: "Open: waiting for an owner"},
+  allowed_decisions: kind === "false_negative_review" ? ["acknowledge", "defer", "reject"] : ["approve", "defer", "reject"],
+  situation: {topic: "payment_continuity", journey_state: "first_contact", channel: "chat"}, created_at: "2026-11-22T06:00:00+00:00",
+  evidence: {declined: 6, journeys: 5, unanswered: 6, review_flagged: 0, escalated: 0, content_retrieved_share: 0,
+    eligible_styles: ["S1"], review_issues: {}, content_versions: {}, sample_journey_ids: ["J-1"],
+    window_start: "a", window_end: "b"},
+});
+`);
+"""
+
+
+def test_an_owner_approves_a_proposed_style_from_its_details_and_a_reader_sees_no_form(admin_browser):
+    admin_browser(IDEA + r"""
+(async () => {
+  run(`
+    data.access.can_own = true; data.revision = "a".repeat(64);
+    data.style_patterns = [{strategy_id: "S3", name: "Visual explanation"}];
+    data.style_stages = ["first_contact", "values_reviewed"]; data.style_channels = ["chat", "voice"];
+    data.style_accessibility_modes = ["standard"];
+    window.posts = []; window.saved = [];
+  `);
+  const row = run(`window.idea("strategy_gap", {action: "add", name: "Proposed style", pattern_id: "S3",
+    eligible_journey_states: ["first_contact"], channels: ["chat"], accessibility_modes: ["standard"]})`);
+  const target = document.createElement("div");
+  context.window.AdminImprovements.mount(target, {row, extra: {}, data: run("data"),
+    api: async (path, payload) => { context.window.posts.push({path, payload}); return {decision_ref: "GB-1", status: "pending_signature"}; },
+    saved: async (result, decision) => { context.window.saved.push(decision); }});
+  const form = target.children[0].children.find((child) => child.tag === "form");
+  const buttons = form.querySelectorAll("button");
+  assert.deepEqual(buttons.map((button) => button.textContent), ["Approve and queue style", "Defer", "Reject"]);
+  form.querySelectorAll("textarea")[0].value = "ILLUSTRATIVE - owner approves the proposed style.";
+  await buttons[0].listeners.click();
+  const posted = plain(context.window.posts[0]);
+  assert.equal(posted.path, "/api/proposals/decision");
+  assert.equal(posted.payload.decision, "approve");
+  assert.equal(posted.payload.expected_revision, "a".repeat(64));
+  assert.deepEqual(posted.payload.style, {name: "Proposed style", pattern_id: "S3",
+    eligible_journey_states: ["first_contact"], channels: ["chat"], accessibility_modes: ["standard"]});
+  assert.deepEqual(plain(context.window.saved), ["approve"]);
+  run("data.access.can_own = false");
+  const readOnly = document.createElement("div");
+  context.window.AdminImprovements.mount(readOnly, {row, extra: {}, data: run("data"), api() {}, saved() {}});
+  assert.equal(readOnly.querySelectorAll("form").length, 0);
+  assert.match(readOnly.textContent, /Only an owner can decide/);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+""")
+
+
+def test_a_content_proposal_asks_for_a_passage_only_when_approving_and_rejection_needs_none(admin_browser):
+    admin_browser(IDEA + r"""
+(async () => {
+  run(`data.access.can_own = true; window.posts = [];`);
+  const row = run(`window.idea("content_gap", {action: "add", title: "Payment continuity", language: "en",
+    journey_states: ["first_contact"], answers: "Questions about payments", related_content_ids: []})`);
+  const target = document.createElement("div");
+  context.window.AdminImprovements.mount(target, {row, data: run("data"), extra: {stages: ["*", "first_contact"], related: []},
+    api: async (path, payload) => { context.window.posts.push(payload); return {decision_ref: "GB-1", status: "applied"}; },
+    saved: async () => {}});
+  const form = target.children[0].children.find((child) => child.tag === "form");
+  const [approve, defer, reject] = form.querySelectorAll("button");
+  form.querySelectorAll("textarea").at(-1).value = "ILLUSTRATIVE - owner rejects this idea.";
+  await reject.listeners.click();
+  assert.equal(context.window.posts[0].decision, "reject");
+  assert.equal(context.window.posts[0].content, undefined);
+  await approve.listeners.click();
+  assert.equal(context.window.posts.length, 1, "approving without a passage must not post");
+  assert.match(form.textContent, /Give the passage a title and text/);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
 """)

@@ -136,6 +136,7 @@ module rbac 'modules/rbac.bicep' = {
     contactCentrePrincipalId: security.outputs.contactCentrePrincipalId
     deployAdminConsole: deployAdminConsole
     adminPrincipalId: security.outputs.adminPrincipalId
+    gapReviewPrincipalId: security.outputs.gapReviewPrincipalId
   }
 }
 output foundation object = {
@@ -184,6 +185,9 @@ output foundation object = {
     adminIdentityId: security.outputs.adminIdentityId
     adminClientId: security.outputs.adminClientId
     adminPrincipalId: security.outputs.adminPrincipalId
+    gapReviewIdentityId: security.outputs.gapReviewIdentityId
+    gapReviewClientId: security.outputs.gapReviewClientId
+    gapReviewPrincipalId: security.outputs.gapReviewPrincipalId
     personaIdentityId: security.outputs.personaIdentityId
     personaClientId: security.outputs.personaClientId
     personaPrincipalId: security.outputs.personaPrincipalId

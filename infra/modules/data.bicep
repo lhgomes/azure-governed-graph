@@ -49,6 +49,13 @@ resource adminActions 'Microsoft.Storage/storageAccounts/blobServices/containers
   name: 'admin-actions'
   properties: { publicAccess: 'None' }
 }
+// Gap-review proposals, owner-approved passages awaiting the content publisher, and their publication markers.
+// Every blob is create-only by convention; owner decisions are journalled in admin-actions, not here.
+resource improvementProposals 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (deployAdminConsole) {
+  parent: blob
+  name: 'improvement-proposals'
+  properties: { publicAccess: 'None' }
+}
 resource adminActionsWorm 'Microsoft.Storage/storageAccounts/blobServices/containers/immutabilityPolicies@2023-05-01' = if (deployAdminConsole) {
   parent: adminActions
   name: 'default'

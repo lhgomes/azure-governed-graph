@@ -67,6 +67,12 @@ resource adminId 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' =
   location: location
   tags: union(tags, { purpose: 'administration-console' })
 }
+// Gap review: reads response records and journey state, writes improvement proposals only; no signing, no publishing.
+resource gapReviewId 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (deployAdminConsole) {
+  name: 'id-gg-gap-review-${token}'
+  location: location
+  tags: union(tags, { purpose: 'gap-review-batch' })
+}
 
 // Demo persona actor: invokes only its own pinned, tool-free Foundry agent; no runtime, values or record access.
 resource personaId 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (deployVoicePersona) {
@@ -176,6 +182,9 @@ output contactCentrePrincipalId string = deploySyntheticContactCentre ? contactC
 output adminIdentityId string = deployAdminConsole ? adminId!.id : ''
 output adminClientId string = deployAdminConsole ? adminId!.properties.clientId : ''
 output adminPrincipalId string = deployAdminConsole ? adminId!.properties.principalId : ''
+output gapReviewIdentityId string = deployAdminConsole ? gapReviewId!.id : ''
+output gapReviewClientId string = deployAdminConsole ? gapReviewId!.properties.clientId : ''
+output gapReviewPrincipalId string = deployAdminConsole ? gapReviewId!.properties.principalId : ''
 output personaIdentityId string = deployVoicePersona ? personaId!.id : ''
 output personaClientId string = deployVoicePersona ? personaId!.properties.clientId : ''
 output personaPrincipalId string = deployVoicePersona ? personaId!.properties.principalId : ''

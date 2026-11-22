@@ -115,6 +115,35 @@ The current state is not a full historical snapshot archive. Published learning 
 the approved synthetic baseline; the view distinguishes the manifest's observed, eligible and pending
 live decisions rather than claiming that every aggregate interaction was observed live.
 
+## Improvement ideas: declined answers and proposed fixes
+
+A scheduled review (`job-gg-gap-review`, daily) looks at every explanation question whose answer was declined: it ended
+in an advisor offer, or the answer review flagged it. Some of these answers were legitimate. The review groups them by
+journey stage, topic, channel, accessibility mode and language, and proposes a fix when a situation has at least five
+declined answers from three journeys. **Improvement ideas** lists the proposals; see
+[Architecture](architecture.md#gap-review-declined-interactions-to-owner-reviewed-proposals) for the rules.
+
+| Idea | What an owner decides |
+|---|---|
+| Missing approved content | Write the passage from an approved source, choose its stages, approve. |
+| Approved content to revise | Edit a copy of the approved passage, approve to publish a new version. |
+| Missing explanation style | Review the proposed name, pattern and eligibility, approve to queue it. |
+| Answers refused that may have been fine | Open example journeys in **Conversations**, then acknowledge, defer or reject. No check is changed here. |
+
+Readers can open every idea. Only owners decide. A decision needs a reason and explicit confirmation, shows the
+proposal revision it was made on (a changed proposal returns HTTP 409), and is journalled before it takes effect, like
+every other owner decision. **Approve** never makes a change live by itself:
+
+- a style joins the single pending catalogue publication, which P2 signs and activates (see above);
+- a passage is queued for the content publisher. Its status reads *Approved: waiting for the content publisher* until
+  the publisher has indexed it, then *Published to approved content*. An operator starts the publisher with
+  `python -m governedgraph.search.run_publisher_job --approved-proposals`.
+
+An idea holds counts and labels only, never what a member said. It lists up to five example journey IDs; open them in
+**Conversations** to judge an answer. A deferred idea returns to *Open* when its evidence changes; a rejected or
+acknowledged idea stays closed. A decision that was recorded but never completed is shown as *uncertain*; investigate its
+reference in **Activity** before approving again.
+
 ## Protective controls
 
 - **Freeze** uses the existing Strategy Service protection: retain/restore the last good snapshot
@@ -256,9 +285,10 @@ What is created, and why it is narrow:
 |---|---|
 | Identity `id-gg-admin-*` | Its own identity. Not shared with the runtime, Strategy Service, P2 or fairness roles. |
 | Container App `ca-gg-admin-*` | Internal ingress, one replica (the session capability is per process), minimal environment. No member-token keys, Service Bus, Key Vault or model settings. |
-| Gateway route `/admin/` | Nine explicit routes (page, assets, five reads, protective action, owner action). Everything else is a 404 at the gateway. |
+| Gateway route `/admin/` | Explicit routes only: page, assets, reads, the protective action, owner actions and the improvement-idea decision. Everything else is a 404 at the gateway. |
 | Reader on `explainability-records`, `learning-aggregates`, `learning-evidence` | Container scope only. These hold immutable audit references, aggregates and committee/uplift evidence. |
 | Contributor on `admin-actions` | Container scope. The container is a 30-day immutable store: each action step is a separate create-only blob. |
+| Contributor on `improvement-proposals` | Container scope. Reads gap-review proposals and writes owner-approved passages for the content publisher, create-only. It has no access to Search or the approved-content container. |
 | `Strategy.Freeze` and `Strategy.Suspend` app roles | Admin protective rights only; `Strategy.Suspend` also authenticates the journal-writing proxy on owner requests. It has no `Strategy.Publish` or signing rights. A separate verified human owner token is mandatory for overrides. |
 
 It cannot read the cohort zone, approved content, journey state, member values, signing keys or

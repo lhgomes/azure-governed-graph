@@ -22,6 +22,7 @@ param deploySyntheticContactCentre bool = false
 param contactCentrePrincipalId string = ''
 param deployAdminConsole bool = false
 param adminPrincipalId string = ''
+param gapReviewPrincipalId string = ''
 
 var roles = {
   blobDataContributor: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
@@ -410,6 +411,52 @@ resource p2EvidenceWrite 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   }
 }
 
+// --- gap review and improvement proposals (container-scoped; no signing, no content or catalogue write) ---
+resource improvementContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' existing = if (deployAdminConsole) {
+  parent: recordsBlobService
+  name: 'improvement-proposals'
+}
+resource gapReviewRecordsRead 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAdminConsole) {
+  scope: recordsContainer
+  name: guid(recordsContainer.id, gapReviewPrincipalId, roles.blobDataReader)
+  properties: {
+    principalId: gapReviewPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataReader)
+    description: 'Gap review reads immutable response records to find declined interactions.'
+  }
+}
+resource gapReviewJourneyRead 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAdminConsole) {
+  scope: journeyContainers[0]
+  name: guid(journeyContainers[0].id, gapReviewPrincipalId, roles.blobDataReader)
+  properties: {
+    principalId: gapReviewPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataReader)
+    description: 'Gap review reads journey state only to leave selected-style test journeys out of its counts.'
+  }
+}
+resource gapReviewProposalWrite 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAdminConsole) {
+  scope: improvementContainer
+  name: guid(improvementContainer.id, gapReviewPrincipalId, roles.blobDataContributor)
+  properties: {
+    principalId: gapReviewPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataContributor)
+    description: 'Gap review writes inert improvement proposals only.'
+  }
+}
+resource publisherApprovedContent 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAdminConsole) {
+  scope: improvementContainer
+  name: guid(improvementContainer.id, contentPublisherPrincipalId, roles.blobDataContributor)
+  properties: {
+    principalId: contentPublisherPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataContributor)
+    description: 'Content publisher reads owner-approved passages and records that it published them.'
+  }
+}
+
 // --- administration console (container-scoped; no cohort zone, no signing, no content or member state) ---
 resource adminRecordsRead 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAdminConsole) {
   scope: recordsContainer
@@ -453,6 +500,16 @@ resource adminJournalWrite 'Microsoft.Authorization/roleAssignments@2022-04-01' 
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataContributor)
     description: 'Administration console journal only; the container is immutable once written.'
+  }
+}
+resource adminProposalAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAdminConsole) {
+  scope: improvementContainer
+  name: guid(improvementContainer.id, adminPrincipalId, roles.blobDataContributor)
+  properties: {
+    principalId: adminPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataContributor)
+    description: 'Administration console reads proposals and hands owner-approved passages to the content publisher.'
   }
 }
 

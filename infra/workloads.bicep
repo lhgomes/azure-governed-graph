@@ -355,6 +355,28 @@ module p2ContainerMonitor 'modules/p2-container-monitor-rbac.bicep' = if (!empty
   dependsOn: [p2ContainerJobs]
 }
 
+// Daily batch that reviews declined interactions and proposes missing content and styles to the administration console.
+module gapReview 'modules/gap-review-job.bicep' = if (deployAdminConsole) {
+  name: 'gap-review-job'
+  scope: rg
+  params: {
+    location: location
+    token: token
+    image: adminImage
+    identityId: security.outputs.gapReviewIdentityId
+    identityClientId: security.outputs.gapReviewClientId
+    env: union(domainEnv, {
+      AZURE_ENV_NAME: environmentName
+      EXPLAINABILITY_STORAGE_URL: data.outputs.blobEndpoint
+      EXPLAINABILITY_CONTAINER: 'explainability-records'
+      GOVERNEDGRAPH_IMPROVEMENT_CONTAINER: 'improvement-proposals'
+      JOURNEY_STORAGE_URL: data.outputs.contentBlobEndpoint
+      STRATEGY_ADMIN_URL: '${gateway.outputs.gatewayUrl}/strategy-admin'
+      STRATEGY_API_CLIENT_ID: strategyApiClientId
+    })
+  }
+}
+
 module adminTraceRbac 'modules/admin-trace-rbac.bicep' = if (deployAdminConsole && adminTraceLookup) {
   name: 'admin-trace-access'
   scope: rg
@@ -383,6 +405,7 @@ output CONTENT_STORAGE_URL string = data.outputs.contentBlobEndpoint
 output CONTENT_STORAGE_RESOURCE_ID string = data.outputs.contentStorageId
 output CONTENT_CONTAINER string = 'approved-content'
 output CONTENT_PUBLISH_JOB_NAME string = 'job-gg-content-publisher'
+output GAP_REVIEW_JOB_NAME string = deployAdminConsole ? 'job-gg-gap-review' : ''
 output CONTENT_SEARCH_SHARED_LINK_ID string = data.outputs.contentSharedLinkId
 output AZURE_KEY_VAULT_URL string = security.outputs.keyVaultUri
 output EXPLAINABILITY_STORAGE_URL string = data.outputs.blobEndpoint

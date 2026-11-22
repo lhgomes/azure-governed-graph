@@ -23,7 +23,7 @@ def azure_cli(*args: str) -> str:
 
 
 def run_publisher_job(candidate: ContentDocument | list[ContentDocument] | None = None, *,
-                      timeout: float = 1200) -> str:
+                      timeout: float = 1200, approved_proposals: bool = False) -> str:
     candidates = [] if candidate is None else candidate if isinstance(candidate, list) else [candidate]
     if any(item.status != "approved" for item in candidates):
         raise ValueError("remote publication requires P3 approval")
@@ -36,17 +36,18 @@ def run_publisher_job(candidate: ContentDocument | list[ContentDocument] | None 
     if state["properties"]["status"] != "Approved" or state["properties"]["provisioningState"] != "Succeeded":
         raise RuntimeError("Search content private link is not approved/ready; owner approval is required")
     base = ("--subscription", subscription, "-g", group, "-n", job)
-    if not candidates:
+    if not candidates and not approved_proposals:
         execution = azure_cli("containerapp", "job", "start", *base, "--query", "name", "-o", "tsv")
     else:
         template = json.loads(azure_cli("containerapp", "job", "show", *base,
                                       "--query", "properties.template", "-o", "json"))
         container = template["containers"][0]
         container["command"] = ["python", "-m", "governedgraph.search.reindex_on_approval"]
-        container["args"] = ["--from-env"]
+        container["args"] = ["--from-approvals"] if approved_proposals else ["--from-env"]
         container["env"] = [entry for entry in container["env"] if entry["name"] != "CONTENT_APPROVAL_DOCUMENT"]
-        container["env"].append({"name": "CONTENT_APPROVAL_DOCUMENT",
-                                 "value": json.dumps([asdict(item) for item in candidates])})
+        if not approved_proposals:
+            container["env"].append({"name": "CONTENT_APPROVAL_DOCUMENT",
+                                     "value": json.dumps([asdict(item) for item in candidates])})
         with tempfile.TemporaryDirectory(prefix="gg-p3-") as directory:
             path = Path(directory) / "execution.json"
             path.write_text(json.dumps(template))
@@ -74,9 +75,16 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--document", type=Path, help="P3-approved synthetic content JSON for remote publication")
+    parser.add_argument("--approved-proposals", action="store_true",
+                        help="publish the passages owners approved in the administration console")
     parser.add_argument("--repo-corpus", action="store_true",
                         help="approve every approved passage of the repository corpus not yet in the live feed")
     args = parser.parse_args()
+    if args.approved_proposals:
+        if args.document or args.repo_corpus:
+            parser.error("--approved-proposals cannot be combined with another input")
+        run_publisher_job(approved_proposals=True)
+        return
     if args.repo_corpus:
         # Already published, identical versions are a no-op; batches keep each job input small.
         approved = [doc for doc in load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text())

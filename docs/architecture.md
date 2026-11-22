@@ -441,6 +441,46 @@ Each retrieval replaces prior passage context so later turns do not reuse retire
 cached material. Accessibility selects approved retrieval language and presentation,
 not a demographic inference or automatic translation permission.
 
+## Gap review: declined interactions to owner-reviewed proposals
+
+Some answers are declined although they were legitimate, and some questions have no approved content or
+style yet. The scheduled `job-gg-gap-review` (`governedgraph.learning.gap_review_job`, daily) reviews every
+declined interaction of the last 30 days and writes **proposals** for the administration console. It reads only
+the immutable response records (closed fields, no utterance, no draft, no member value) and, to leave
+selected-style test journeys out of its counts, the journey state. It runs under its own identity
+`id-gg-gap-review-*`: reader on `explainability-records` and `journey-state`, contributor on
+`improvement-proposals`; it cannot sign, publish content, change the catalogue or start a job.
+
+A declined interaction is an explanation question that ended in an advisor offer, or whose answer an answer
+review flagged. Interactions are grouped by closed situation (journey stage, topic, channel, accessibility mode,
+language) and a proposal needs at least five declined answers from three journeys:
+
+| Proposal | Trigger | Draft |
+|---|---|---|
+| Missing approved content | Most declined answers retrieved no approved passage | Title, stage, language and questions answered from the domain vocabulary, related passages; no body |
+| Approved content to revise | Most declined answers were flagged as not grounded in the retrieved passage | The retrieved passage as a base for a new version |
+| Missing explanation style | At most one approved style can explain in the situation | A `StyleChange` on an approved pattern with the situation added to its eligibility |
+| Answers refused that may have been fine | Content and styles exist, and the refusals came from quality-only review findings or output gates | None; an owner looks at examples, no check is changed |
+
+Proposals are immutable, content-addressed blobs (`proposals/<id>/<evidence-digest>.json`); an unchanged
+situation adds nothing on the next run. The console lists them under **Improvement ideas**. An owner approves,
+rejects, defers or acknowledges each one; the decision is written to the immutable action journal before it
+takes effect and implemented only through an existing governed path:
+
+- **Style**: the owner catalogue path (`/api/catalogue`), which queues an exact catalogue release that the isolated P2
+  job signs and activates. Nothing changes until then.
+- **Content**: the owner writes the passage (a revision starts from the approved text). The console validates it
+  as an approved `ContentDocument` carrying the owner's `GB-` decision reference and writes it to
+  `approved-content/` in the proposal container. The content publisher (`--from-approvals`, started through
+  `run_publisher_job --approved-proposals`) then publishes it under its normal lease, retirement and verification rules and
+  writes a `published/` marker. The console never writes to Search or the approved-content container.
+
+B4 is kept by construction: proposals are built from closed response-record fields, so no conversation text can
+reach a proposal, prompt, template or catalogue. Mining utterances or blocked drafts would add such a path and needs
+its own board decision. B7: the situation has no demographic field. B3/B8: drafts reuse approved patterns, are inert,
+and activation is an owner (Tier 2) decision. Limitation: the response record does not hold a closed decline reason,
+so escalations are counted as context but never trigger a proposal.
+
 ## Governed speech channel
 
 Voice is a transport adapter, not a second counsellor. It uses the same
@@ -508,10 +548,10 @@ Guidance-not-advice and opening AI disclosure apply across the runtime.
 | B1: deterministic authority | [Values tools](../src/governedgraph/agents/tools.py), [history number masking](../src/governedgraph/agents/conversation_context.py), [sample facade](../examples/pension_wtp/member_values_api) | [Values facade](../tests/test_member_values_facade.py), [customer continuity](../tests/test_customer_continuity.py) |
 | B2: no AI calculations | [Placeholder binding](../src/governedgraph/guardrails/binding.py), [numeric fidelity](../src/governedgraph/guardrails/numeric_fidelity.py) | [Numeric fidelity](../tests/test_numeric_fidelity.py), [Foundry output](../tests/test_foundry_counsellor.py) |
 | B3: approved strategies only | [Strategy Service](../src/governedgraph/strategy_service/service.py), [source upgrades](../src/governedgraph/strategy_service/source_upgrade.py), [host tools](../src/governedgraph/agents/tools.py) | [Signed Azure state](../tests/test_strategy_azure.py), [catalogue publication](../tests/test_foundry_publication.py), [upgrade gates](../tests/test_bootstrap.py) |
-| B4: no conversation-to-behavior path | [Closed aggregates](../src/governedgraph/common/contracts.py), [feedback projection](../src/governedgraph/learning/feedback.py) | [Ranking inputs](../tests/test_ranking_bounds.py), [learning feedback](../tests/test_learning_feedback.py) |
+| B4: no conversation-to-behavior path | [Closed aggregates](../src/governedgraph/common/contracts.py), [feedback projection](../src/governedgraph/learning/feedback.py), [gap review](../src/governedgraph/learning/gap_review.py) | [Ranking inputs](../tests/test_ranking_bounds.py), [learning feedback](../tests/test_learning_feedback.py), [gap review](../tests/test_gap_review.py) |
 | B5: bounded reorder-only learning | [Ranking pipeline](../src/governedgraph/learning/ranking_pipeline.py) | [Ranking bounds](../tests/test_ranking_bounds.py) |
 | B6: fairness veto for everyone | [Fairness agent](../src/governedgraph/agents/fairness_explainability.py), [read-time overlays](../src/governedgraph/strategy_service/service.py) | [Fairness veto](../tests/test_fairness_veto.py), [Azure overlays](../tests/test_strategy_azure.py) |
 | B7: no runtime demographics | [Closed contracts](../src/governedgraph/common/contracts.py), [customer context boundary](../src/governedgraph/orchestrator/continuity.py), [APIM policy](../infra/policies/strategy-request.xml) | [Demographic rejection](../tests/test_contracts_no_demographics.py), [customer isolation](../tests/test_customer_continuity.py) |
-| B8: human material-change approval | [Tier routing](../src/governedgraph/learning/run_cycle.py), [assurance committee](../src/governedgraph/learning/assurance_committee.py), [Strategy Service](../src/governedgraph/strategy_service/service.py), [signed source upgrade](../src/governedgraph/strategy_service/bootstrap.py) | [Reinstatement](../tests/test_strategy_service.py), [owner decisions](../tests/test_admin_owners.py), [writer approval](../tests/test_writer_approval.py), [upgrade gates](../tests/test_bootstrap.py) |
+| B8: human material-change approval | [Tier routing](../src/governedgraph/learning/run_cycle.py), [assurance committee](../src/governedgraph/learning/assurance_committee.py), [Strategy Service](../src/governedgraph/strategy_service/service.py), [signed source upgrade](../src/governedgraph/strategy_service/bootstrap.py), [proposal decisions](../src/governedgraph/admin/proposals.py) | [Proposal decisions](../tests/test_admin_proposals.py), [Reinstatement](../tests/test_strategy_service.py), [owner decisions](../tests/test_admin_owners.py), [writer approval](../tests/test_writer_approval.py), [upgrade gates](../tests/test_bootstrap.py) |
 | B9: human help always available | [State machine](../src/governedgraph/orchestrator/state_machine.py), [escalation tools](../src/governedgraph/agents/tools.py), [closed intent routing](../src/governedgraph/agents/decision_agents.py) | [Every-state escalation](../tests/test_state_machine.py), [durable handover](../tests/test_durable_orchestrator.py), [Decision model checks](../tests/test_decision_agents.py) |
 | B10: continuous governed control | [Arm assignment](../src/governedgraph/strategy_service/service.py), [uplift kill switch](../src/governedgraph/learning/uplift.py) | [Uplift](../tests/test_uplift_and_design_agents.py), [signed static rollback](../tests/test_governed_static_contracts.py) |

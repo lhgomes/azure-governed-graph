@@ -127,14 +127,16 @@ def test_b7_b8_console_grants_are_container_scoped_and_exclude_cohorts_content_a
     rbac = (ROOT / "infra/modules/rbac.bicep").read_text()
     admin = block(rbac, "// --- administration console", "// --- developer")
     scopes = re.findall(r"scope: (\w+)", admin)
-    assert sorted(scopes) == ["adminActionsContainer", "learningEvidence", "outcomeContainer", "recordsContainer"]
+    assert sorted(scopes) == ["adminActionsContainer", "improvementContainer", "learningEvidence", "outcomeContainer",
+                              "recordsContainer"]
     for forbidden in ("cohortContainer", "auditContainer", "rankingContainer", "contentContainer", "journey", "snapshotKey",
                       "scope: st\n", "scope: contentStorage", "scope: kv", "keySignerRole", "verifyRole", "scope: search"):
         assert forbidden not in admin
     roles = re.findall(r"roleDefinitionId: subscriptionResourceId\('Microsoft.Authorization/roleDefinitions', (roles\.\w+)\)", admin)
-    assert roles.count("roles.blobDataContributor") == 1 and roles.count("roles.blobDataReader") == 3
+    assert roles.count("roles.blobDataContributor") == 2 and roles.count("roles.blobDataReader") == 3
     contributor = block(admin, "resource adminJournalWrite", "\n}\n")
     assert "adminActionsContainer" in contributor
+    assert "improvementContainer" in block(admin, "resource adminProposalAccess", "\n}\n")
     assert "principalId: adminPrincipalId" in admin and "principalId: runtimePrincipalId" not in admin
 
 
@@ -161,7 +163,8 @@ def test_b3_b8_gateway_lists_every_console_route_and_exposes_no_wildcard_or_publ
     assert sorted(routes) == sorted([
         ("GET", "/"), ("GET", "/assets/{name}"), ("GET", "/api/access"), ("GET", "/api/overview"), ("GET", "/api/journeys"),
         ("GET", "/api/journeys/{journeyId}"), ("GET", "/api/traces/{journeyId}"), ("POST", "/api/actions"),
-        ("POST", "/api/owner-actions"), ("POST", "/api/catalogue")])
+        ("POST", "/api/owner-actions"), ("POST", "/api/catalogue"), ("GET", "/api/proposals"),
+        ("GET", "/api/proposals/{proposalId}"), ("POST", "/api/proposals/decision")])
     assert "/*" not in ops and "path: 'admin'" in gateway
     main = (ROOT / "infra/workloads.bicep").read_text()
     assert "STRATEGY_ADMIN_PRINCIPAL_ID: security.outputs.adminPrincipalId" in main
@@ -181,3 +184,26 @@ def test_b8_risky_console_options_are_off_by_default_and_reviewed_access_is_expl
     assert '"adminReaderGroupId": console["reader_group_id"]' in bootstrap
     assert '"adminOperatorGroupId": console["operator_group_id"]' in bootstrap
     assert "azure-monitor-query==2.0.0" in (ROOT / "requirements-azure.txt").read_text()
+
+
+def test_b3_b4_b8_gap_review_has_its_own_identity_reads_records_and_writes_only_proposals():
+    rbac = (ROOT / "infra/modules/rbac.bicep").read_text()
+    review = block(rbac, "// --- gap review and improvement proposals", "// --- administration console")
+    grants = re.findall(r"scope: ([\w\[\]]+)\n\s+name: guid\([^,]+, (\w+), (roles\.\w+)\)", review)
+    assert sorted(grants) == sorted([
+        ("recordsContainer", "gapReviewPrincipalId", "roles.blobDataReader"),
+        ("journeyContainers[0]", "gapReviewPrincipalId", "roles.blobDataReader"),
+        ("improvementContainer", "gapReviewPrincipalId", "roles.blobDataContributor"),
+        ("improvementContainer", "contentPublisherPrincipalId", "roles.blobDataContributor")])
+    for forbidden in ("snapshotKey", "keySignerRole", "scope: search", "scope: kv", "cohortContainer", "contentContainer",
+                      "pipelinePrincipalId", "adminPrincipalId", "runtimePrincipalId"):
+        assert forbidden not in review
+    security = (ROOT / "infra/modules/security.bicep").read_text()
+    assert "name: 'id-gg-gap-review-${token}'" in security
+    job = (ROOT / "infra/modules/gap-review-job.bicep").read_text()
+    assert "governedgraph.learning.gap_review_job" in job and "triggerType: 'Schedule'" in job
+    for forbidden in ("KEY_VAULT", "SEARCH", "SERVICE_BUS", "AZURE_AI_", "Strategy.", "keyVault"):
+        assert forbidden not in job
+    data = (ROOT / "infra/modules/data.bicep").read_text()
+    assert "name: 'improvement-proposals'" in data and "publicAccess: 'None'" in block(
+        data, "resource improvementProposals", "\n}\n")

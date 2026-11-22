@@ -1,0 +1,106 @@
+"""Scheduled gap review: read declined interactions, write inert improvement proposals for the administration console.
+
+Runs under its own identity with read access to response records and journey state and write access to the proposal
+container only. It cannot sign, publish, change a catalogue or approve anything (B3, B4, B8).
+
+    python -m governedgraph.learning.gap_review_job
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+from datetime import datetime, timedelta, timezone
+
+from governedgraph.common.config import DATA_DIR, settings
+from governedgraph.common.contracts import ExplainabilityRecord
+from governedgraph.learning import gap_review, improvement_store
+from governedgraph.search.corpus import load_corpus
+
+log = logging.getLogger("governedgraph.learning.gap_review")
+DEFAULT_LOOKBACK_DAYS = 30
+
+
+def read_records(container, since: datetime) -> list[ExplainabilityRecord]:
+    """Every response record written since ``since``; response records are immutable, so last-modified is their age."""
+    records = []
+    for item in container.list_blobs(name_starts_with=""):
+        if not item.name.endswith((".json", ".jsonl")) or item.last_modified < since:
+            continue
+        text = container.get_blob_client(item.name).download_blob().readall().decode("utf-8")
+        records.extend(ExplainabilityRecord.from_dict(json.loads(line)) for line in text.splitlines() if line.strip())
+    return records
+
+
+def excluded_test_journeys(journeys, journey_ids: set[str]) -> set[str]:
+    """Selected-style test journeys, and journeys that cannot be verified, are left out of every count."""
+    from azure.core.exceptions import ResourceNotFoundError
+
+    from governedgraph.orchestrator.store import JourneyRecord, validate_id
+
+    excluded = set()
+    for journey_id in sorted(journey_ids):
+        validate_id(journey_id)
+        try:
+            text = journeys.get_blob_client(f"{journey_id}.json").download_blob().readall().decode("utf-8")
+        except ResourceNotFoundError:
+            excluded.add(journey_id)
+            continue
+        if text == "null" or JourneyRecord.decode(text).journey.test_strategy_id:
+            excluded.add(journey_id)
+    return excluded
+
+
+def run(*, records, journeys, proposals, catalogue, vocabulary, seed, now: datetime | None = None,
+        lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> dict:
+    now = now or datetime.now(timezone.utc)
+    since = now - timedelta(days=lookback_days)
+    approved = [approval.content for approval in improvement_store.read_approvals(proposals)]
+    corpus = gap_review.effective_corpus(seed, approved)
+    observed = read_records(records, since)
+    candidates, _ = gap_review.signals(observed, since=since.isoformat(timespec="seconds"))
+    excluded = excluded_test_journeys(journeys, {signal.journey_id for signal in candidates})
+    found, summary = gap_review.review(
+        observed, catalogue=catalogue, corpus=corpus, vocabulary=vocabulary, excluded_journeys=excluded,
+        since=since.isoformat(timespec="seconds"), now=now)
+    written = sum(improvement_store.create_once(proposals, proposal.blob_name, proposal.encode()) for proposal in found)
+    summary = {**summary, "proposals": len(found)}
+    if not improvement_store.create_once(proposals, f"batches/{summary['batch_id']}.json",
+                                         json.dumps(summary, sort_keys=True).encode()):
+        raise FileExistsError("this review batch is already recorded")
+    log.info("gap_review_completed", extra={"batch_id": summary["batch_id"], "proposals": len(found),
+                                           "new_revisions": written})
+    return {**summary, "new_revisions": written}
+
+
+def main() -> None:
+    from azure.identity import DefaultAzureCredential
+    from azure.storage.blob import BlobServiceClient
+
+    from governedgraph.common import domain
+    from governedgraph.common.operational_logging import configure_operational_logging
+    from governedgraph.strategy_service.client import StrategyAdminClient
+
+    configure_operational_logging()
+    if not settings.explainability_account_url or not settings.journey_storage_url:
+        raise ValueError("response-record and journey-state storage endpoints are required")
+    lookback = int(os.getenv("GOVERNEDGRAPH_GAP_REVIEW_LOOKBACK_DAYS", str(DEFAULT_LOOKBACK_DAYS)))
+    if not 1 <= lookback <= 90:
+        raise ValueError("lookback must be 1 to 90 days")
+    options = {"connection_timeout": 10, "read_timeout": 30, "retry_total": 2}
+    with DefaultAzureCredential() as credential:
+        records_account = BlobServiceClient(settings.explainability_account_url, credential=credential, **options)
+        journey_account = BlobServiceClient(settings.journey_storage_url, credential=credential, **options)
+        result = run(
+            records=records_account.get_container_client(settings.explainability_container),
+            journeys=journey_account.get_container_client("journey-state"),
+            proposals=records_account.get_container_client(settings.improvement_container),
+            catalogue=StrategyAdminClient(protective_only=True, credential=credential).catalogue,
+            vocabulary=domain.vocabulary(),
+            seed=load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text()),
+            lookback_days=lookback)
+    print(json.dumps(result, sort_keys=True), flush=True)
+
+
+if __name__ == "__main__":
+    main()

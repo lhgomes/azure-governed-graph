@@ -19,12 +19,16 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
+from governedgraph.admin import proposals as proposal_review
 from governedgraph.admin.access import AccessPolicy, Identity
 from governedgraph.admin.data import WATERMARK, revision
 from governedgraph.admin.sources import AdminSourceError, AzureSources, OwnerDecisionError
 from governedgraph.admin.traces import SyntheticTraceReader, TraceUnavailable, monitor_runner
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import ContractError, SuspensionEvent, _strict, utcnow
+from governedgraph.learning.gap_review import PROPOSAL_ID, content_document
+from governedgraph.learning.improvement_store import ContentApproval
+from governedgraph.strategy_service.catalogue_release import stages
 from governedgraph.strategy_service.catalogue import ESCALATION_STRATEGY
 from governedgraph.strategy_service.state import StateUnavailable
 from governedgraph.strategy_service.overrides import OwnerDecision
@@ -148,7 +152,7 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
 
     @application.get("/assets/{name}", dependencies=[Depends(enabled)])
     def asset(name: str):
-        if name not in {"admin.css", "admin.js", "guide.js", "testing.js", "catalogue.js"}:
+        if name not in {"admin.css", "admin.js", "guide.js", "testing.js", "catalogue.js", "improvements.js"}:
             raise HTTPException(404)
         return FileResponse(STATIC / name, media_type="text/css" if name.endswith(".css") else "text/javascript")
 
@@ -277,7 +281,104 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
 
         return submit_owner_action(payload, request, identity, CatalogueDecision)
 
-    def submit_owner_action(payload: dict, request: Request, identity: Identity, contract):
+    @application.get("/api/proposals")
+    def proposal_list(identity: Identity = Depends(require_read)):  # noqa: B008
+        source = backend()
+        return {**proposal_review.view(source.improvement(), source.actions(), source.state()),
+                "stages": sorted(stages() | {"*"}), "can_own": identity.can_own}
+
+    @application.get("/api/proposals/{proposal_id}")
+    def proposal_detail(proposal_id: str, identity: Identity = Depends(require_read)):  # noqa: B008
+        if not PROPOSAL_ID.fullmatch(proposal_id):
+            raise HTTPException(400, "invalid proposal reference")
+        source = backend()
+        improvement = source.improvement()
+        proposal = next((item for item in improvement["proposals"] if item.proposal_id == proposal_id), None)
+        if proposal is None:
+            raise HTTPException(404, "no such proposal")
+        row = next(item for item in proposal_review.view({**improvement, "proposals": [proposal]},
+                                                         source.actions(), source.state())["proposals"])
+        corpus = {doc.id: doc for doc in source.content_corpus()} if proposal.kind.startswith("content") else {}
+        base = corpus.get(proposal.draft.get("base_id", ""))
+        related = [{"id": doc_id, "title": corpus[doc_id].title} for doc_id in proposal.draft.get("related_content_ids", [])
+                   if doc_id in corpus]
+        return {"proposal": row, "stages": sorted(stages() | {"*"}),
+                "base": None if base is None or base.status != "approved" else {
+                    "id": base.id, "version": base.version, "title": base.title, "body": base.body,
+                    "answers": base.answers, "journey_states": base.journey_states},
+                "related": related}
+
+    @application.post("/api/proposals/decision")
+    def proposal_decision(payload: dict, request: Request, identity: Identity = Depends(require_owner)):  # noqa: B008
+        from governedgraph.strategy_service.catalogue_release import CatalogueDecision
+
+        try:
+            decision = proposal_review.ProposalDecision.from_dict(payload)
+        except (ContractError, TypeError) as error:
+            raise HTTPException(400, str(error)) from error
+        source = backend()
+        with lock:
+            improvement = source.improvement()
+            proposal = next((item for item in improvement["proposals"] if item.proposal_id == decision.proposal_id), None)
+            if proposal is None:
+                raise HTTPException(404, "no such proposal")
+            if proposal.evidence_digest != decision.evidence_digest:
+                raise HTTPException(409, "the proposal changed; refresh and review it again")
+            status = proposal_review.status_of(proposal, source.actions(), source.state(), improvement["published"])
+            if status["code"] in proposal_review.CLOSED:
+                raise HTTPException(409, "this proposal already has a decision")
+            if status["code"] == "uncertain" and decision.decision == "approve":
+                raise HTTPException(409, f"an earlier decision is not complete; investigate {status['decision_ref']} first")
+            if decision.decision not in proposal_review.DECISIONS[proposal.kind]:
+                raise HTTPException(400, "this decision is not available for this proposal")
+            marker = {"proposal_id": proposal.proposal_id, "evidence_digest": proposal.evidence_digest}
+            if decision.decision == "approve" and proposal.kind == "strategy_gap":
+                if not decision.expected_revision or decision.content is not None:
+                    raise HTTPException(400, "a style approval needs the revision shown and no content")
+                allowed = {"name", "pattern_id", "eligible_journey_states", "channels", "accessibility_modes"}
+                edits = decision.style or {}
+                if set(edits) - allowed:
+                    raise HTTPException(400, "only the style name, pattern and eligibility can be edited")
+                return submit_owner_action({"expected_revision": decision.expected_revision, "reason": decision.reason,
+                                            "confirmed": True, "change": {**proposal.draft, **edits}},
+                                           request, identity, CatalogueDecision, proposal=marker)
+            if decision.style is not None or (decision.decision == "approve") == (decision.content is None):
+                raise HTTPException(400, "settings do not match the decision")
+            approving = decision.decision == "approve"
+            reference = ("GB-" if approving else "ADMIN-") + uuid4().hex
+            record = {"action_id": reference, "actor": identity.actor, "reason": decision.reason.strip(),
+                      "created_at": utcnow(), "watermark": WATERMARK, "proposal": marker,
+                      "action": proposal_review.ACTIONS["approve_content" if approving else decision.decision]}
+            approval = None
+            if approving:
+                try:
+                    document = content_document(draft=proposal.draft, content=decision.content, corpus=source.content_corpus(),
+                                                approval_ref=reference)
+                except ContractError as error:
+                    raise HTTPException(400, str(error)) from error
+                approval = ContentApproval.for_document(document, reference, proposal.proposal_id)
+                record.update(content_name=approval.name, document_id=document.id)
+            source.journal({**record, "status": "requested"})
+            try:
+                if approval is not None:
+                    source.approve_content(approval)
+            except FileExistsError as error:
+                source.journal({**record, "status": "failed"})
+                raise HTTPException(409, "this content version was approved already; refresh and review it again") from error
+            except (AdminSourceError, OSError) as error:
+                source.journal({**record, "status": "uncertain"})
+                raise HTTPException(503, f"The decision outcome is uncertain. Refresh and investigate {reference} "
+                                    "before retrying.") from error
+            final = "pending_publication" if approving else "applied"
+            try:
+                source.journal({**record, "status": final, "completed_at": utcnow()})
+            except (AdminSourceError, OSError) as error:
+                raise HTTPException(503, f"The decision may have applied but its completion could not be recorded. "
+                                    f"Investigate {reference} before retrying.") from error
+            log.info("admin_proposal_decision", extra={"action_id": reference, "action": record["action"]})
+            return {"decision_ref": reference, "status": final}
+
+    def submit_owner_action(payload: dict, request: Request, identity: Identity, contract, proposal: dict | None = None):
         decision_ref = "GB-" + uuid4().hex
         try:
             if "decision_ref" in payload:
@@ -292,7 +393,8 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
             record = {"action_id": decision_ref, "action": "owner_" + decision.action, "actor": identity.actor,
                       "reason": decision.reason.strip(), "created_at": utcnow(), "watermark": WATERMARK,
                       "expected_revision": decision.expected_revision,
-                      "owner_decision": {key: value for key, value in payload.items() if key != "reason"}}
+                      "owner_decision": {key: value for key, value in payload.items() if key != "reason"},
+                      **({"proposal": proposal} if proposal else {})}
             source.journal({**record, "status": "requested"})
             try:
                 result = source.apply_owner(decision, request.headers.get("authorization", ""))

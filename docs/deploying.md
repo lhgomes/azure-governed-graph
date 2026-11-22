@@ -596,6 +596,9 @@ cannot declare tests, evaluation policy, learning proofs or operator recovery.
    Only the two isolated job identities receive artifact-container access; the
    independent fairness audit, cohort and signing permissions are unchanged.
    The pipeline reads learning aggregates through a container-scoped reader role.
+   With the admin console, a dedicated gap-review identity and the daily `job-gg-gap-review`
+   write inert improvement proposals to `improvement-proposals`; owners decide in the console
+   and approved passages are published by `run_publisher_job --approved-proposals`.
    The synthetic values adapter has its own identity with registry pull only;
    it never inherits the orchestrator's key/storage/Foundry permissions.
    Optional developer Blob access is limited to the approved-content container;

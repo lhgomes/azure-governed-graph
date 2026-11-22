@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -21,6 +22,37 @@ from governedgraph.explainability.store import LocalExplainabilityStore
 from governedgraph.strategy_service.service import StrategyService
 
 ORIGIN = "https://admin.example.test"
+STORED_AT = datetime(2026, 11, 22, 5, 0, tzinfo=timezone.utc)
+
+
+class MemoryContainer:
+    """In-memory blob container with create-only uploads, for the improvement-proposal store."""
+
+    def __init__(self, blobs: dict | None = None):
+        self.blobs = dict(blobs or {})
+
+    def list_blobs(self, name_starts_with=""):
+        return [SimpleNamespace(name=name, last_modified=STORED_AT) for name in sorted(self.blobs)
+                if name.startswith(name_starts_with)]
+
+    def get_blob_client(self, name):
+        blobs = self.blobs
+
+        def download():
+            from azure.core.exceptions import ResourceNotFoundError
+
+            if name not in blobs:
+                raise ResourceNotFoundError("missing")
+            return SimpleNamespace(readall=lambda: blobs[name])
+
+        def upload(data, overwrite=False):
+            from azure.core.exceptions import ResourceExistsError
+
+            if name in blobs and not overwrite:
+                raise ResourceExistsError("exists")
+            blobs[name] = data if isinstance(data, bytes) else data.encode()
+
+        return SimpleNamespace(download_blob=download, upload_blob=upload)
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
 
@@ -59,8 +91,30 @@ class LocalSources:
     mode = "local"
     profile = "test-double"
 
-    def __init__(self, service: StrategyService, directory: Path):
+    def __init__(self, service: StrategyService, directory: Path, proposals: MemoryContainer | None = None):
         self.service, self.directory = service, Path(directory)
+        self.proposals = proposals if proposals is not None else MemoryContainer()
+
+    def improvement(self) -> dict:
+        from governedgraph.learning import improvement_store
+
+        found, truncated = improvement_store.read_proposals(self.proposals)
+        return {"proposals": found, "truncated": truncated, "batches": improvement_store.read_batches(self.proposals),
+                "published": improvement_store.published_names(self.proposals)}
+
+    def content_corpus(self):
+        from governedgraph.common.config import DATA_DIR
+        from governedgraph.learning import improvement_store
+        from governedgraph.learning.gap_review import effective_corpus
+        from governedgraph.search.corpus import load_corpus
+
+        seed = load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text())
+        return effective_corpus(seed, [item.content for item in improvement_store.read_approvals(self.proposals)])
+
+    def approve_content(self, approval) -> None:
+        from governedgraph.learning import improvement_store
+
+        improvement_store.write_approval(self.proposals, approval)
 
     def context(self, state: dict | None = None) -> Context:
         return Context(self.service.catalogue, self.service.priors, self.service.thresholds, self.service.control_share)

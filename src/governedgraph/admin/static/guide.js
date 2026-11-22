@@ -144,6 +144,21 @@ window.GUIDE = {
       plain: "A person members can always ask for. It is never ranked, and it can never be paused.",
       also: "Style S6 in the sample.",
     },
+    idea: {
+      name: "Improvement idea",
+      plain: "A suggestion from the regular review of answers that were not given. It changes nothing until an owner approves it.",
+      also: "Called a gap-review proposal.",
+    },
+    declined: {
+      name: "Declined answer",
+      plain: "A question where the member got no explanation, or where a check flagged the answer. Some of these answers may have been fine.",
+      also: "Called a declined interaction. A fine answer that was refused is a false negative.",
+    },
+    content: {
+      name: "Approved content",
+      plain: "The reviewed passages the service may use to answer. If no passage fits a question, the service cannot answer it.",
+      also: "Called P3 approved content.",
+    },
     synthetic: {
       name: "Made-up data",
       plain: "Example data created for demonstrations. No real people, funds or accounts are involved.",
@@ -186,6 +201,22 @@ window.GUIDE = {
         ["Last activity", "When the last answer was given."],
       ],
     },
+    improvements: {
+      title: "Improvement ideas",
+      heading: "Missed answers and proposed fixes",
+      description: "A regular review finds questions that got no answer. It proposes missing content or styles for an owner to decide.",
+      what: "One row per idea. Each idea comes from counts of declined answers in one situation. It holds no words a member said.",
+      look: "Ideas with many journeys are stronger than ideas with few. An idea about answers that may have been fine needs a person to look at examples first.",
+      can: "Open an idea to read the evidence. Owners can approve, reject, defer or acknowledge it. Approving queues the change. It never takes effect by itself.",
+      terms: ["idea", "declined", "content", "style", "advisor"],
+      empty: "No ideas yet. The review needs enough declined answers from enough journeys before it proposes anything.",
+      columns: [
+        ["Idea", "The topic and situation the review looked at. Select it to read the evidence and decide."],
+        ["Status", "Open means no decision yet. Approved ideas show whether they are queued or live."],
+        ["Evidence", "How many declined answers, and from how many journeys."],
+        ["Found", "When the review last updated this idea."],
+      ],
+    },
     activity: {
       title: "Activity",
       heading: "Reviews, checks and actions",
@@ -205,6 +236,8 @@ window.GUIDE = {
     },
   },
   promises: [
+    "Improvement ideas use counts and labels, never what a member said.",
+    "An idea changes nothing until an owner approves it, and approved changes use the usual release steps.",
     "Owners can add, edit or remove explanation styles. The human advisor cannot be changed.",
     "It cannot activate an unsigned order or change any AI model.",
     "Owners can lift existing fairness findings, not future findings. New findings can pause the style again.",
@@ -225,6 +258,9 @@ window.GUIDE = {
       "Open a style's Details for its learning results.", "Open Activity for reviews and checks.", "A changed order alone is not proof of improvement."] },
     { title: "Try chat, voice or a persona", go: "strategies", steps: [
       "Select Test beside a style.", "Choose Chat, Voice or Persona, then start the test.", "Check the answer style shown for each response. Test results never enter learning."] },
+    { title: "Review an improvement idea", go: "improvements", steps: [
+      "Open Improvement ideas and select an open idea.", "Read the evidence and open an example journey in Conversations if you can.",
+      "Approve, reject, defer or acknowledge it, and give a reason. Approved changes are queued, not live."] },
     { title: "Stop something that looks wrong", go: "controls", steps: [
       "Select Safety controls, top right.", "Choose the smallest action that fixes the problem.", "Write the reason. Everything is recorded."] },
   ],
@@ -239,10 +275,13 @@ window.GUIDE = {
   ownerActions: {
     owner_order: "Order override", owner_pause: "Pause override", owner_unpause: "Unpause override",
     owner_revoke: "Revoke override",
+    proposal_content_approve: "Content approved for publishing", proposal_reject: "Improvement idea rejected",
+    proposal_defer: "Improvement idea deferred", proposal_acknowledge: "Improvement idea acknowledged",
   },
   labels: {
     status: { requested: "Requested, not finished", applied: "Done", failed: "Failed",
-      pending_signature: "Recorded; signature pending at acceptance", uncertain: "Outcome uncertain; investigate before retrying" },
+      pending_signature: "Recorded; signature pending at acceptance", pending_publication: "Approved; waiting for the content publisher",
+      uncertain: "Outcome uncertain; investigate before retrying" },
     outcome: { approved: "Approved", continue: "Keep going", keep_learning: "Keep learning" },
     caseType: { automatic_suspension: "Automatic pause" },
     kinds: { tier1_review: "Review of a proposed new order", uplift_window: "Is learning beating the expert order?" },
