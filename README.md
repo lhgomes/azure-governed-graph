@@ -45,7 +45,7 @@ Domain inputs are explicit. The sample is selected through its deployment compos
 ## Deploy and verify in Azure Public
 
 GovernedGraph executes on Azure Public only. The application requires provisioned Azure
-resources, managed identities, a selected domain composition, and approved agent versions.
+resources, managed identities, a selected domain composition, and published agents.
 No local application, in-process service, offline voice or file-backed runtime is provided.
 
 1. Review the [Azure deployment guide](docs/deploying.md) and prepare private delivery inputs.
@@ -68,7 +68,7 @@ collected separately in the approved Azure environment; an unrun test is not a p
 1. Copy `examples/pension_wtp` to `examples/my_domain` and rename the package.
 2. Set `GOVERNEDGRAPH_DATA_DIR` explicitly through your deployment composition.
 3. Replace the domain pack and the Azure-backed values API with yours.
-4. Validate the B1-B10 boundaries and pinned Foundry agents using Azure-hosted jobs.
+4. Validate the B1-B10 boundaries and the Foundry agents using Azure-hosted jobs.
 
 The framework under `src/governedgraph` stays independent from any sample. See
 [adopting](docs/adopting.md) for domain packaging and implementation boundaries.

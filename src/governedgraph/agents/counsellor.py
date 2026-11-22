@@ -1,6 +1,6 @@
 """Counsellor = Member Communication Agent (L3) over the host-owned guardrail pipeline.
 
-Implements the runtime sequence described in docs/architecture.md using a pinned
+Implements the runtime sequence described in docs/architecture.md using a named
 Foundry prompt agent with journey-bound function tools and placeholder-only drafts.
 Post-processing: bind figures by reference -> numeric-fidelity gate ->
 steering check -> explainability record. A placeholder-contract rejection may use
@@ -161,7 +161,6 @@ class Counsellor:
             model_deployment=settings.model_deployment,
             template_version=TEMPLATES["template_set_version"],
             agent_name=settings.agent_name,
-            agent_version=settings.agent_version,
             prompt_screen=self.screen,
             step_up_verified=step_up_verified,
         )
@@ -171,7 +170,6 @@ class Counsellor:
         if self.compact_voice:
             self.tools.model_deployment = settings.compact_deployment
             self.tools.agent_name = "gg-counsellor-voice-compact"
-            self.tools.agent_version = os.getenv("AZURE_AI_VOICE_COMPACT_VERSION", "")
         self._current_strategy: str | None = None
         self.step_up_verified = step_up_verified
         self._prefetched = False

@@ -28,7 +28,7 @@ prompt only when both `AZURE_ENV_NAME=gg-dev` and
 `GOVERNEDGRAPH_ENABLE_OUTCOME_CHECK=true` are present.
 The domain vocabulary supplies exact approved English and Dutch wording;
 the runtime validates every localized choice and applies numeric-fidelity and steering
-checks before delivering the prompt. The writer prompts and immutable Foundry agent
+checks before delivering the prompt. The writer prompts and Foundry agent
 definitions are **not** changed; the question is appended only by the governed host.
 
 Production use requires an independently recorded B8 approval for the exact
@@ -62,9 +62,9 @@ silently authorizing unsigned expert priors.
 - In `gg-dev`: test cross-member references, duplicate feedback,
   missed playback, stale/delayed events, empty/ambiguous outcomes and
   governed P2 projections.
-- Validate that all existing B1–B10, P1/P2, immutable Foundry
-  writer pins, fairness vetoes, voice, APIM and audit gates still pass.
-- Secure new domain-language and model-writer approval independently
+- Validate that all existing B1–B10, P1/P2, Foundry
+  writer agents, fairness vetoes, voice, APIM and audit gates still pass.
+- Secure new domain-language and model-writer prompt review independently
   before enabling optional feedback prompts.
 
 This document describes required checks, not their execution or results.

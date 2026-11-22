@@ -22,7 +22,7 @@ import json
 import re
 from collections import Counter
 from dataclasses import asdict, dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from governedgraph.common.contracts import (
     ACCESSIBILITY_MODES, CHANNELS, DECLINE_REASONS, RESPONSE_LANGUAGES, REVIEW_ISSUES, ContractError, ExplainabilityRecord,
@@ -49,6 +49,7 @@ SAMPLE_QUESTIONS = 5
 SAMPLE_CASES = 10
 CASE_FIELDS = {"journey_id", "created_at", "outcome", "decline_reason", "review_issues", "passages", "question"}
 QUESTION_CHARS = 300
+QUESTION_RETENTION_DAYS = 30  # the lifecycle rule on the declined-questions container
 TOP_CONTENT = 5
 NEW_CONTENT_PREFIX = "C-G"
 PROPOSAL_ID = re.compile(r"GP-[a-f0-9]{24}")
@@ -153,6 +154,7 @@ class Evidence:
     sample_journey_ids: list
     examples: list
     cases: list
+    questions_expire_at: str = ""  # when the oldest kept question copied into this proposal must be redacted
 
     def __post_init__(self):
         counts = (self.declined, self.unanswered, self.review_flagged, self.no_style, self.escalated, self.journeys)
@@ -160,7 +162,8 @@ class Evidence:
                 or self.declined != self.unanswered + self.review_flagged + self.no_style
                 or self.journeys > self.declined + self.escalated
                 or not isinstance(self.content_retrieved_share, float) or not 0 <= self.content_retrieved_share <= 1
-                or any(not isinstance(item, str) or len(item) > 40 for item in (self.window_start, self.window_end))):
+                or any(not isinstance(item, str) or len(item) > 40
+                       for item in (self.window_start, self.window_end, self.questions_expire_at))):
             raise ContractError("invalid evidence counts")
         _count_map(self.review_issues, set(REVIEW_ISSUES))
         _count_map(self.decline_reasons, set(DECLINE_REASONS))
@@ -191,7 +194,7 @@ class Evidence:
 
     def digest_view(self) -> dict:
         view = asdict(self)
-        for volatile in ("window_start", "window_end", "sample_journey_ids", "examples", "cases"):
+        for volatile in ("window_start", "window_end", "sample_journey_ids", "examples", "cases", "questions_expire_at"):
             view.pop(volatile)
         return view
 
@@ -256,7 +259,7 @@ CODE_SET = {"agent", "context"}
 
 def validate_suggestion(value) -> dict:
     if (not isinstance(value, dict) or set(value) != SUGGESTION_FIELDS or not isinstance(value["agent"], str)
-            or not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}:[0-9]{1,6}", value["agent"])):
+            or not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}(?::[0-9]{1,6})?", value["agent"])):
         raise ContractError("invalid drafted suggestion")
     _text(value["title"], 200)
     _text(value["answers"], 1000, allow_empty=True)
@@ -278,7 +281,7 @@ CONTENT_ONLY_FIELDS = {"title", "answers", "body", "sources", "claims", "gaps", 
 
 def validate_style_suggestion(value) -> dict:
     if (not isinstance(value, dict) or set(value) != STYLE_SUGGESTION_FIELDS or not isinstance(value["agent"], str)
-            or not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}:[0-9]{1,6}", value["agent"])
+            or not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}(?::[0-9]{1,6})?", value["agent"])
             or value["fit"] not in {"existing", "new"}
             or value["pattern_id"] not in {style.strategy_id for style in patterns()}):
         raise ContractError("invalid drafted style suggestion")
@@ -384,8 +387,11 @@ def next_version(version: str) -> str:
     return f"{major}.{minor + 1}"
 
 
-def next_content_id(corpus: list[ContentDocument]) -> str:
-    used = [int(match[1]) for doc in corpus if (match := re.fullmatch(re.escape(NEW_CONTENT_PREFIX) + r"(\d{3,6})", doc.content_id))]
+def next_content_id(corpus: list[ContentDocument], reserved=()) -> str:
+    """The next unused new-content id. ``reserved`` holds the content ids and document ids of every stored approval,
+    including refused ones, whose create-only approval blob still exists even though the passage left the corpus."""
+    ids = [*(doc.content_id for doc in corpus), *reserved]
+    used = [int(match[1]) for item in ids if (match := re.fullmatch(re.escape(NEW_CONTENT_PREFIX) + r"(\d{3,6})", item))]
     return f"{NEW_CONTENT_PREFIX}{max(used, default=0) + 1:03d}"
 
 
@@ -400,20 +406,21 @@ def related_content(corpus: list[ContentDocument], state: str, language: str, de
     return [doc_id for score, doc_id in ranked if score][:3]
 
 
-def content_document(*, draft: dict, content: dict, corpus: list[ContentDocument], approval_ref: str) -> ContentDocument:
+def content_document(*, draft: dict, content: dict, corpus: list[ContentDocument], approval_ref: str,
+                     reserved=()) -> ContentDocument:
     """Build the approved document an owner decided on; raises ContractError when it breaks a content rule."""
     if set(content) != {"title", "journey_states", "answers", "body"}:
         raise ContractError("content needs a title, stages, questions answered and a body")
     body = _text(content["body"], 8000)
     # Title and questions answered are indexed and searched like the body, so they follow the same rules.
     for text in (body, _text(content["title"], 200), _text(content["answers"], 1000, allow_empty=True)):
-        if "{{" in text or "}}" in text or response_steers_choice(text):
+        if "{{" in text or "}}" in text or response_steers_choice(text) or STEERING_EXTRA.search(text):
             raise ContractError("content may not hold value placeholders or steer a choice")
     states = content["journey_states"]
     if not isinstance(states, list) or not states or any(not isinstance(item, str) or item not in stages() | {"*"} for item in states):
         raise ContractError("choose approved journey stages")
     if draft["action"] == "add":
-        content_id, version = next_content_id(corpus), "1.0"
+        content_id, version = next_content_id(corpus, reserved), "1.0"
     else:
         base = next((doc for doc in corpus if doc.id == draft["base_id"] and doc.status == "approved"), None)
         if base is None:
@@ -423,6 +430,8 @@ def content_document(*, draft: dict, content: dict, corpus: list[ContentDocument
                 and list(states) == list(base.journey_states)):
             raise ContractError("a new version must change the passage")
         content_id, version = base.content_id, next_version(base.version)
+        while f"{content_id}-v{version}" in reserved:  # a refused approval still holds that create-only name
+            version = next_version(version)
     return ContentDocument(id=f"{content_id}-v{version}", content_id=content_id, version=version, status="approved",
                     title=_text(content["title"], 200).strip(), language=draft["language"], journey_states=list(states),
                     approval_ref=approval_ref, body=body.strip(),
@@ -440,13 +449,33 @@ STEERING_EXTRA = re.compile(
     r"\bik (?:raad|adviseer|beveel)\b|\bde (?:beste|betere|juiste) (?:optie|keuze)\b|\braden wij\b", re.IGNORECASE)
 
 
-def drafting_request(proposal: Proposal, corpus: list[ContentDocument], vocabulary: dict) -> dict | None:
+EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+URL = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+HAS_DIGIT = re.compile(r"\S*\d\S*")
+NAME = re.compile(r"(?<![.!?]\s)(?<!^)\b[A-ZÀ-Ý][a-zà-ÿ'-]+(?:\s+(?:van|de|der|den|ten|ter|von)?\s*[A-ZÀ-Ý][a-zà-ÿ'-]+)*")
+
+
+def redact_for_model(text: str) -> str:
+    """Strip what could identify a member before wording leaves the platform for a model: addresses, links, anything
+    holding a digit (amounts, dates, account, phone and reference numbers) and capitalised words inside a sentence
+    (likely names). It is a heuristic, so the owner still sees the real example questions and the checks still run on them."""
+    text = HAS_DIGIT.sub("[number]", URL.sub("[link]", EMAIL.sub("[email]", text)))
+    return NAME.sub("[name]", text)
+
+
+def for_model(request: dict) -> dict:
+    """The request as the drafting agent receives it: member wording redacted; checks keep using the original."""
+    return {**request, "member_questions": [redact_for_model(item) for item in request["member_questions"]]}
+
+
+def drafting_request(proposal: Proposal, corpus: list[ContentDocument], vocabulary: dict,
+                     catalogue: Catalogue | None = None) -> dict | None:
     """What the drafting agent may see: the situation, the kept example questions and approved passages. Nothing else."""
     if proposal.kind not in {"content_gap", "content_revision", "strategy_gap"} or not proposal.evidence["examples"]:
         return None
     draft = proposal.draft
     if proposal.kind == "strategy_gap":
-        return style_request(proposal, vocabulary)
+        return style_request(proposal, vocabulary, catalogue or Catalogue.load())
     wanted = [draft["base_id"]] if proposal.kind == "content_revision" else draft["related_content_ids"]
     passages = [{"id": doc.id, "title": doc.title, "body": doc.body} for doc in corpus
                 if doc.id in wanted and doc.status == "approved"]
@@ -457,11 +486,14 @@ def drafting_request(proposal: Proposal, corpus: list[ContentDocument], vocabula
             "member_questions": proposal.evidence["examples"], "approved_passages": passages}
 
 
-def style_request(proposal: Proposal, vocabulary: dict) -> dict:
+def style_request(proposal: Proposal, vocabulary: dict, active: Catalogue) -> dict:
     """For a style gap the agent sees the situation, the kept questions, why answers were declined, the styles that can
-    explain here and every approved pattern it may choose from. Styles change how an answer is explained, never its facts."""
+    explain here and every approved pattern it may choose from. Styles change how an answer is explained, never its facts.
+    The styles come from the active catalogue, so owner-created styles count; a pattern is offered only when no style that
+    can already explain here uses its template."""
     situation, evidence = proposal.situation, proposal.evidence
-    catalogue = {style.strategy_id: style for style in Catalogue.load().all()}
+    catalogue = {style.strategy_id: style for style in active.all()}
+    represented = {catalogue[key].template_id for key in evidence["eligible_styles"] if key in catalogue}
 
     def describe(style) -> dict:
         return {"id": style.strategy_id, "name": style.name, "ends_with_check_back_question": style.teach_back}
@@ -473,7 +505,7 @@ def style_request(proposal: Proposal, vocabulary: dict) -> dict:
             "decline_reasons": evidence["decline_reasons"], "review_issues": evidence["review_issues"],
             "styles_that_can_explain_here": [describe(catalogue[key]) for key in evidence["eligible_styles"] if key in catalogue],
             "approved_patterns": [describe(style) for style in patterns()
-                                  if style.status == "active" and style.strategy_id not in evidence["eligible_styles"]]}
+                                  if style.status == "active" and style.template_id not in represented]}
 
 
 def _own_fields(raw, own: set, other: set) -> dict:
@@ -530,7 +562,8 @@ def accept_suggestion(raw, request: dict, agent: str) -> dict:
     suggestion = validate_suggestion({**raw, "agent": agent, "context": list(passages)})
     if not set(suggestion["sources"]) <= set(passages):
         raise ContractError("the suggestion cites a passage it was not given")
-    written = (suggestion["title"], suggestion["answers"], suggestion["body"], *suggestion["claims"], *suggestion["gaps"])
+    written = (suggestion["title"], suggestion["answers"], suggestion["body"], *suggestion["claims"], *suggestion["gaps"],
+               *suggestion["themes"], *suggestion["coverage"])
     for text in written:
         if "{{" in text or "}}" in text or response_steers_choice(text) or STEERING_EXTRA.search(text):
             raise ContractError("a suggestion may not hold value placeholders or steer a choice")
@@ -567,6 +600,30 @@ def cases(items: list[Signal]) -> list[dict]:
     return list(seen.values())[:SAMPLE_CASES]
 
 
+def question_deadline(created_at: str) -> str:
+    """A kept question lives 30 days from its capture, which follows its response record by moments."""
+    return (datetime.fromisoformat(created_at) + timedelta(days=QUESTION_RETENTION_DAYS)).isoformat(timespec="seconds")
+
+
+def questions_expire_at(items: list[Signal]) -> str:
+    return min((question_deadline(item.created_at) for item in items if item.question), default="")
+
+
+def redacted(proposal: Proposal, now: datetime) -> Proposal | None:
+    """The proposal without member wording once its oldest kept question is past the original 30 days, else None."""
+    evidence = proposal.evidence
+    if not evidence["examples"] and not any(case["question"] for case in evidence["cases"]):
+        return None
+    deadline = evidence.get("questions_expire_at") or question_deadline(min(
+        (case["created_at"] for case in evidence["cases"] if case["question"]), default=proposal.created_at))
+    if now < datetime.fromisoformat(deadline):
+        return None
+    fields = {key: value for key, value in asdict(proposal).items() if key != "content_digest"}
+    fields["evidence"] = {**evidence, "examples": [], "questions_expire_at": "",
+                          "cases": [{**case, "question": ""} for case in evidence["cases"]]}
+    return sealed(fields)
+
+
 def examples(items: list[Signal]) -> list[str]:
     """Up to five distinct kept questions, newest first, for the owner to read; never more than the first 300 characters."""
     seen: dict[str, str] = {}
@@ -594,7 +651,7 @@ def _evidence(items: list[Signal], escalated: list[Signal], eligible: list[str],
         review_issues=dict(sorted(issues.items())), decline_reasons=dict(sorted(reasons.items())),
         content_versions=dict(sorted(versions.most_common(TOP_CONTENT), key=lambda row: (-row[1], row[0]))),
         eligible_styles=eligible, sample_journey_ids=[row[0] for row in sample[:SAMPLE_JOURNEYS]],
-        examples=examples(items), cases=cases(items))
+        examples=examples(items), cases=cases(items), questions_expire_at=questions_expire_at(items))
 
 
 def _strategy_draft(catalogue: Catalogue, state: str, channel: str, mode: str, eligible: list[str]) -> dict | None:

@@ -1,6 +1,6 @@
 """Publish fresh synthetic guarded-output evaluations to the selected gg-dev Foundry project.
 
-Uses pinned deployed writers and semantic agents with local deterministic adapters.
+Uses the latest deployed writers and semantic agents with local deterministic adapters.
 No live member tokens, new agents, permissions or runtime changes are involved.
 """
 from __future__ import annotations
@@ -17,10 +17,7 @@ from uuid import uuid4
 from scripts.azd_env import EnvError, load
 
 ROOT = Path(__file__).resolve().parents[1]
-PIN_KEYS = {
-    "gg-counsellor": "AZURE_AI_AGENT_VERSION",
-    "gg-counsellor-voice-compact": "AZURE_AI_VOICE_COMPACT_VERSION",
-}
+WRITER_NAMES = ("gg-counsellor", "gg-counsellor-voice-compact")
 
 
 def validate(values: dict[str, str]) -> None:
@@ -28,9 +25,6 @@ def validate(values: dict[str, str]) -> None:
         raise EnvError("Foundry synthetic evaluation is restricted to gg-dev")
     if not values.get("AZURE_AI_PROJECT_ENDPOINT"):
         raise EnvError("missing AZURE_AI_PROJECT_ENDPOINT")
-    for key in PIN_KEYS.values():
-        if not values.get(key, "").isdecimal():
-            raise EnvError(f"missing numeric deployed agent pin: {key}")
 
 
 def run(project, values: dict[str, str], output: Path) -> int:
@@ -42,6 +36,7 @@ def run(project, values: dict[str, str], output: Path) -> int:
     from governedgraph.evaluation import FLOORS, evidence_digest
     from evals.run_evals import load as cases, persona_cases
     from evals.run_model_comparison import UsageRecorder, collect_candidate, score_report
+    from scripts.create_agents import latest_version
 
     validate(values)
     if settings.is_azure:
@@ -51,18 +46,19 @@ def run(project, values: dict[str, str], output: Path) -> int:
         "gg-counsellor-voice-compact": values.get("AZURE_AI_COMPACT_DEPLOYMENT", "gpt-compact"),
     }
     expected = {name: agent_definition(INSTRUCTIONS, model=model).as_dict() for name, model in writers.items()}
+    versions = {}
     for name, definition in expected.items():
-        version = values[PIN_KEYS[name]]
-        deployed = project.agents.get_version(name, version)
-        if (deployed.name != name or deployed.version != version or deployed.definition.as_dict() != definition):
-            raise ValueError(f"{name}/{version} differs from the selected sample's pinned definition")
+        deployed = latest_version(project, name)
+        if deployed is None or deployed.name != name or deployed.definition.as_dict() != definition:
+            raise ValueError(f"the latest {name} differs from the selected sample's definition")
+        versions[name] = deployed.version
     report = {
         "label": "SIMULATED - ILLUSTRATIVE - synthetic data",
         "environment": "gg-dev", "project_endpoint": values["AZURE_AI_PROJECT_ENDPOINT"],
-        "mode": "local deterministic adapters; real pinned Foundry writers and Decision API; NOT live proof",
+        "mode": "local deterministic adapters; real Foundry writers and Decision API; NOT live proof",
         "actor_source": "fixed synthetic fixtures; not generated personas",
         "human_calibration": "not established", "automatic_promotion": False,
-        "versions": {name: values[key] for name, key in PIN_KEYS.items()},
+        "versions": versions,
         "decision_deployment": values.get("AZURE_AI_DECISION_DEPLOYMENT", "decision-v1"),
         "dataset_sha256": evidence_digest(cases("curated.jsonl") + cases("adversarial.jsonl") + persona_cases()),
         "rows": {},
@@ -77,7 +73,7 @@ def run(project, values: dict[str, str], output: Path) -> int:
 
         for name, model in writers.items():
             composer = FoundryComposer(INSTRUCTIONS, client=UsageRecorder(client))
-            composer.agent_name, composer.agent_version, composer.model = name, values[PIN_KEYS[name]], model
+            composer.agent_name, composer.agent_version, composer.model = name, versions[name], model
             report["rows"][model] = []
             directory = output.parent / ("work-" + uuid4().hex)
             directory.mkdir()

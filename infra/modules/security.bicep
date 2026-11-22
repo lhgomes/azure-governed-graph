@@ -74,7 +74,7 @@ resource gapReviewId 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-3
   tags: union(tags, { purpose: 'gap-review-batch' })
 }
 
-// Demo persona actor: invokes only its own pinned, tool-free Foundry agent; no runtime, values or record access.
+// Demo persona actor: invokes only its own tool-free Foundry agent; no runtime, values or record access.
 resource personaId 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (deployVoicePersona) {
   name: 'id-gg-persona-${token}'
   location: location

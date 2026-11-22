@@ -25,27 +25,24 @@ PROJECT_ID = (
 )
 
 
-def test_b3_gateway_omits_empty_named_values_and_requires_every_agent_pin():
+def test_b3_gateway_omits_empty_named_values_and_requires_published_agents():
     source = (ROOT / "infra/modules/model-gateway.bicep").read_text()
     named_values = source.split("resource values ", 1)[1].split("resource api ", 1)[0]
     assert "for item in items(configuration): if (!empty(item.value))" in named_values
     assert "value: item.value" in named_values
     assert "@minLength(1)\nparam runtimeClientId string" in source
-    readiness = source.split("var agentsReady = ", 1)[1].split("resource values ", 1)[0]
-    assert re.fullmatch(r"!empty\(\w+\)(?:\s*&&\s*!empty\(\w+\))*\s*", readiness)
-    assert set(re.findall(r"!empty\((\w+)\)", readiness)) == {
-        "mainAgentVersion", "compactAgentVersion",
-    }
+    assert "param agentsReady bool\n" in source
+    assert "AgentVersion" not in source and "writerApproval" not in source
 
 
-def test_b3_b8_gateway_uses_deny_policy_until_all_pins_exist_including_on_redeploy():
+def test_b3_b8_gateway_uses_deny_policy_until_agents_are_published_including_on_redeploy():
     source = (ROOT / "infra/modules/model-gateway.bicep").read_text()
     policy = source.split("resource policy ", 1)[1].split("var tracedApis", 1)[0]
-    assert "properties: agentsReady ? pinnedAgentPolicy : unavailableAgentPolicy" in policy
+    assert "properties: agentsReady ? approvedAgentPolicy : unavailableAgentPolicy" in policy
     assert "dependsOn: [ values ]" in policy
-    operation = source.split("resource operation ", 1)[1].split("var pinnedAgentPolicy", 1)[0]
+    operation = source.split("resource operation ", 1)[1].split("var approvedAgentPolicy", 1)[0]
     assert "dependsOn: [ policy ]" in operation
-    assert ("var pinnedAgentPolicy = {\n  format: 'xml', value: replace(loadTextContent('../policies/model-responses.xml'), "
+    assert ("var approvedAgentPolicy = {\n  format: 'xml', value: replace(loadTextContent('../policies/model-responses.xml'), "
             "'__CONVERSATION_TOKENS_PER_MINUTE__', string(conversationTokensPerMinute))") in source
     assert "var unavailableAgentPolicy = {\n  format: 'xml', value: loadTextContent('../policies/model-unavailable.xml')" in source
     assert " = if (" not in policy  # an incomplete redeploy must replace a previously active policy
@@ -327,7 +324,7 @@ def test_b7_closed_cost_contract_and_exact_decimal_amount():
         Cost.from_dict({**fields, "age_band": "75+"})
 
 
-def test_gateway_preserves_identity_pins_and_fails_closed():
+def test_gateway_preserves_identity_and_approved_agent_names_and_fails_closed():
     root = ET.parse(ROOT/"infra/policies/model-responses.xml").getroot()
     gateway = (ROOT/"infra/modules/model-gateway.bicep").read_text()
     assert "loadTextContent('../policies/model-responses.xml')" in gateway
@@ -340,33 +337,18 @@ def test_gateway_preserves_identity_pins_and_fails_closed():
     assert root.find(".//authentication-managed-identity") is None
     assert root.find(".//retry") is None
     text = (ROOT/"infra/policies/model-responses.xml").read_text()
-    for role, name in (
-        ("main", "gg-counsellor"),
-        ("compact", "gg-counsellor-voice-compact"),
-    ):
-        assert f'name == "{name}"' in text and f"{{{{model-{role}-agent-version}}}}" in text
-        assert f"'model-{role}-agent-version':" in gateway
-    pinned = next(when for when in root.findall(".//when")
-                  if when.find(".//set-status[@reason='Approved pinned agent required']") is not None)
-    assert pinned.attrib["condition"].count('name == "') == 2
+    for name in ("gg-counsellor", "gg-counsellor-voice-compact"):
+        assert f'name == "{name}"' in text
+    assert "agent-version" not in text and "model-writer-approval" not in text
+    approved = next(when for when in root.findall(".//when")
+                    if when.find(".//set-status[@reason='Approved agent required']") is not None)
+    assert approved.attrib["condition"].count('name == "') == 2
+    for override in ("model", "instructions", "tools", "text"):
+        assert f'body["{override}"] != null' in approved.attrib["condition"]
     main = (ROOT/"infra/workloads.bicep").read_text()
     assert "AZURE_AI_REVIEW_AGENT_VERSION" not in main
     assert "reviewAgentVersion" not in main
     assert root.find(".//set-body") is None
-
-
-def test_b1_b2_b8_generated_answers_stay_suspended_after_failed_hosted_acceptance():
-    root = ET.parse(ROOT/"infra/policies/model-responses.xml").getroot()
-    pause = next(when for when in root.findall(".//when")
-                 if when.find(".//set-status[@reason='Generated answers suspended pending semantic acceptance']")
-                 is not None)
-    status = pause.find(".//set-status")
-    assert status is not None and status.attrib["code"] == "503"
-    assert pause.attrib["condition"].count('name == "') == 2
-    for writer in ("gg-counsellor", "gg-counsellor-voice-compact"):
-        assert f'name == "{writer}"' in pause.attrib["condition"]
-    for decision in ("gg-intent-agent", "gg-understanding-agent", "gg-answer-review-agent"):
-        assert decision not in pause.attrib["condition"]
 
 
 def test_b9_gateway_names_the_conversation_quota_refusal_for_the_host():
@@ -378,64 +360,6 @@ def test_b9_gateway_names_the_conversation_quota_refusal_for_the_host():
     header = refusal.find("set-header")
     assert header.attrib["name"] == QUOTA_HEADER and header.find("value").text == QUOTA_HEADER_VALUE
     assert "llm-token-limit" in root.find("./on-error//when").attrib["condition"]
-
-
-def test_b8_only_exact_project_scoped_human_approval_can_leave_the_protective_writer_hold():
-    root = ET.parse(ROOT/"infra/policies/model-responses.xml").getroot()
-    pause = next(when for when in root.findall(".//when")
-                 if when.find(".//set-status[@reason='Generated answers suspended pending semantic acceptance']")
-                 is not None)
-    assert " ".join(pause.attrib["condition"].split()) == (
-        '@{ var body = context.Request.Body.As<Newtonsoft.Json.Linq.JObject>(preserveContent: true); '
-        'var name = (string)body["agent_reference"]["name"]; '
-        'var version = (string)body["agent_reference"]["version"]; '
-        'var isWriter = name == "gg-counsellor" || name == "gg-counsellor-voice-compact"; '
-        'if (!isWriter) { return false; } '
-        'var approval = Newtonsoft.Json.Linq.JObject.Parse(System.Text.Encoding.UTF8.GetString( '
-        'System.Convert.FromBase64String("{{model-writer-approval}}"))); '
-        'var writers = approval["writers"] as Newtonsoft.Json.Linq.JObject; '
-        'var writer = writers == null ? null : writers[name] as Newtonsoft.Json.Linq.JObject; '
-        'var approved = approval["approved"]; '
-        'return !((string)approval["tier"] == "tier2" '
-        '&& approved != null && approved.Type == Newtonsoft.Json.Linq.JTokenType.Boolean && (bool)approved '
-        '&& (string)approval["project_endpoint"] == "{{model-project-endpoint}}" '
-        '&& System.Text.RegularExpressions.Regex.IsMatch((string)approval["decision_ref"] ?? "", "^(?:GB|HR)-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$") '
-        '&& !string.IsNullOrWhiteSpace((string)approval["evidence_ref"]) '
-        '&& writer != null && (string)writer["version"] == version '
-        '&& System.Text.RegularExpressions.Regex.IsMatch((string)writer["definition_sha256"] ?? "", "^[0-9a-f]{64}$")); }'
-    )
-    gateway = (ROOT / "infra/modules/model-gateway.bicep").read_text()
-    assert "var writerApproval = empty(writerApprovalJson) ? {} : json(writerApprovalJson)" in gateway
-    assert "'model-writer-approval': base64(string(writerApproval))" in gateway
-    assert "'model-project-endpoint': projectEndpoint" in gateway
-    assert "@maxLength(3000)\nparam writerApprovalJson string = ''" in gateway
-    from scripts.delivery import parameters
-    assert parameters({"writerApproval": None})["parameters"]["writerApproval"]["value"] is None
-    main = (ROOT / "infra/workloads.bicep").read_text()
-    assert "param writerApproval object?\n" in main
-    assert "writerApprovalJson: empty(writerApproval) ? '' : string(writerApproval)" in main
-
-
-@pytest.mark.parametrize("raw", [
-    None,
-    "",
-    "{}",
-    json.dumps({"approved": False}),
-    json.dumps({"approved": True, "decision_ref": "HR-SYNTHETIC",
-                "evidence_ref": 'ILLUSTRATIVE - synthetic "quoted" evidence\\reference\nline'}),
-])
-def test_azd_approval_object_substitution_preserves_json_and_empty_revocation(raw):
-    from scripts.delivery import parameters
-    resolved = parameters({"writerApproval": json.loads(raw or "null")})["parameters"]["writerApproval"]["value"]
-    assert resolved is None or isinstance(resolved, dict)
-    gateway_json = json.dumps(resolved) if resolved else ""
-    gateway_approval = json.loads(gateway_json) if gateway_json else {}
-    assert gateway_approval == (json.loads(raw) if raw else {})
-    if not raw or raw == "{}":
-        assert gateway_approval.get("approved") is not True
-    if raw and '"' in raw:
-        with pytest.raises(json.JSONDecodeError):
-            json.loads(json.dumps({"value": "${APPROVAL}"}).replace("${APPROVAL}", raw))
 
 
 def test_workbook_never_substitutes_old_voice_slo_or_assumed_cost():

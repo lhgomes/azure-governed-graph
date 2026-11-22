@@ -16,11 +16,7 @@ from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[1]
 LABEL = "ILLUSTRATIVE - synthetic data"
-AGENT_ROLES = {
-    "counsellor": "AZURE_AI_AGENT_VERSION",
-    "voice-compact": "AZURE_AI_VOICE_COMPACT_VERSION",
-    "fairness": "AZURE_AI_FAIRNESS_AGENT_VERSION",
-}
+AGENT_ROLES = ("counsellor", "voice-compact", "fairness")
 AGENT_NAMES = {
     "counsellor": "gg-counsellor",
     "voice-compact": "gg-counsellor-voice-compact",

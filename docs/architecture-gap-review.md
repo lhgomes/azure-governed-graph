@@ -30,12 +30,18 @@ count as declined answers and can propose a new style. Protective and member-req
 question as written to the quarantined `declined-questions` container. This is best effort, happens after the audit
 record, is never logged and is skipped for selected-style test journeys. The container is not immutable, so an
 erasure request can be honoured, and a lifecycle rule expires blobs, including noncurrent versions, after 30 days.
-Up to five distinct questions per proposal appear to owners as examples, and the same questions go to the drafting
-agent. Proposal blobs, which hold those examples, expire after 30 days too.
+Up to five distinct questions per proposal appear to owners as examples. The same questions go to the drafting
+agent only after names, amounts, dates, links, contact details and anything holding a digit are redacted; the
+redaction is a heuristic, and the code checks on the draft still run against the original wording. Proposal blobs, which hold those examples, expire after 30 days too. A copy would otherwise restart the
+question's clock, so each proposal records when its oldest kept question passes its own 30 days, and every daily run
+removes the member wording from stored proposals past that time (the proposal stays, and an owner is asked to refresh).
 
-The kept text never feeds learning, ranking, prompts, templates, models or the catalogue. It reaches behaviour only
-when an owner approves a passage or style. This is the single governed exception to B4, which otherwise forbids any
-path from conversations to behaviour.
+The kept text never feeds learning, ranking, prompts, templates, model training or the catalogue. The drafting agent
+reads its redacted form once per proposal, with response storage off, and its output is an inert proposal. The text
+reaches behaviour only when an owner approves a passage or style. This is the single governed exception to B4, which
+otherwise forbids any path from conversations to behaviour. It is an owner decision recorded in the pull request
+description (decision, alternative of drafting from closed fields only, boundary B4). Capture is on whenever the
+administration console is deployed, so tell members that declined questions are kept for 30 days.
 
 ## Proposals
 
@@ -56,7 +62,7 @@ refused, and the console says so.
 
 ## Drafting agent
 
-`gg-gap-review` is a pinned, tool-free Foundry agent (`agents/gap_drafter.py`), called once for each new proposal
+`gg-gap-review` is a tool-free Foundry agent (`agents/gap_drafter.py`), called once for each new proposal
 that has kept questions. Its output is untrusted until the code checks below pass, and an owner reviews it before
 anything changes.
 
@@ -74,7 +80,8 @@ dropped and the idea stays without a draft.
 
 The job does not vouch for the facts. An owner must verify each claim against an authoritative source and record
 that source before the console accepts an approval. The source goes into the immutable journal, and the publisher
-refuses an approval whose journal entry has none.
+refuses an approval whose journal entry has none. The journal entry also holds a digest of the complete approved
+document, so a body, title or scope altered after the decision does not verify.
 
 **Styles.** Counting finds the gap: a situation where no style, or only one, can explain. The agent then reads the
 kept questions, why answers were declined, the styles that can already explain there and every approved pattern. It
@@ -118,5 +125,5 @@ Both improvement containers carry a 30-day immutability policy, so blobs are cre
   a claim for the owner to verify against a recorded source.
 - **B3/B8:** drafts reuse approved patterns, are inert, and activation is an owner (Tier 2) decision through the
   existing signed release or publisher.
-- **B4:** member words are an input only to owner-reviewed proposals. They are kept briefly and never feed learning.
+- **B4:** member words are an input only to owner-reviewed proposals, and reach the drafting agent only in redacted form. They are kept briefly and never feed learning.
 - **B7:** the situation has no demographic field.

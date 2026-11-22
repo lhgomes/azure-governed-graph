@@ -217,6 +217,27 @@ def test_b3_an_ai_recommended_style_is_approved_through_the_catalogue_path_and_a
     assert owner.post("/api/proposals/decision", json=decision(new, "acknowledge")).status_code == 200
 
 
+def test_b8_a_style_approval_that_edits_only_the_name_keeps_the_pattern_the_ai_recommended(desk):
+    from dataclasses import asdict
+
+    from governedgraph.learning import gap_review
+
+    _, as_owner, _, source, proposals, _ = desk
+    base = next(item for item in run(unanswered(6, **THIN))[0] if item.kind == "strategy_gap")
+    reply = {"fit": "existing", "pattern_id": "S3", "name": "Timeline for objections", "why": "Members want the order of events.",
+             "themes": ["When it starts"], "new_style_name": "", "new_style_idea": "", "agent": "gg-gap-review", "context": ["S1"]}
+    assert base.draft["pattern_id"] != "S3"
+    idea = gap_review.sealed({**asdict(base), "draft": {**base.draft, "suggested": reply}})
+    improvement_store.create_once(proposals, idea.blob_name, idea.encode())
+    owner = as_owner()
+    revision = owner.get("/api/overview").json()["revision"]
+    assert owner.post("/api/proposals/decision", json=decision(idea, "approve", expected_revision=revision)).status_code == 200
+    assert owner.post("/api/proposals/decision", json=decision(idea, "approve", expected_revision=revision,
+                                                               style={"name": "My wording"})).status_code in {200, 409}
+    first = source.owner_calls[0][0]
+    assert first.change.pattern_id == "S3" and first.change.name == "Timeline for objections"
+
+
 def test_b8_a_revision_approval_records_its_base_passage_and_a_refused_approval_is_closed_and_leaves_the_corpus(desk):
     _, as_owner, _, source, proposals, directory = desk
     grounded = [record(i, kind="explanation", strategy="S1", content=["C-001-v1.3"], issues=["grounding"]) for i in range(6)]

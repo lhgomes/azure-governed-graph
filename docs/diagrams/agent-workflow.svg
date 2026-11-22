@@ -30,7 +30,7 @@
 <rect x="745" y="181" width="235" height="116" rx="7" fill="#ffffff" stroke="#7044a5" stroke-width="1.4"/>
 <text x="758" y="200" font-size="10" fill="#7044a5" font-weight="700" text-anchor="start">FOUNDRY AGENT SERVICE</text>
 <text x="758" y="224" font-size="17" fill="#172b45" font-weight="700" text-anchor="start">Counsellor</text>
-<text x="758" y="244" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Pinned primary / compact writer</text>
+<text x="758" y="244" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Named primary / compact writer</text>
 <text x="758" y="260" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Approved evidence + placeholders</text>
 <text x="758" y="276" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Host-authorized tools only</text>
 <rect x="1005" y="181" width="260" height="116" rx="7" fill="#ffffff" stroke="#7044a5" stroke-width="1.4"/>
@@ -166,7 +166,7 @@
 <rect x="656" y="944" width="288" height="120" rx="7" fill="#ffffff" stroke="#087f82" stroke-width="1.4"/>
 <text x="669" y="963" font-size="10" fill="#087f82" font-weight="700" text-anchor="start">03 / AI DRAFT</text>
 <text x="669" y="987" font-size="18" fill="#172b45" font-weight="700" text-anchor="start">gg-gap-review agent</text>
-<text x="669" y="1008" font-size="13" fill="#475569" font-weight="400" text-anchor="start">Pinned, no tools, no data access</text>
+<text x="669" y="1008" font-size="13" fill="#475569" font-weight="400" text-anchor="start">Tool-free, no data access</text>
 <text x="669" y="1024" font-size="13" fill="#475569" font-weight="400" text-anchor="start">Drafts a passage, recommends a style</text>
 <text x="669" y="1040" font-size="13" fill="#475569" font-weight="400" text-anchor="start">Output checked in code</text>
 <path d="M944 1004 H960" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>

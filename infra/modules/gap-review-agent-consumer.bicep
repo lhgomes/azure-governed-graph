@@ -15,7 +15,7 @@ resource agent 'Microsoft.CognitiveServices/accounts/projects/agents@2025-04-01-
   parent: project
   name: 'gg-gap-review'
 }
-// Endpoint use on the gap-review drafting agent alone. The job never reads definitions: delivery verifies the pinned version.
+// Endpoint use on the gap-review drafting agent alone. The job never reads definitions.
 resource gapReviewConsumer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: agent
   name: guid(agent.id, gapReviewPrincipalId, 'eed3b665-ab3a-47b6-8f48-c9382fb1dad6')

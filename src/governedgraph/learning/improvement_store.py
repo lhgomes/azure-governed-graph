@@ -13,6 +13,7 @@ immutable action journal; the publisher refuses an approval that has no matching
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass
@@ -68,6 +69,11 @@ class ContentApproval:
     def for_document(cls, document: ContentDocument, decision_ref: str, proposal: str,
                      base_id: str = "") -> ContentApproval:
         return cls(decision_ref, proposal, asdict(document), base_id)
+
+
+def document_digest(document: dict) -> str:
+    """Digest of the complete approved document, journalled by the console and checked again before publishing."""
+    return hashlib.sha256(json.dumps(document, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def approval_name(document: ContentDocument) -> str:
@@ -174,9 +180,27 @@ def verify_decision(journal, approval: ContentApproval) -> None:
     if (row.get("action_id") != approval.decision_ref or row.get("action") != "proposal_content_approve"
             or row.get("document_id") != approval.content.id or row.get("content_name") != approval.name
             or row.get("base_id", "") != approval.base_id
+            or row.get("document_sha256") != document_digest(approval.document)
             or not isinstance(row.get("source"), str) or len(row["source"].strip()) < 8
             or not isinstance(proposal, dict) or proposal.get("proposal_id") != approval.proposal_id):
         raise PermissionError(f"approval {approval.decision_ref} does not match its journalled owner decision")
+
+
+def redact_expired_questions(container, now: datetime) -> int:
+    """Remove member wording from stored proposals once the question's own 30 days have passed.
+
+    Copying a question into a proposal would otherwise restart its retention clock. The evidence digest ignores
+    examples and cases, so the proposal keeps its place; only the content digest changes, which asks an owner to refresh."""
+    from governedgraph.learning.gap_review import redacted
+
+    changed = 0
+    for item in _all(container, "proposals/"):
+        proposal = Proposal.from_dict(_load(container, item.name))
+        clean = redacted(proposal, now)
+        if clean is not None:
+            container.get_blob_client(item.name).upload_blob(clean.encode(), overwrite=True)
+            changed += 1
+    return changed
 
 
 def exists(container, name: str) -> bool:

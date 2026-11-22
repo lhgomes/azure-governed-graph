@@ -546,14 +546,15 @@ function actionDetail(row, records = [row]) {
       ["If it says Requested", row.status === "requested" ? "It was written down but never marked as finished. Ask a technical operator to check what happened." : undefined],
     ], { ...row, journal_steps: records });
 }
-async function journeyDetail(row) {
+async function journeyDetail(row, back = null) {
   $("detail-title").textContent = `Journey ${row.journey_id}`;
   const body = $("detail-body");
   body.replaceChildren(node("p", "Loading the answer records..."));
   $("detail-dialog").showModal();
   try {
     const result = await api(`/api/journeys/${encodeURIComponent(row.journey_id)}`);
-    body.replaceChildren(node("p", "One member's conversation. Below is the saved record for each answer and, if switched on, the example conversation itself. Only made-up members appear here.", "lead"),
+    body.replaceChildren(...(back ? [button("Back to the idea", back, "quiet")] : []),
+      node("p", "One member's conversation. Below is the saved record for each answer and, if switched on, the example conversation itself. Only made-up members appear here.", "lead"),
       node("p", "Answer records never contain conversation text. The example conversation comes from a separate source.", "notice"));
     const actions = node("div", null, "detail-actions");
     const traces = button("Show the example conversation", () => loadTraces(row.journey_id, traceArea, traces), "quiet");
@@ -654,7 +655,10 @@ async function improvementDetail(row) {
   try {
     const extra = await api(`/api/proposals/${row.proposal_id}`);
     window.AdminImprovements.mount(target, { row: extra.proposal, extra, data, api,
-      openJourney: (journeyId) => { $("detail-dialog").classList.remove("idea-dialog"); journeyDetail({ journey_id: journeyId }); },
+      openJourney: (journeyId) => {
+        $("detail-dialog").classList.remove("idea-dialog");
+        journeyDetail({ journey_id: journeyId }, () => improvementDetail(row));
+      },
       saved: async (result, decision) => {
         $("detail-dialog").close();
         $("notification").textContent = decision === "approve"

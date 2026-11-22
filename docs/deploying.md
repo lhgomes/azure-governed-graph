@@ -209,7 +209,7 @@ Every applied attempt, including the explicitly selected catalogue upgrade,
 creates an owner-only `.run/deliveries/<run-id>/receipt.json` **before the first
 Azure command**. It records stage timestamps, deployment-script/Bicep file
 hashes, the Git commit when available, the selected subscription/group and
-exact naming seed, immutable image references, agent pins and native job
+exact naming seed, immutable image references, published agent versions and native job
 execution IDs. A failure prints the stage and receipt path; it does not depend
 on reaching the final readiness check. `--plan` remains cloud-free and writes
 nothing.
@@ -335,7 +335,7 @@ implement revocable ranking or reinstatement overrides.
 
 Reusing infrastructure is not the same as migrating governed application state.
 The second-contact release changes the source catalogue and strategy versions,
-and its writer approval is a recorded human decision.
+and its release approval is a recorded human decision.
 Ordinary initialization validates and preserves existing state rather than
 overwriting it. Normal `scripts.deploy` signs and initializes expert priors
 before complete workload provisioning, as usual. It never loads, validates or
@@ -409,7 +409,7 @@ still lose a race. Successful upgrade delivery records `migrated`, the snapshot 
 decision reference and predecessor archive in its existing receipt. Rerunning
 after a completed upgrade preserves subsequent learning rather than resetting
 it again. Do not delete snapshots, clear suspensions or use `--new` to bypass a
-blocked upgrade. Writer approval and source changes alone are not proof that
+blocked upgrade. Release approval and source changes alone are not proof that
 the migration or its Azure validation has completed.
 
 Without target flags, an interactive terminal queries resource groups in the
@@ -483,9 +483,9 @@ or changes the global account. Standalone agent provisioning requires
 Delivery binds all three required hosted agent names explicitly to the workload contract,
 including `gg-counsellor` and `gg-fairness-explainability`. Ambient agent-name
 settings in the invoking shell cannot redirect deployment planning, version
-creation or fairness endpoint pinning. standalone provisioning still honors its
-configured names. Writer approval checks both the exact agent name and immutable
-version; old differently named agents are retained, never renamed or deleted.
+creation or the fairness endpoint's follow-latest routing. Standalone
+provisioning still honors its configured names. Delivery rejects a different
+agent name; old differently named agents are retained, never renamed or deleted.
 
 CLI commands print their operation, attempt number and timeout to stderr, with
 a heartbeat every 30 seconds. Arguments, environment values and captured command
@@ -573,9 +573,12 @@ cannot declare tests, evaluation policy, learning proofs or operator recovery.
    extension runtime images serve all five applications. All images use the same
    application registry with role-scoped managed identity pull access. Each distinct target
    is built once, or its source-keyed immutable image is reused.
-3. **Bounded bootstrap.** Exact prompt definitions are created/reused with
+3. **Bounded bootstrap.** Exact prompt definitions are published with
    `AIProjectClient.agents.create_version`, DefaultAzureCredential and pinned
-   `azure-ai-projects==2.9.0`; matching definitions reuse numeric versions.
+   `azure-ai-projects==2.9.0`. An unchanged definition reuses its latest version;
+   a changed prompt creates a new version, which is served immediately because
+   runtime calls agents by name. No version is passed to the workloads, and the
+   fairness endpoint is set to follow the latest version.
    Entra applications/groups preserve browser self-scopes and self-preauthorization.
    Only the exact Search indexer private-link request is approved.
    `infra/bootstrap.bicep` declares the existing isolated content publisher,
@@ -589,7 +592,7 @@ cannot declare tests, evaluation policy, learning proofs or operator recovery.
    existing state is preserved, including learned rankings and protective state.
 4. **`examples/pension_wtp/infra/workloads.bicep`: complete workloads once.**
    This explicit domain composition calls `infra/workloads.bicep` with immutable
-   images, approved writer record, actual agent pins and complete domain inputs.
+   images, published-agent flags and complete domain inputs.
    Native fairness and learning schedules run at the existing four-hour cadence
    from the first release, using the guarded lease/same-cycle-audit runtime.
    Bicep creates the dedicated `p2-artifacts` container in private content storage.
@@ -597,8 +600,8 @@ cannot declare tests, evaluation policy, learning proofs or operator recovery.
    independent fairness audit, cohort and signing permissions are unchanged.
    The pipeline reads learning aggregates through a container-scoped reader role.
    With the admin console, a dedicated gap-review identity and the daily `job-gg-gap-review`
-   write inert improvement proposals to `improvement-proposals`, with drafts from the pinned tool-free
-   `gg-gap-review` agent that bootstrap provisions (`create_agents --role gap-review`) and the job identity may call
+   write inert improvement proposals to `improvement-proposals`, with drafts from the tool-free
+   `gg-gap-review` agent that bootstrap publishes (`create_agents --role gap-review`) and the job identity may call
    alone; the runtime keeps declined member questions for 30 days; owners decide in the console
    and approved passages are published by `run_publisher_job --approved-proposals`.
    The synthetic values adapter has its own identity with registry pull only;
@@ -632,7 +635,7 @@ visible but disabled during a conversation; recording controls appear when neede
 **Talk to a person** stays available after sign-in. Conversation captions scroll without
 moving the question composer. Personas play live in that same conversation log: an AI actor with its own voice and identity
 plays each persona over voice or chat, and **Take over as the member** continues the same journey. With the voice
-demo enabled the delivery process creates the pinned persona agent and then grants the dedicated persona identity
+demo enabled the delivery process publishes the persona agent and then grants the dedicated persona identity
 access to that one agent only; no recorded story is replayed. Video export is an optional download under the closed
 **Behind the conversation** section, not an automatic download. Every guide reply carries an **i** badge: select it to
 see how that reply was produced (what the guide did, the draft checks and the outcome), built from closed codes only

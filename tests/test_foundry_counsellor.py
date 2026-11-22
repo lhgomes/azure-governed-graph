@@ -135,7 +135,7 @@ def test_b2_b9_art50_counsellor_instructions_keep_the_approved_guardrail_wording
 def counsellor(tmp_path, monkeypatch, azure_errors):
     import governedgraph.common.config as config
 
-    foundry_settings = replace(config.settings, agent_version="7", run_dir=tmp_path)
+    foundry_settings = replace(config.settings, run_dir=tmp_path)
     monkeypatch.setattr(config.settings.__class__, "run_dir", property(lambda self: tmp_path))
     install_azure_doubles(monkeypatch, tmp_path, template_composer=False, fixture_decisions=True)
     service = local_strategy_service(tmp_path / "strategy", control_share=0)
@@ -144,7 +144,6 @@ def counsellor(tmp_path, monkeypatch, azure_errors):
     c.start()
     c.composer = "foundry"
     c.tools.agent_name = "gg-counsellor"
-    c.tools.agent_version = "7"
     monkeypatch.setattr(foundry_runtime, "settings", foundry_settings)
     return c
 
@@ -178,7 +177,6 @@ def install_responses(monkeypatch, client):
 
     composer = FoundryComposer("test instructions", client=client)
     monkeypatch.setattr(FoundryComposer, "shared", classmethod(lambda cls, instructions: composer))
-    monkeypatch.setattr(decision_agents.settings.__class__, "review_agent_version", property(lambda _: "7"))
     judge = decision_agents.FoundryDecisionAgent("answer-review", client=client, agent_version="7")
     monkeypatch.setattr(decision_agents, "review_with_decision_model", judge.judge)
 
@@ -402,13 +400,12 @@ def contextual_answer(monkeypatch, azure_errors, channel):
         monkeypatch.setattr(f"governedgraph.{module}.operation", lambda *args, **kwargs: nullcontext(None))
     monkeypatch.setattr("governedgraph.observability.emit", Mock())
     monkeypatch.setattr("governedgraph.observability.model_usage", Mock())
-    monkeypatch.setattr(foundry_runtime, "settings", replace(settings, agent_version="7"))
     catalogue = Catalogue.load()
     journey = Journey("J-contextual-answer", "SYNTHETIC-CUSTOMER", channel=channel)
     records = []
     bound = CounsellorTools(
         journey, journey.member_ref, Mock(), Mock(), Mock(), SimpleNamespace(append=records.append),
-        "synthetic-model", "1.5", agent_name="gg-counsellor", agent_version="7",
+        "synthetic-model", "1.5", agent_name="gg-counsellor",
     )
     values = MemberValues(journey.member_ref, [
         MemberValue("monthly_pension_after_transition", "Monthly pension", 1412.5, "EUR/month",
@@ -602,10 +599,10 @@ def test_b2_dq10_model_figures_and_steering_are_never_released(counsellor, monke
     assert len(client.calls) == 1
     records = counsellor.tools.store.read_all()
     assert len(records) == 1 and records[0]["numeric_fidelity_passed"]
-    assert records[0]["agent_name"] == "gg-counsellor" and records[0]["agent_version"] == "7"
+    assert records[0]["agent_name"] == "gg-counsellor" and not records[0]["agent_version"]
     assert records[0]["model_deployment"] == counsellor.tools.model_deployment
     assert client.calls[0]["extra_body"] == {
-        "agent_reference": {"type": "agent_reference", "name": "gg-counsellor", "version": "7"},
+        "agent_reference": {"type": "agent_reference", "name": "gg-counsellor"},
     }
     assert client.calls[0]["input"][0]["type"] == "message"
 
@@ -673,7 +670,7 @@ def test_b2_valid_placeholder_draft_reaches_the_single_checked_exit(counsellor, 
     assert result.strategy_id == "S5" and result.fidelity.passed
     assert counsellor.tools.trace.composition_source == "foundry"
     assert "{{value:" not in result.text
-    assert counsellor.tools.store.read_all()[-1]["agent_version"] == "7"
+    assert not counsellor.tools.store.read_all()[-1]["agent_version"]
 
 
 def test_b2_followup_uses_only_the_requested_official_date_not_the_pension_template(counsellor, monkeypatch):
@@ -920,7 +917,7 @@ def test_art50_b9_foundry_composition_treats_opening_as_already_delivered(counse
     assert instructions_received == [INSTRUCTIONS]
     assert result.fidelity.passed and not result.escalated
     assert "AI" not in result.text and "advisor" not in result.text
-    assert client.calls[0]["extra_body"]["agent_reference"]["version"] == "7"
+    assert client.calls[0]["extra_body"]["agent_reference"] == {"type": "agent_reference", "name": "gg-counsellor"}
 
 
 @pytest.mark.parametrize("channel", ["chat", "voice"])
@@ -1659,7 +1656,7 @@ def test_b7_explainability_metadata_round_trip_and_closed_contract(counsellor):
     record = counsellor.tools.store.read_all()[-1]
     assert asdict(ExplainabilityRecord.from_dict(record)) == record
     assert record["contract_version"] == "1.3"
-    for change in ({"age_band": "75+"}, {"agent_version": "latest"}, {"agent_name": ""}, {"model_deployment": ""}):
+    for change in ({"age_band": "75+"}, {"agent_version": 7}, {"agent_name": ""}, {"model_deployment": ""}):
         with pytest.raises(ContractError):
             ExplainabilityRecord.from_dict({**record, **change})
 
@@ -1672,19 +1669,18 @@ def test_b4_journey_trace_id_is_stable_and_contains_no_member_fields():
     assert 0 < journey_trace_id("J-1") < 2 ** 128
 
 
-def test_azure_mode_selects_remote_shields_and_pinned_semantic_agents(monkeypatch, tmp_path):
+def test_azure_mode_selects_remote_shields_and_named_semantic_agents(monkeypatch, tmp_path):
     from governedgraph.agents import counsellor
     from governedgraph.common.config import settings
 
-    monkeypatch.setattr(counsellor, "settings",
-                        replace(settings, agent_version="7", run_dir=tmp_path))
+    monkeypatch.setattr(counsellor, "settings", replace(settings, run_dir=tmp_path))
     for name in ("default_values_client", "default_strategy_client", "default_search", "default_store"):
         monkeypatch.setattr(counsellor, name, lambda *args: SimpleNamespace())
     c = counsellor.new_session("MBR-7Q2K", journey_id="J-AZURE-WIRING")
     assert isinstance(c.screen, azure_safety.AzurePromptShields)
     assert c.decision_agents == {} and not hasattr(c, "advice")
     assert c.tools.prompt_screen is c.screen
-    assert c.tools.agent_version == "7" and c.composer == "foundry"
+    assert c.composer == "foundry"
     assert not c.step_up_verified
 
 

@@ -648,6 +648,20 @@ def test_a_content_proposal_asks_for_a_passage_only_when_approving_and_rejection
 """)
 
 
+def test_a_counted_review_idea_shows_its_next_step_once(admin_browser):
+    admin_browser(IDEA + r"""
+(async () => {
+  run(`data.access.can_own = true;`);
+  const row = run(`window.idea("false_negative_review", {})`);
+  const target = document.createElement("div");
+  context.window.AdminImprovements.mount(target, {row, data: run("data"), extra: {stages: [], related: []},
+    api: async () => ({}), saved: async () => {}});
+  const hint = "Open an example journey in Conversations to judge the answers. Then acknowledge, defer or reject.";
+  assert.equal(target.textContent.split(hint).length - 1, 1);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+""")
+
+
 def test_an_ai_suggestion_is_labelled_unchecked_and_prefills_the_owners_editor(admin_browser):
     admin_browser(IDEA + r"""
 (async () => {

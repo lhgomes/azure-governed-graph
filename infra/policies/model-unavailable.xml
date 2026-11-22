@@ -6,7 +6,7 @@
       <set-header name="Content-Type" exists-action="override">
         <value>application/json</value>
       </set-header>
-      <set-body>{"error":{"code":"AgentConfigurationIncomplete","message":"Approved agent versions are not configured."}}</set-body>
+      <set-body>{"error":{"code":"AgentConfigurationIncomplete","message":"Approved agents are not published."}}</set-body>
     </return-response>
   </inbound>
   <backend><base /></backend>

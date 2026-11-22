@@ -2,7 +2,7 @@
 
 Runs under its own identity with read access to response records, journey state, kept declined questions and
 owner-approved passages, and write access to the proposal container only. It cannot sign, publish, change a catalogue or
-write an approval (B3, B4, B8). When a pinned drafting agent is configured, it also asks that agent for a passage
+write an approval (B3, B4, B8). When the drafting agent is configured, it also asks that agent for a passage
 suggestion for each new content proposal and for a reasoned style recommendation for each style gap. A failed suggestion
 is dropped: the content idea stays without a draft, and a style idea is not offered until the agent answers.
 
@@ -73,14 +73,14 @@ def read_questions(container, response_ids: set[str]) -> dict[str, str]:
     return found
 
 
-def suggest(proposal, drafter, label: str, corpus, vocabulary):
+def suggest(proposal, drafter, label: str, corpus, vocabulary, catalogue):
     """Attach a grounded suggestion, or return the proposal unchanged. Nothing from the agent is trusted before checks."""
-    request = gap_review.drafting_request(proposal, corpus, vocabulary)
+    request = gap_review.drafting_request(proposal, corpus, vocabulary, catalogue)
     if request is None:
         return proposal, False
     accept = gap_review.accept_style_suggestion if proposal.kind == "strategy_gap" else gap_review.accept_suggestion
     try:
-        suggestion = accept(drafter(request), request, label)
+        suggestion = accept(drafter(gap_review.for_model(request)), request, label)
     except Exception as error:
         log.warning("gap_review_suggestion_dropped", extra={"proposal_id": proposal.proposal_id,
                                                            "error_type": type(error).__name__})
@@ -112,19 +112,20 @@ def run(*, records, journeys, proposals, approvals, catalogue, vocabulary, seed,
             current[proposal.proposal_id] = proposal.evidence_digest
             continue
         if drafter is not None:
-            proposal, attached = suggest(proposal, drafter, drafter_label, corpus, vocabulary)
+            proposal, attached = suggest(proposal, drafter, drafter_label, corpus, vocabulary, catalogue)
             drafted += attached
         if proposal.kind == "strategy_gap" and "suggested" not in proposal.draft:
             continue  # a style idea is only offered with the AI's reasoning; the next batch asks again
         written += improvement_store.create_once(proposals, proposal.blob_name, proposal.encode())
         current[proposal.proposal_id] = proposal.evidence_digest
+    redacted = improvement_store.redact_expired_questions(proposals, now)
     summary = {**summary, "proposals": len(found), "questions_read": len(kept), "suggestions_drafted": drafted,
                "current": current}
     if not improvement_store.create_once(proposals, f"batches/{summary['batch_id']}.json",
                                          json.dumps(summary, sort_keys=True).encode()):
         raise FileExistsError("this review batch is already recorded")
     log.info("gap_review_completed", extra={"batch_id": summary["batch_id"], "proposals": len(found),
-                                           "new_revisions": written})
+                                           "new_revisions": written, "questions_redacted": redacted})
     return {**summary, "new_revisions": written}
 
 

@@ -68,7 +68,8 @@ display strings from the system of record. Put that source behind the facade, as
 The prompts, closed vocabulary and fixed member-facing wording live in the pack (see the table above), not in
 framework code. Replace them for your domain, keep the boundary rules in the prompts, and re-run the evaluation hard
 gates. `tests/test_domain_pack.py` fails if sample-domain wording appears in `src/governedgraph`, and Foundry agent
-definitions are recreated from the pack, so a prompt change produces a new agent version for approval (Tier 2).
+definitions are recreated from the pack, so a prompt change publishes a new agent version, which is served at once
+because runtime calls agents by name. Review prompt changes in the pull request, as they widen what the system may say.
 Evaluation personas and datasets also belong to your pack.
 The fixed `messages.answer_unavailable` acknowledgment is required for internal
 answer failures; it must not ask the member to repeat a question already routed

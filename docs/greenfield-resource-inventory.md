@@ -11,7 +11,7 @@ The standard pension WTP reference composition deploys the following services. O
 | configured Microsoft Decision 1.1 deployment | Direct intent, understanding and answer-review decisions |
 | Content Safety | Explicit Prompt Shields before inference |
 | AI Search | Approved-content grounding and indexing |
-| APIM | Governed member/strategy/admin APIs and pinned Responses |
+| APIM | Governed member/strategy/admin APIs and approved-agent Responses |
 | Container Apps environment | Orchestrator, strategy, member values, optional admin/contact-centre and voice; bootstrap, scheduled P2 and optional daily gap-review jobs |
 | Application ACR | Runtime, bootstrap, probe, P2 and fixture images |
 | Main storage | Explainability records, learning aggregates, optional immutable administration journal, optional improvement proposals, kept declined questions (30-day expiry) and immutable content approvals |

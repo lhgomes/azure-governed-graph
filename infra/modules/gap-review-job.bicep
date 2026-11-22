@@ -1,6 +1,6 @@
 // Scheduled gap review: reads declined interactions and writes inert improvement proposals for owner review.
 // Its identity can read response records, journey state, declined member questions and owner-approved passages, write the
-// proposal container only, and call its own pinned drafting agent; it cannot write an approval, sign, publish content,
+// proposal container only, and call its own drafting agent; it cannot write an approval, sign, publish content,
 // change the catalogue or start jobs.
 param location string
 param token string

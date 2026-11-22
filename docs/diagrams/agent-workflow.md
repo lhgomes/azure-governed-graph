@@ -16,7 +16,7 @@ where authorized operators observe evidence and can freeze or suspend; separatel
 
 - **The host coordinates.** Microsoft Agent Framework executes explicit branches.
   The host owns authentication, input screening, state, authorization and release.
-- **Semantic work has bounded roles.** Microsoft Decision 1.1 provides intent routing, teach-back understanding and answer-quality review through the direct SystemOne API. The two pinned Counsellor prompt agents draft explanations using approved evidence and official-value references. The host controls at most one repair and recheck.
+- **Semantic work has bounded roles.** Microsoft Decision 1.1 provides intent routing, teach-back understanding and answer-quality review through the direct SystemOne API. The two named Counsellor prompt agents draft explanations using approved evidence and official-value references. The host controls at most one repair and recheck.
 - **AI never calculates official values.** The host binds placeholders to the
   read-only deterministic Values API, checks numeric fidelity and advice
   boundaries, and durably records evidence before releasing a response.
@@ -53,7 +53,7 @@ flowchart TD
     subgraph Runtime["Host-controlled member journey"]
         host["Journey Orchestrator - Agent Framework"]
         decision["Decision 1.1 - SystemOne API"]
-        roles["Foundry Agent Service - pinned writers"]
+        roles["Foundry Agent Service - named writers"]
         gates["Deterministic gates and durable audit"]
         human["Human handover - synthetic adapter"]
     end
@@ -91,7 +91,7 @@ flowchart TD
 |---|---|---|---|
 | Coordination | Python, Microsoft Agent Framework | Repository-pinned dependencies | Explicit workflow and host-owned state |
 | Closed semantic decisions | Microsoft Decision 1.1 / SystemOne API | Pinned model deployment and domain criteria | Intent, understanding, answer review |
-| Explanation | Microsoft Foundry Agent Service | Pinned agent definitions | Primary and compact Counsellor |
+| Explanation | Microsoft Foundry Agent Service | Named agent definitions | Primary and compact Counsellor |
 | Approved reads | APIM, AI Search, Strategy Service | Versioned contracts/content/snapshots | Official values, grounded content and governed strategies |
 | Evidence and learning | Blob storage, Service Bus, Container Apps Jobs | Versioned schemas and release images | Durable audit, aggregate projection and isolated learning |
 
@@ -174,17 +174,17 @@ flowchart LR
 | Journey Orchestrator | Runtime host | Authenticate, screen, maintain state and execute explicit branches |
 | Intent Routing | Decision 1.1 | Return a closed routing decision |
 | Understanding Assessment | Decision 1.1 | Assess only concepts targeted by the accepted teach-back |
-| Counsellor and compact Counsellor | Pinned Foundry prompt agents | Draft from approved evidence and value placeholders |
+| Counsellor and compact Counsellor | Foundry prompt agents | Draft from approved evidence and value placeholders |
 | Answer Quality Review | Decision 1.1 | Check grounding, relevance and language; host controls repair |
 | Host gates and evidence commit | Deterministic host | Bind values, enforce safety and audit before release |
 | Approved read surfaces | Data-access contracts | Serve approved knowledge, official values and signed strategies |
 | Bounded ranking | Scheduled deterministic pipeline | Reorder approved strategies within evidence and shift limits |
 | Fairness audit | Scheduled deterministic isolated audit | Apply universal protective vetoes and record evidence |
-| Fairness and Explainability | Pinned Foundry prompt agent | Explicit separately authorized operator proof; not required for scheduled veto |
+| Fairness and Explainability | Foundry prompt agent | Explicit separately authorized operator proof; not required for scheduled veto |
 | Assurance checks and tier routing | Governed review | Validate Tier 1 moves; reserve material changes for humans |
 | Sign and publish | Scheduled host | Publish the governed signed ranking snapshot |
 | Gap review job | Scheduled deterministic job | Group declined answers by situation and find missing content or styles |
-| Gap review agent (`gg-gap-review`) | Pinned, tool-free Foundry prompt agent | Analyse the kept questions, draft a passage and recommend a style; output is checked by code |
+| Gap review agent (`gg-gap-review`) | Tool-free Foundry prompt agent | Analyse the kept questions, draft a passage and recommend a style; output is checked by code |
 | Improvement ideas | Administration console | Owner approves, rejects or defers; approvals use the signed catalogue release and the content publisher |
 
 ## Source references

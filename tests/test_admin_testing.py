@@ -158,7 +158,7 @@ def test_b4_b10_test_answers_and_journeys_do_not_change_any_learning_projection(
     journey = Journey("J-selected", "MEMBER-SYNTHETIC", test_strategy_id="S1")
     record = ExplainabilityRecord(
         journey.journey_id, journey.member_ref, "S1", "1.0", "signed-test", "control",
-        [], [], [], "pinned-model", "counsellor", "1", "1", True, True, journey.request_key(), True,
+        [], [], [], "pinned-model", "counsellor", "1", True, True, journey.request_key(), True,
         response_kind="explanation", response_id="c" * 32,
     )
     now = datetime.now(timezone.utc)

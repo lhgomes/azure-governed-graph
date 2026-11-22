@@ -1,6 +1,6 @@
 """B3/B4/B7/B8: the gap review reads closed response records only and drafts inert, human-decided proposals."""
 import json
-from dataclasses import asdict, fields
+from dataclasses import asdict, fields, replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -172,7 +172,8 @@ def test_new_content_gets_the_next_distinct_id_and_a_revision_the_next_version()
                      "body": base.body}, corpus=CORPUS, approval_ref="GB-" + "d" * 32)
 
 
-@pytest.mark.parametrize("body", ["{{value:capital}} is yours", "You should choose the new contract.", "  "])
+@pytest.mark.parametrize("body", ["{{value:capital}} is yours", "You should choose the new contract.",
+                                  "I would suggest the new contract.", "U moet het nieuwe contract kiezen.", "  "])
 def test_b1_b2_content_cannot_hold_placeholders_or_steer_a_choice(body):
     with pytest.raises(ContractError):
         gap_review.content_document(
@@ -254,7 +255,8 @@ def journal_of(*approvals):
     return Container({f"{item.decision_ref}/requested.json": json.dumps({
         "action_id": item.decision_ref, "action": "proposal_content_approve", "document_id": item.content.id,
         "content_name": item.name, "proposal": {"proposal_id": item.proposal_id, "evidence_digest": "0" * 64},
-        "base_id": item.base_id, "source": "Fund regulations, article 12", "status": "requested"}).encode()
+        "base_id": item.base_id, "source": "Fund regulations, article 12", "status": "requested",
+        "document_sha256": improvement_store.document_digest(item.document)}).encode()
         for item in approvals})
 
 
@@ -295,6 +297,19 @@ def test_b8_the_publisher_publishes_only_owner_approved_passages_once_in_version
     assert reindex_on_approval.publish_approvals(store, journal, CORPUS, feed, "job-1") == 2
     assert [doc.id for doc in feed.docs if doc.content_id == "C-001" and doc.status == "approved"] == ["C-001-v1.5"]
     assert reindex_on_approval.publish_approvals(store, journal, CORPUS, feed, "job-2") == 0 and feed.runs == 1
+
+
+def test_b8_an_approval_is_bound_to_the_complete_document_the_owner_approved():
+    approval = two_approvals()[1]
+    journal = journal_of(approval)
+    improvement_store.verify_decision(journal, approval)
+    altered = {**approval.document, "body": approval.document["body"] + " Altered after approval."}
+    with pytest.raises(PermissionError, match="does not match"):
+        improvement_store.verify_decision(journal, replace(approval, document=altered))
+    unbound = Container({name: json.dumps({key: value for key, value in json.loads(blob).items()
+                                           if key != "document_sha256"}).encode() for name, blob in journal.blobs.items()})
+    with pytest.raises(PermissionError, match="does not match"):
+        improvement_store.verify_decision(unbound, approval)
 
 
 def test_b8_an_approval_whose_base_passage_is_no_longer_live_is_refused_and_never_retires_newer_content():
@@ -511,6 +526,50 @@ def test_the_job_asks_the_agent_once_per_new_proposal_and_keeps_only_accepted_su
     assert len(requests) == 1 and again["new_revisions"] == 0
 
 
+def test_b4_member_wording_copied_into_a_proposal_is_redacted_when_the_question_itself_expires():
+    records = unanswered(8, decline="output_gate")
+    store, journeys, proposals = batch(records, {f"J-{index}.json": journey_blob(f"J-{index}") for index in range(8)})
+    kept = Container({f"questions/{item.response_id}.json": json.dumps({
+        "journey_id": item.journey_id, "response_id": item.response_id, "created_at": item.created_at,
+        "text": "Will my payment change after the move?", "watermark": "ILLUSTRATIVE - synthetic data"}).encode()
+        for item in records})
+    job(store, journeys, proposals, Container(), questions=kept, now=NOW)
+    (saved,), _ = improvement_store.read_proposals(proposals)
+    assert saved.evidence["examples"] and saved.evidence["questions_expire_at"]
+    deadline = datetime.fromisoformat(saved.evidence["questions_expire_at"])
+    assert improvement_store.redact_expired_questions(proposals, deadline - timedelta(minutes=1)) == 0
+    assert improvement_store.redact_expired_questions(proposals, deadline) == 1
+    (clean,), _ = improvement_store.read_proposals(proposals)
+    assert clean.evidence["examples"] == [] and all(not case["question"] for case in clean.evidence["cases"])
+    assert clean.blob_name == saved.blob_name and clean.evidence_digest == saved.evidence_digest
+    assert clean.content_digest != saved.content_digest
+    assert improvement_store.redact_expired_questions(proposals, deadline + timedelta(days=1)) == 0
+
+
+def test_b4_b7_the_drafting_agent_never_receives_names_amounts_or_contact_details_but_the_checks_still_see_them():
+    assert gap_review.redact_for_model("Will my payment change after the move?") == "Will my payment change after the move?"
+    redacted = gap_review.redact_for_model("I am Jan de Vries, I get 1,412.50 on 1 March, mail jan@example.invalid")
+    assert not any(token in redacted for token in ("Jan", "Vries", "1,412", "March", "jan@", "example"))
+    records = unanswered(8, decline="output_gate")
+    store, journeys, proposals = batch(records, {f"J-{index}.json": journey_blob(f"J-{index}") for index in range(8)})
+    kept = Container({f"questions/{item.response_id}.json": json.dumps({
+        "journey_id": item.journey_id, "response_id": item.response_id, "created_at": item.created_at,
+        "text": "I am Jan de Vries and I get 1,412.50. Will it change?", "watermark": "ILLUSTRATIVE - synthetic data"}).encode()
+        for item in records})
+    sent = []
+
+    def drafter(request):
+        sent.append(request)
+        return {**GOOD, "body": "Your payment of 1,412.50 continues.", "claims": ["1,412.50 continues"],
+                "sources": [item["id"] for item in request["approved_passages"]]}
+
+    job(store, journeys, proposals, Container(), questions=kept, drafter=drafter, drafter_label="gg-gap-review", now=NOW)
+    assert sent and "Jan" not in json.dumps(sent[0]) and "1,412.50" not in json.dumps(sent[0])
+    (saved,), _ = improvement_store.read_proposals(proposals)
+    assert "suggested" not in saved.draft  # a figure the member typed still cannot travel into a draft
+    assert saved.evidence["examples"] and "Jan de Vries" in saved.evidence["examples"][0]
+
+
 def test_an_agent_failure_never_stops_the_batch_and_leaves_the_rules_draft():
     records = unanswered(8, decline="output_gate")
     store, journeys, proposals = batch(records, {f"J-{index}.json": journey_blob(f"J-{index}") for index in range(8)})
@@ -541,7 +600,7 @@ def test_a_kept_question_must_match_its_response_and_be_bounded():
         gap_review_job.read_questions(other, {"b" * 32})
 
 
-def test_b3_b4_the_drafting_agent_is_pinned_tool_free_and_provisioned_as_its_own_role():
+def test_b3_b4_the_drafting_agent_is_tool_free_and_provisioned_as_its_own_role():
     from governedgraph.agents import gap_drafter
     from scripts import create_agents
 
@@ -554,8 +613,34 @@ def test_b3_b4_the_drafting_agent_is_pinned_tool_free_and_provisioned_as_its_own
     for rule in ("Never write a value placeholder", "no tools", "figure a member typed", "EVERY factual statement"):
         assert rule.lower() in gap_drafter.GAP_REVIEW_INSTRUCTIONS.lower()
     with pytest.raises(ValueError):
-        gap_drafter.GapDrafter(client=None, agent_version="latest")
-    assert gap_drafter.GapDrafter(client=None, agent_version="3").label == "gg-gap-review:3"
+        gap_drafter.GapDrafter(client=None, agent_name="")
+    assert gap_drafter.GapDrafter(client=None).label == "gg-gap-review"
+
+
+def test_a_suggestion_from_the_unversioned_drafter_label_is_accepted_and_an_earlier_versioned_one_still_is():
+    from governedgraph.agents import gap_drafter
+
+    request = passages(("C-001-v1.3", "The transition period ends on 1 January 2028."))
+    label = gap_drafter.GapDrafter(client=None).label
+    for agent in (label, "gg-gap-review:3"):
+        assert gap_review.accept_suggestion(GOOD, request, agent)["agent"] == agent
+
+
+def test_a_refused_new_passage_keeps_its_id_reserved_so_the_next_approval_never_collides():
+    assert gap_review.next_content_id(CORPUS) == "C-G001"
+    assert gap_review.next_content_id(CORPUS, reserved={"C-G001"}) == "C-G002"
+    content = {"title": "Payment", "journey_states": ["*"], "answers": "", "body": "Your payment stays described in your letter."}
+    document = gap_review.content_document(draft={"action": "add", "language": "en"}, content=content, corpus=CORPUS,
+                                           approval_ref="GB-" + "e" * 32, reserved={"C-G001"})
+    assert document.content_id == "C-G002"
+    base = next(doc for doc in CORPUS if doc.id == "C-001-v1.3")
+    revised = {"title": base.title, "journey_states": list(base.journey_states), "answers": base.answers,
+               "body": base.body + " More."}
+    free = gap_review.content_document(draft={"action": "revise", "base_id": base.id, "language": "en"}, content=revised,
+                                       corpus=CORPUS, approval_ref="GB-" + "f" * 32)
+    taken = gap_review.content_document(draft={"action": "revise", "base_id": base.id, "language": "en"}, content=revised,
+                                        corpus=CORPUS, approval_ref="GB-" + "f" * 32, reserved={free.id})
+    assert taken.content_id == free.content_id and taken.version != free.version
 
 
 def test_steering_in_either_language_and_partial_copies_of_a_question_are_rejected():

@@ -101,7 +101,6 @@ def collect_candidate(candidate: str, composer, actor_factory, directory: Path, 
             super().__init__(*args, strategy_service=service, **kwargs)
             self.tools.model_deployment = candidate
             self.tools.agent_name = composer.agent_name
-            self.tools.agent_version = composer.agent_version
             self.decision_agents.update(decision_agents or {})
             instances.append(self)
 

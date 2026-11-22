@@ -1,7 +1,7 @@
-"""Gap-review drafting agent: a pinned, tool-free Foundry agent that analyses declined questions, drafts a passage and
+"""Gap-review drafting agent: a tool-free Foundry agent that analyses declined questions, drafts a passage and
 recommends an explanation style.
 
-It sees the situation, a few kept member questions and related approved passages, as data. It has no tools, records, member
+It sees the situation, a few kept member questions with names, amounts and contact details redacted, and related approved passages, as data. It has no tools, records, member
 values or service access. It may draw on its own knowledge, so its answer must list every claim and pass
 ``gap_review.accept_suggestion`` (closed shape, no placeholders or steering, no figure carried from a member's question,
 no copied question) or it is discarded. Its output is an unverified draft: an owner verifies each claim against a source
@@ -79,20 +79,19 @@ def gap_review_definition(model: str):
 class GapDrafter:
     """One request, one closed JSON answer. The caller validates it; nothing here is trusted."""
 
-    def __init__(self, *, client, agent_name: str = GAP_REVIEW_AGENT_NAME, agent_version: str):
-        if not agent_name or not str(agent_version).isdecimal():
-            raise ValueError("a pinned Foundry gap-review agent version is required")
-        self.client, self.agent_name, self.agent_version = client, agent_name, str(agent_version)
+    def __init__(self, *, client, agent_name: str = GAP_REVIEW_AGENT_NAME):
+        if not agent_name:
+            raise ValueError("a Foundry gap-review agent name is required")
+        self.client, self.agent_name = client, agent_name
 
     @property
     def label(self) -> str:
-        return f"{self.agent_name}:{self.agent_version}"
+        return self.agent_name
 
     def __call__(self, request: dict) -> dict:
         result = self.client.responses.create(
             input=[{"role": "user", "content": json.dumps(request)}], store=False, max_output_tokens=2500, timeout=60,
-            extra_body={"agent_reference": {"type": "agent_reference", "name": self.agent_name,
-                                            "version": self.agent_version}})
+            extra_body={"agent_reference": {"type": "agent_reference", "name": self.agent_name}})
         if (result.status != "completed" or not result.output_text.strip()
                 or any(item.type != "message" for item in result.output)):
             raise RuntimeError("the gap-review agent did not return a completed text-only answer")
@@ -103,12 +102,10 @@ def connect_gap_drafter(credential) -> GapDrafter | None:
     """The job's own identity holds endpoint use on this one agent. Unset configuration means no AI drafts: content ideas stay undrafted and style ideas are not offered."""
     from azure.ai.projects import AIProjectClient
 
-    version = os.getenv("AZURE_AI_GAP_REVIEW_VERSION", "")
-    if not version:
+    if not os.getenv("AZURE_AI_GAP_REVIEW_AGENT", ""):
         return None
-    if not version.isdecimal() or not settings.project_endpoint:
-        raise ValueError("the gap-review agent needs a numeric pinned version and the Foundry project endpoint")
+    if not settings.project_endpoint:
+        raise ValueError("the gap-review agent needs the Foundry project endpoint")
     project = AIProjectClient(endpoint=settings.project_endpoint, credential=credential, allow_preview=True,
                               connection_timeout=5, read_timeout=30, retry_total=1)
-    return GapDrafter(client=project.get_openai_client(agent_name=GAP_REVIEW_AGENT_NAME, max_retries=1, timeout=60),
-                      agent_version=version)
+    return GapDrafter(client=project.get_openai_client(agent_name=GAP_REVIEW_AGENT_NAME, max_retries=1, timeout=60))

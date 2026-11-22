@@ -27,7 +27,7 @@ from governedgraph.admin.traces import SyntheticTraceReader, TraceUnavailable, m
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import ContractError, SuspensionEvent, _strict, utcnow
 from governedgraph.learning.gap_review import PROPOSAL_ID, content_document
-from governedgraph.learning.improvement_store import ContentApproval
+from governedgraph.learning.improvement_store import ContentApproval, document_digest
 from governedgraph.strategy_service.catalogue_release import stages
 from governedgraph.strategy_service.catalogue import ESCALATION_STRATEGY
 from governedgraph.strategy_service.state import StateUnavailable
@@ -340,6 +340,10 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
                 allowed = {"name", "pattern_id", "eligible_journey_states", "channels", "accessibility_modes"}
                 edits = decision.style or {}
                 scaffold = {key: value for key, value in proposal.draft.items() if key != "suggested"}
+                suggested = proposal.draft.get("suggested")
+                if suggested and suggested.get("fit") == "existing":
+                    # The owner saw the AI's recommended pattern and name, so those are the defaults their edits apply to.
+                    scaffold = {**scaffold, "pattern_id": suggested["pattern_id"], "name": suggested["name"]}
                 if set(edits) - allowed:
                     raise HTTPException(400, "only the style name, pattern and eligibility can be edited")
                 return submit_owner_action({"expected_revision": decision.expected_revision, "reason": decision.reason,
@@ -357,14 +361,15 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
             approval = None
             if approving:
                 try:
-                    document = content_document(draft=proposal.draft, content=decision.content, corpus=source.content_corpus(),
-                                                approval_ref=reference)
+                    document = content_document(
+                        draft=proposal.draft, content=decision.content, corpus=source.content_corpus(), approval_ref=reference,
+                        reserved=reserved_ids(improvement["approved"]))
                 except ContractError as error:
                     raise HTTPException(400, str(error)) from error
                 base_id = proposal.draft.get("base_id", "")
                 approval = ContentApproval.for_document(document, reference, proposal.proposal_id, base_id)
                 record.update(content_name=approval.name, document_id=document.id, source=decision.source.strip(),
-                              base_id=base_id)
+                              base_id=base_id, document_sha256=document_digest(approval.document))
             source.journal({**record, "status": "requested"})
             try:
                 if approval is not None:
@@ -384,6 +389,11 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
                                     f"Investigate {reference} before retrying.") from error
             log.info("admin_proposal_decision", extra={"action_id": reference, "action": record["action"]})
             return {"decision_ref": reference, "status": final}
+
+    def reserved_ids(approved_names) -> set[str]:
+        """Content and document ids already named by a stored approval, whether or not it was later refused."""
+        documents = {name.rsplit("-", 1)[0] for name in approved_names}
+        return documents | {document.rsplit("-v", 1)[0] for document in documents}
 
     def submit_owner_action(payload: dict, request: Request, identity: Identity, contract, proposal: dict | None = None):
         decision_ref = "GB-" + uuid4().hex

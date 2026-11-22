@@ -174,6 +174,8 @@ window.AdminImprovements = {
       parent.append(group); return () => inputs.filter((input) => input.checked).map((input) => input.value);
     };
     let collect = null;
+    const lead = make("p", this.next(proposal), "lead");
+    let leadShown = false;
     if (kind === "strategy_gap" && idea) {
       const reading = make("section", undefined, "claims");
       reading.append(make("h3", "What the AI found"));
@@ -246,7 +248,8 @@ window.AdminImprovements = {
           answers: answers.value.trim(), body: text.value.trim() } };
       };
     } else {
-      form.append(make("p", this.next(proposal), "lead"));
+      form.append(lead);
+      leadShown = true;
     }
 
     // Footer: one short reason, one clear primary action. Clicking Approve is the approval.
@@ -284,7 +287,8 @@ window.AdminImprovements = {
       item.addEventListener("click", () => submit(decision));
       buttons.push(item); bar.append(item);
     }
-    footer.append(make("p", this.next(proposal), "cell-note"));
+    const hint = make("p", this.next(proposal), "cell-note");
+    if (!leadShown) footer.append(hint);
     form.addEventListener("submit", (event) => event.preventDefault());
     target.replaceChildren(root);
   },

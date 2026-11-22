@@ -352,7 +352,6 @@ class ExplainabilityRecord:
     value_sources: list[str]
     model_deployment: str
     agent_name: str
-    agent_version: str
     template_version: str
     disclosure_given: bool
     escalation_offered: bool
@@ -364,8 +363,11 @@ class ExplainabilityRecord:
     response_kind: str = "legacy"
     decision_evidence: list[DecisionEvidence] = field(default_factory=list)
     decline_reason: str = ""
+    agent_version: str = ""  # legacy: earlier records carry the pinned version; new records leave it empty
 
     def __post_init__(self):
+        if not isinstance(self.agent_version, str):
+            raise ContractError("legacy agent version must be text")
         if (not isinstance(self.decline_reason, str) or (self.decline_reason and (
                 self.decline_reason not in DECLINE_REASONS or self.response_kind not in {"acknowledgment", "escalation"}))):
             raise ContractError("invalid closed decline reason")
@@ -398,9 +400,8 @@ class ExplainabilityRecord:
             self.response_id and not re.fullmatch(r"(?:[0-9a-f]{32}|[0-9a-f]{64})", self.response_id)
         ):
             raise ContractError("response_id must be an opaque host-generated identifier")
-        if any(not isinstance(v, str) or not v.strip() or v.lower() == "latest"
-               for v in (self.agent_name, self.agent_version, self.model_deployment)):
-            raise ContractError("explainability requires a pinned agent name/version and model deployment")
+        if any(not isinstance(v, str) or not v.strip() for v in (self.agent_name, self.model_deployment)):
+            raise ContractError("explainability requires an agent name and model deployment")
         leaked = {k for k in self.request_key if k.lower() in DEMOGRAPHIC_FIELD_NAMES}
         if leaked:
             raise ContractError(f"explainability record request key contains demographics {leaked} (B7)")
@@ -408,10 +409,12 @@ class ExplainabilityRecord:
             raise ContractError("request_key must be exactly journey_state/intent/channel/accessibility_mode")
 
     def to_dict(self) -> dict:
-        """Stored fields. An absent decline reason is omitted, so earlier readers still accept the record."""
+        """Stored fields. An absent decline reason or legacy agent version is omitted."""
         payload = asdict(self)
         if not self.decline_reason:
             payload.pop("decline_reason")
+        if not self.agent_version:
+            payload.pop("agent_version")
         return payload
 
     @classmethod

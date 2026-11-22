@@ -194,16 +194,16 @@ def test_cold_clients_are_isolated_closed_and_do_not_clear_warm_cache(monkeypatc
     warm.close.assert_not_called()
 
 
-def test_warmup_refuses_pinned_agent_failure_and_never_opens_member_values(monkeypatch):
+def test_warmup_refuses_agent_failure_and_never_opens_member_values(monkeypatch):
     from governedgraph.voice import warmup
     from governedgraph.agents.foundry_runtime import FoundryUnavailable
     from governedgraph.voice.voice_live_bridge import VoiceError
 
     def unavailable(*_):
-        raise FoundryUnavailable("synthetic pin mismatch")
+        raise FoundryUnavailable("synthetic agent outage")
     monkeypatch.setattr(warmup, "operation", lambda *args, **kwargs: nullcontext())
     monkeypatch.setattr(warmup.FoundryComposer, "shared", unavailable)
-    with pytest.raises(VoiceError, match="pinned agent"):
+    with pytest.raises(VoiceError, match="warm-up agent"):
         warmup.warm_runtime()
 
 

@@ -101,7 +101,7 @@ async def run_benchmark(socket, credential, client, token: str, endpoint: str, *
     await socket.send_json({
         "kind": "benchmark_complete", "label": "ILLUSTRATIVE - synthetic data",
         "measurement": "real STT/HTTP/TTS, validated dispatch sink; not acoustic playback",
-        "cold_definition": "fresh Speech connections and isolated SDK/HTTP clients including pinned-agent read; "
+        "cold_definition": "fresh Speech connections and isolated SDK/HTTP clients including agent read; "
                            "orchestrator replica intentionally remains warm",
         "total_seconds": time.perf_counter() - started, "summary": summarize(rows), "rows": rows,
         "model": model,

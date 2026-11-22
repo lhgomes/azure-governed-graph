@@ -40,7 +40,7 @@ Deeper design pages: [conversation continuity](architecture-conversation-continu
 |---|---|
 | Chat and voice channels | Authenticated entry points through APIM; voice is an adapter to the same governed journey |
 | Orchestrator | Container App owning the state machine, authorization, audit barrier and durable outbox |
-| Counsellor | Version-pinned Microsoft Foundry prompt agent; writes explanations using official-value placeholders |
+| Counsellor | Microsoft Foundry prompt agent called by name, so its latest published version answers; writes explanations using official-value placeholders |
 | Intent, understanding and answer review | Closed semantic decisions via the pinned Microsoft Decision 1.1 deployment and SystemOne API; not hosted prompt agents |
 | Values facade | APIM-protected, read-only deterministic system-of-record API |
 | Approved retrieval | Azure AI Search over human-approved, versioned passages |
@@ -148,10 +148,16 @@ records or bypasses the host's gates.
 
 ### Agent and output contracts
 
-Foundry definitions are immutable and pinned by name and version. Runtime
-verifies the approved model, instructions and tools; it never creates agents,
-chooses `latest` or silently substitutes a model. Dependency versions are pinned
-in the [Azure requirements](../requirements-azure.txt).
+Foundry agent versions are immutable, but runtime calls each agent by name and
+the agent's latest version answers; there is no version pin and no runtime
+comparison of the definition. Delivery publishes a new version only when a
+definition changed (`scripts/create_agents.py`), so a prompt change needs no
+redeployment of the workloads. The model deployment is fixed in the agent
+definition, the gateway admits only the approved agent names and rejects any
+model, instruction, tool or text override, and runtime never creates agents.
+Prompt changes are controlled through the reviewed pull request and the
+authorized delivery pipeline. Dependency versions are pinned in the
+[Azure requirements](../requirements-azure.txt).
 
 Function requests execute only in journey-bound host tools. Model-supplied
 identity and member selectors are ignored; other arguments use closed schemas.
@@ -347,7 +353,7 @@ not a demographic inference or automatic translation permission.
 ## Gap review
 
 A daily job reviews declined interactions and proposes missing approved content and explanation styles to the
-administration console. A pinned, tool-free drafting agent analyses the kept questions and drafts a passage or
+administration console. A tool-free drafting agent analyses the kept questions and drafts a passage or
 recommends a style. Every output is checked in code, and an owner decides in the console. Approved styles go
 through the signed catalogue release and approved passages through the content publisher. Nothing it proposes
 goes live by itself. This is the one governed exception to B4, because kept member questions inform proposals for
@@ -424,6 +430,6 @@ Guidance-not-advice and opening AI disclosure apply across the runtime.
 | B5: bounded reorder-only learning | [Ranking pipeline](../src/governedgraph/learning/ranking_pipeline.py) | [Ranking bounds](../tests/test_ranking_bounds.py) |
 | B6: fairness veto for everyone | [Fairness agent](../src/governedgraph/agents/fairness_explainability.py), [read-time overlays](../src/governedgraph/strategy_service/service.py) | [Fairness veto](../tests/test_fairness_veto.py), [Azure overlays](../tests/test_strategy_azure.py) |
 | B7: no runtime demographics | [Closed contracts](../src/governedgraph/common/contracts.py), [customer context boundary](../src/governedgraph/orchestrator/continuity.py), [APIM policy](../infra/policies/strategy-request.xml) | [Demographic rejection](../tests/test_contracts_no_demographics.py), [customer isolation](../tests/test_customer_continuity.py) |
-| B8: human material-change approval | [Tier routing](../src/governedgraph/learning/run_cycle.py), [assurance committee](../src/governedgraph/learning/assurance_committee.py), [Strategy Service](../src/governedgraph/strategy_service/service.py), [signed source upgrade](../src/governedgraph/strategy_service/bootstrap.py), [proposal decisions](../src/governedgraph/admin/proposals.py) | [Proposal decisions](../tests/test_admin_proposals.py), [Reinstatement](../tests/test_strategy_service.py), [owner decisions](../tests/test_admin_owners.py), [writer approval](../tests/test_writer_approval.py), [upgrade gates](../tests/test_bootstrap.py) |
+| B8: human material-change approval | [Tier routing](../src/governedgraph/learning/run_cycle.py), [assurance committee](../src/governedgraph/learning/assurance_committee.py), [Strategy Service](../src/governedgraph/strategy_service/service.py), [signed source upgrade](../src/governedgraph/strategy_service/bootstrap.py), [proposal decisions](../src/governedgraph/admin/proposals.py) | [Proposal decisions](../tests/test_admin_proposals.py), [Reinstatement](../tests/test_strategy_service.py), [owner decisions](../tests/test_admin_owners.py), [upgrade gates](../tests/test_bootstrap.py) |
 | B9: human help always available | [State machine](../src/governedgraph/orchestrator/state_machine.py), [escalation tools](../src/governedgraph/agents/tools.py), [closed intent routing](../src/governedgraph/agents/decision_agents.py) | [Every-state escalation](../tests/test_state_machine.py), [durable handover](../tests/test_durable_orchestrator.py), [Decision model checks](../tests/test_decision_agents.py) |
 | B10: continuous governed control | [Arm assignment](../src/governedgraph/strategy_service/service.py), [uplift kill switch](../src/governedgraph/learning/uplift.py) | [Uplift](../tests/test_uplift_and_design_agents.py), [signed static rollback](../tests/test_governed_static_contracts.py) |
