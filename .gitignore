@@ -28,3 +28,9 @@ env/
 *:sec.endpointdlp
 /docs/local/
 .github/prompts/
+# Ignore local exploratory probes and scratch folders.
+/tests/temp.py
+/tests/temp.sh
+/tests/tmp/
+/tests/scratch/
+/scratch/
