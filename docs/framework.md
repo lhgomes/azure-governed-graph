@@ -14,15 +14,14 @@ Which *explanation strategy* (style, structure, teach-back) the agent uses is ch
 catalogue** by a **signed ranking snapshot** that Azure-hosted learning may reorder within hard limits and a
 fairness audit may veto for everyone.
 
-## Two planes
+## Two runtime and learning planes, plus a governed improvement workflow
 
 | Plane | Purpose | Learns? |
 |---|---|---|
 | **P1 runtime** | Serve a member journey: orchestrator state machine, counsellor agent, values facade, approved retrieval, strategy service, explainability store | No |
 | **P2 isolated learning** | Re-rank approved strategies from immutable aggregate counts, audit cohorts for fairness, apply tiered approval, publish a signed snapshot | Yes, bounded |
 
-Raw conversations and telemetry cannot modify approved prompts, templates, models
-or the catalogue, or retrain a model (B4). P2 reads aggregates only.
+Raw conversations and telemetry cannot directly modify approved prompts, templates, models or the catalogue, or retrain a model (B4). P2 reads aggregates only. A **separate daily gap-review job** may analyze eligible declined explanations (including short-lived redacted member wording sent to a tool-free Foundry agent) to prepare **inert owner-reviewed proposals**; it does not feed bounded ranking or publish changes itself. The owner can approve a passage or an explanation style using an existing approved pattern, subject to the governed release paths.
 This does not prohibit operational conversation memory: authenticated customers
 can continue across contacts using their own screened, accepted Foundry dialogue.
 Only the most recent 20 completed turns are retained as conversation context;
@@ -39,6 +38,7 @@ journeys are isolated from customer history. See
 - **Fairness audit** (protective only): deterministic analysis of segregated cohort aggregates can suspend a strategy for every member (B6). The separately authorized Fairness & Explainability prompt agent is retained for explicit operator proof; scheduled fairness does not depend on it.
 - **Assurance committee and tiers**: bounded ranking moves are autonomous (Tier 0/1); anything that widens what the system may say, use or decide is a human Tier 2 decision (B8).
 - **Control arm and kill switch**: static expert ranking is retained and the graph must keep beating it, otherwise treatment reverts (B10).
+- **Gap-review job and agent**: a separate scheduled Container Apps Job groups eligible declined explanation interactions; the tool-free Foundry `gg-gap-review` agent proposes content drafts or approved-pattern style changes. The administration console holds owner decisions and the two different controlled publication paths (B3, B4, B8).
 
 ## Protective versus widening actions
 
@@ -54,18 +54,18 @@ outside the framework, as the pension sample's design-depth agents do.
 
 ## Components and where they run
 
-The framework defines two business agents, not two deployed model definitions: the member-facing counsellor and the
-Fairness & Explainability Agent. A domain adds its own agents on top; the pension sample adds three design-depth ones
-(Transition Calculation, Event Processing, Adoption Guide), which are **not deployed administrator integrations**.
+The reference uses named Counsellor prompt agents (primary and compact), a separately authorized Fairness & Explainability prompt agent for explicit operator proof, and a tool-free gap-review drafting agent when the administration feature is enabled. Intent, understanding and answer-quality checks use the **Decision 1.1 SystemOne API directly**; they are not separate Foundry prompt agents. A domain may add design-depth agents; the pension sample's Transition Calculation, Event Processing and Adoption Guide are contracts/stubs, **not deployed administrator integrations**.
 
 | Component | Implementation / hosting (Azure reference) |
 |---|---|
 | Member Communication / Counsellor | Foundry prompt agents; Agent Framework orchestration |
-| Intent, understanding and answer review | Separate, tool-free Foundry semantic roles supporting the counsellor |
+| Intent, understanding and answer review | Microsoft Decision 1.1 direct SystemOne API; host-owned routing and quality gates |
 | Fairness & Explainability Agent | Deterministic segregated aggregate cohort audit; protective Foundry agent for explicit operator proof |
 | Journey, values facade and Strategy Service | Container Apps, APIM, private Blob state and Service Bus |
 | Approved content and response evidence | Azure AI Search; append-only explainability records in immutable Blob storage |
-| P2 bounded learning | Identity-isolated scheduled Container Apps Jobs |
+| P2 bounded learning | Identity-isolated scheduled Container Apps Jobs; aggregate counts only |
+| Gap review and proposal drafting | Separate scheduled Container Apps Job plus tool-free Foundry drafting agent; short-lived eligible question records |
+| Owner-approved changes | Administration console journal; signed catalogue publication or content publisher |
 | Administration console | Container App behind the gateway at `/admin/`; see [administration](administration.md) |
 
 Azure Public is the only supported execution environment. Pure domain logic and
@@ -84,4 +84,5 @@ application runtime. See [architecture](architecture.md) for the Azure design.
   Separate customer-scoped Foundry context supports operational continuity, not
   model training or changes to approved behavior (B4). Entra group authorization is required; production
   administrator access needs operator review.
+- The gap-review implementation and its publication workflow require live Azure end-to-end validation before operational effectiveness claims. Publishing an improvement is not itself proof of uplift.
 - The bundled sample is a synthetic reference, **not a production service**.

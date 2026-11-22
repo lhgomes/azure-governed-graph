@@ -1,9 +1,9 @@
 # GovernedGraph
-### A framework for governed journey graphs: deterministic facts, bounded learning, auditable controls, and human oversight.
+### Deterministic facts, governed explanations, and two complementary continuous-improvement loops.
 
 Organisations want AI to help people understand official information (a balance, a status, a rule), but cannot let a model
 *make authoritative business decisions*, *calculate* or *advise*. GovernedGraph is a reference framework for exactly that: bounded AI classifies and reviews language, a generative model **explains**,
-your deterministic systems **make authoritative decisions**, and a learning loop improves **how** things are explained, inside hard, auditable limits.
+your deterministic systems **make authoritative decisions**, and two governed feedback loops improve **how** things are explained, inside hard, auditable limits.
 
 > **Terminology.** "Member" is the framework's word for the person being guided; read it as customer, participant, patient,
 > citizen or whatever your domain calls them. "Journey" is a multi-step interaction with your organisation, and "official values"
@@ -13,20 +13,36 @@ your deterministic systems **make authoritative decisions**, and a learning loop
 
 1. **Facts never come from the model.** Official values come from your system of record. The model writes a placeholder such as
    `{{value:<id>}}`; the host fills in the real value and checks it.
-2. **Only approved strategies run, and learning only reorders them.** Azure-hosted learning ranks a catalogue of approved
-   explanation styles within hard limits. It never writes content and never reads raw conversations. A separate daily review of
-   declined answers can *propose* missing content or styles, but only to an owner: nothing it proposes goes live without a human approval.
+2. **The loops have different responsibilities.** Bounded learning reorders existing approved strategies using outcome aggregates; it never writes content or reads raw conversations. Separately, a nightly review of eligible declined explanations uses an AI drafting agent to propose content or style improvements for an authorized owner to assess.
 3. **Quality gates can veto, and humans approve anything that widens.** A cohort audit can remove a strategy for every member.
    Protective actions (suspend, freeze, escalate) are autonomous; anything that widens what the system may say, use or decide
    needs a human.
 
 ## How it works
 
-[![How GovernedGraph works: a member's question passes three gates in the framework, using a domain pack and values source that you supply; a separate bounded learning loop, a review of missed answers and an administration console keep people in charge](docs/diagrams/overview.svg)](docs/diagrams/overview.svg)
+[![GovernedGraph overview: member guidance is controlled by the host and deterministic release gate, with distinct domain, content, authoritative-value and strategy dependencies; confirmed outcomes drive bounded ranking while eligible declined explanations feed a separate owner-reviewed improvement loop](docs/diagrams/overview.svg)](docs/diagrams/overview.svg)
 
 *Select the diagram for the full-size view. For a step-by-step walkthrough of one answer and a glossary, see
 [getting started](docs/getting-started.md); for every semantic role and gate, see the
 [detailed agent workflow](docs/diagrams/agent-workflow.md).*
+
+## Two complementary improvement loops
+
+GovernedGraph separates **optimizing the selection of approved approaches** from **identifying where approved approaches or knowledge may need to change**. Both loops feed the same governed runtime; neither grants a model authority over official values, customer entitlements, or publication.
+
+| | Bounded automatic learning | Human-guided gap review |
+|---|---|---|
+| **Evidence** | Confirmed outcome aggregates; no raw conversations | Eligible declined or final-review-flagged explanations, with short-lived questions for owner review |
+| **Analysis** | Deterministic bounded ranking, isolated fairness audit, and tiered assurance | Daily Container Apps Job groups recurring gaps; a tool-free Foundry agent drafts or recommends improvements |
+| **What can change** | Order of already approved strategies, within defined limits | Owner-approved passages and explanation styles using approved patterns |
+| **Who authorizes** | Bounded Tier 0 / Tier 1 controls; protective vetoes | Explicit owner decision for material changes (Tier 2) |
+| **How it goes live** | Signed ranking snapshot verified by the Strategy Service | Signed catalogue publication for styles; approved-content publisher for passages |
+
+The second loop is **not an automatic self-modifying agent**. It surfaces four kinds of evidence: missing content, content needing revision, missing explanation-style coverage, and possible false refusals. A new explanation pattern that is not already approved is recorded for human consideration, not made deployable. Any agent-drafted passage may contain incorrect or outdated claims; the owner must verify them against an authoritative source and record that source before approval.
+
+**Scope:** The nightly review uses a default 30-day lookback and examines *explanation-routed* declined or final-review-flagged interactions, excluding selected-style test journeys and other nonqualifying exits. A situation needs **at least five declined interactions from three journeys** before the job proposes an improvement. It does **not** examine every unsuccessful conversation or automatically diagnose every bad delivered response.
+
+After a change is published, new outcomes can be observed through the existing evaluation and learning mechanisms; **publication alone does not demonstrate improved effectiveness**. The static expert-ranking control arm and B10 evidence requirement remain in force. See [gap-review architecture](docs/architecture-gap-review.md), [administration decisions](docs/administration.md#improvement-ideas-declined-answers-and-proposed-fixes), and [detailed workflow](docs/diagrams/agent-workflow.md).
 
 ## Framework, your domain and the sample
 
@@ -83,7 +99,7 @@ These are the framework's contract. Each has a code enforcement point and a regr
 | B1 | Authoritative values and determinations (calculations, rule-based outcomes, official records) stay in deterministic systems (read-only, behind a gateway) |
 | B2 | Generative AI may explain an authoritative value but never calculates, rounds, estimates or writes one (placeholder binding, 100% numeric-fidelity gate) |
 | B3 | Runtime selects only from an approved, versioned strategy catalogue (signed ranking snapshot) |
-| B4 | Raw conversations never retrain a model or change behaviour. The one exception, decided by the owner: member questions kept for 30 days may inform proposals that an owner reviews |
+| B4 | Raw conversations never retrain a model or directly change runtime behaviour. Short-lived questions from eligible declined interactions may inform AI-drafted proposals; only a separately recorded owner decision can authorize changes |
 | B5 | Learning is bounded continuous ranking of approved strategies only (minimum sample, maximum rank shift, reorder-only) |
 | B6 | Quality gates can veto a high-performing strategy, for all members |
 | B7 | No runtime demographics; demographics exist only in a segregated cohort zone for aggregate audit |
@@ -95,7 +111,7 @@ Also: guidance, not advice (option-level questions escalate), and an AI disclosu
 
 ## Validation status
 
-**Not production-validated.** GovernedGraph is an Azure Public reference implementation with a synthetic example, not a certified or supported production service. The repository contains regression and evaluation source, but has no mandatory GitHub CI workflow; their presence is not evidence of execution or a pass. The checked-in simulated model-comparison report from 30 October 2026 records a **failed deterministic acceptance gate**, and no subsequent passing end-to-end evidence for the latest `main` was verified during this publication review. Model quality, effectiveness, fairness, latency and operational cost must be measured for a specific deployed workload.
+**Not production-validated.** GovernedGraph is an Azure Public reference implementation with a synthetic example, not a certified or supported production service. The repository contains regression and evaluation source, but has no mandatory GitHub CI workflow; their presence is not evidence of execution or a pass. The checked-in simulated model-comparison report from 30 October 2026 records a **failed deterministic acceptance gate**, and no subsequent passing end-to-end evidence for the latest `main` was verified during this publication review. The new gap-review job, its Foundry drafting calls and subsequent publication path have not been demonstrated by an end-to-end Azure execution record in this repository. Model quality, effectiveness, fairness, latency and operational cost must be measured for a specific deployed workload.
 
 ## What this is not
 
@@ -113,6 +129,7 @@ integration or production acceptance. See the [limits to state with any result](
 | Go deeper | |
 |---|---|
 | [Architecture](docs/architecture.md) | Azure P1/P2 flows, persistence, security and governance boundaries |
+| [Gap-review architecture](docs/architecture-gap-review.md) | Nightly eligibility, proposal categories, agent boundaries, owner decisions and content publication |
 | [Administration console](docs/administration.md) | Rankings, vetoes, suspensions, decisions, conversations, improvement ideas from declined answers; protective actions and access control |
 | [Deploying](docs/deploying.md) | Governed Azure delivery and teardown |
 | [Agent workflow diagram](docs/diagrams/agent-workflow.md) | The detailed semantic roles and gates diagram, step-by-step explanation and editable Mermaid sources |

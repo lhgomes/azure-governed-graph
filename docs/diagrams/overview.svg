@@ -1,145 +1,285 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-labelledby="title description" font-family="Arial, Helvetica, sans-serif"><title id="title">How GovernedGraph works</title><desc id="description">Host-controlled member guidance uses Microsoft Decision 1.1 for closed semantic decisions and Foundry prompt agents for explanation, with deterministic gates and durable audit. Approved content and read-only authoritative values are supplied by the adopter. A separate scheduled Azure learning plane uses immutable outcome aggregates, deterministic fairness vetoes, tiered human governance and signed ranking feedback. A third scheduled review reads declined answers, an AI drafting agent recommends missing content and explanation styles, and an owner decides in the administration console before anything is published.</desc><defs><marker id="m64748b" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#64748b"/></marker><marker id="m087f82" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#087f82"/></marker><marker id="m946014" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#946014"/></marker><marker id="ma13d5c" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#a13d5c"/></marker><marker id="m275d9b" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#275d9b"/></marker><marker id="m7044a5" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#7044a5"/></marker></defs>
-<rect x="0" y="0" width="1200" height="820" rx="0" fill="#ffffff" stroke="none" stroke-width="1.4"/>
-<text x="24" y="38" font-size="28" fill="#172b45" font-weight="700" text-anchor="start">How GovernedGraph works</text>
-<rect x="20" y="60" width="1160" height="344" rx="10" fill="#f4f7fc" stroke="#c6d5e8" stroke-width="1.4"/>
-<text x="40" y="85" font-size="13" fill="#275d9b" font-weight="700" text-anchor="start">01 / GOVERNED MEMBER JOURNEY</text>
-<path d="M1037 140 V110 H110 V137" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m64748b)"/>
-<rect x="515" y="100" width="170" height="20" rx="3" fill="#f4f7fc" stroke="none" stroke-width="1.4"/>
-<text x="600" y="114" font-size="12" fill="#64748b" font-weight="400" text-anchor="middle">Checked response</text>
-<rect x="40" y="140" width="140" height="110" rx="7" fill="#ffffff" stroke="#a13d5c" stroke-width="1.4"/>
-<text x="53" y="159" font-size="10" fill="#a13d5c" font-weight="700" text-anchor="start">PERSON</text>
-<text x="53" y="183" font-size="16" fill="#172b45" font-weight="700" text-anchor="start">Member</text>
-<text x="53" y="203" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Chat or voice</text>
-<text x="53" y="219" font-size="12" fill="#475569" font-weight="400" text-anchor="start">AI disclosure</text>
-<rect x="210" y="140" width="220" height="110" rx="7" fill="#ffffff" stroke="#275d9b" stroke-width="1.4"/>
-<text x="223" y="159" font-size="10" fill="#275d9b" font-weight="700" text-anchor="start">HOST CONTROL</text>
-<text x="223" y="183" font-size="16" fill="#172b45" font-weight="700" text-anchor="start">Journey orchestrator</text>
-<text x="223" y="203" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Authenticate, screen, route</text>
-<text x="223" y="219" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Own workflow state</text>
-<text x="223" y="235" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Human help from any state</text>
-<rect x="464" y="130" width="420" height="134" rx="8" fill="#f3eef9" stroke="#7044a5" stroke-width="1.4"/>
-<text x="478" y="150" font-size="11" fill="#7044a5" font-weight="700" text-anchor="start">MICROSOFT FOUNDRY</text>
-<rect x="478" y="160" width="188" height="90" rx="5" fill="#ffffff" stroke="#baa4d2" stroke-width="1.4"/>
-<rect x="682" y="160" width="188" height="90" rx="5" fill="#ffffff" stroke="#baa4d2" stroke-width="1.4"/>
-<text x="490" y="181" font-size="15" fill="#7044a5" font-weight="700" text-anchor="start">Decision 1.1</text>
-<text x="490" y="201" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Intent routing</text>
-<text x="490" y="218" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Understanding assessment</text>
-<text x="490" y="235" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Answer quality review</text>
-<text x="694" y="181" font-size="14" fill="#7044a5" font-weight="700" text-anchor="start">Foundry Agent Service</text>
-<text x="694" y="201" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Counsellor</text>
-<text x="694" y="218" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Voice Compact Counsellor</text>
-<text x="694" y="235" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Grounded answer drafting</text>
-<rect x="914" y="140" width="246" height="110" rx="7" fill="#ffffff" stroke="#275d9b" stroke-width="1.4"/>
-<text x="927" y="159" font-size="10" fill="#275d9b" font-weight="700" text-anchor="start">DETERMINISTIC HOST</text>
-<text x="927" y="183" font-size="16" fill="#172b45" font-weight="700" text-anchor="start">Release gate</text>
-<text x="927" y="203" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Bind official values</text>
-<text x="927" y="219" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Enforce safety and fidelity</text>
-<text x="927" y="235" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Durable audit before release</text>
-<path d="M180 195 H206" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m64748b)"/>
-<path d="M430 190 H460" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m64748b)"/>
-<path d="M464 209 H434" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m64748b)"/>
-<path d="M884 195 H910" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m64748b)"/>
-<rect x="210" y="300" width="220" height="92" rx="7" fill="#ffffff" stroke="#a13d5c" stroke-width="1.4"/>
-<text x="223" y="319" font-size="10" fill="#a13d5c" font-weight="700" text-anchor="start">HUMAN GOVERNANCE</text>
-<text x="223" y="343" font-size="15" fill="#172b45" font-weight="700" text-anchor="start">Administration console</text>
-<text x="223" y="363" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Observe, freeze and suspend</text>
-<text x="223" y="379" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Authorized owner decisions</text>
-<rect x="464" y="300" width="202" height="92" rx="7" fill="#fffdf6" stroke="#946014" stroke-width="1.4"/>
-<text x="477" y="319" font-size="10" fill="#946014" font-weight="700" text-anchor="start">YOU SUPPLY</text>
-<text x="477" y="343" font-size="16" fill="#172b45" font-weight="700" text-anchor="start">Domain pack</text>
-<text x="477" y="363" font-size="11.5" fill="#475569" font-weight="400" text-anchor="start">Content, strategies, prompts</text>
-<text x="477" y="379" font-size="11.5" fill="#475569" font-weight="400" text-anchor="start">Decision criteria and limits</text>
-<rect x="682" y="300" width="202" height="92" rx="7" fill="#ffffff" stroke="#275d9b" stroke-width="1.4"/>
-<text x="695" y="319" font-size="10" fill="#275d9b" font-weight="700" text-anchor="start">APPROVED KNOWLEDGE</text>
-<text x="695" y="343" font-size="16" fill="#172b45" font-weight="700" text-anchor="start">Azure AI Search</text>
-<text x="695" y="363" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Screened, approved content</text>
-<text x="695" y="379" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Host-authorized retrieval</text>
-<rect x="914" y="300" width="246" height="92" rx="7" fill="#fffdf6" stroke="#946014" stroke-width="1.4"/>
-<text x="927" y="319" font-size="10" fill="#946014" font-weight="700" text-anchor="start">YOU SUPPLY</text>
-<text x="927" y="343" font-size="16" fill="#172b45" font-weight="700" text-anchor="start">Authoritative values source</text>
-<text x="927" y="363" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Read-only system of record</text>
-<text x="927" y="379" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Member-scoped access via APIM</text>
-<path d="M320 300 V254" fill="none" stroke="#a13d5c" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4"/>
-<path d="M565 300 V268" fill="none" stroke="#946014" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#m946014)"/>
-<path d="M783 300 V268" fill="none" stroke="#946014" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#m946014)"/>
-<path d="M1037 300 V254" fill="none" stroke="#946014" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#m946014)"/>
-<rect x="20" y="458" width="1160" height="174" rx="10" fill="#edf8f6" stroke="#8fc3ba" stroke-width="1.4"/>
-<text x="40" y="483" font-size="13" fill="#087f82" font-weight="700" text-anchor="start">02 / ISOLATED GOVERNED LEARNING</text>
-<text x="1160" y="483" font-size="12" fill="#087f82" font-weight="400" text-anchor="end">Scheduled Azure Container Apps Jobs · Separate managed identities</text>
-<rect x="40" y="502" width="208" height="112" rx="7" fill="#ffffff" stroke="#087f82" stroke-width="1.4"/>
-<text x="53" y="521" font-size="10" fill="#087f82" font-weight="700" text-anchor="start">01 / EVIDENCE</text>
-<text x="53" y="545" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Outcome aggregates</text>
-<text x="53" y="565" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Immutable outcome counts</text>
-<text x="53" y="581" font-size="12" fill="#475569" font-weight="400" text-anchor="start">No raw conversations</text>
-<text x="53" y="597" font-size="12" fill="#475569" font-weight="400" text-anchor="start">No model retraining</text>
-<path d="M248 558 H264" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>
-<rect x="268" y="502" width="208" height="112" rx="7" fill="#ffffff" stroke="#087f82" stroke-width="1.4"/>
-<text x="281" y="521" font-size="10" fill="#087f82" font-weight="700" text-anchor="start">02 / LEARNING</text>
-<text x="281" y="545" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Bounded ranking</text>
-<text x="281" y="565" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Approved strategies only</text>
-<text x="281" y="581" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Minimum evidence</text>
-<text x="281" y="597" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Maximum rank shifts</text>
-<path d="M476 558 H492" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>
-<rect x="496" y="502" width="208" height="112" rx="7" fill="#ffffff" stroke="#087f82" stroke-width="1.4"/>
-<text x="509" y="521" font-size="10" fill="#087f82" font-weight="700" text-anchor="start">03 / PROTECTION</text>
-<text x="509" y="545" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Fairness audit &amp; veto</text>
-<text x="509" y="565" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Isolated cohort analysis</text>
-<text x="509" y="581" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Deterministic universal veto</text>
-<text x="509" y="597" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Agent: operator proof</text>
-<path d="M704 558 H720" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>
-<rect x="724" y="502" width="208" height="112" rx="7" fill="#ffffff" stroke="#a13d5c" stroke-width="1.4"/>
-<text x="737" y="521" font-size="10" fill="#a13d5c" font-weight="700" text-anchor="start">04 / ASSURANCE</text>
-<text x="737" y="545" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Tiered governance</text>
-<text x="737" y="565" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Tier 0: bounded automatic</text>
-<text x="737" y="581" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Tier 1: assurance checks</text>
-<text x="737" y="597" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Tier 2: human approval</text>
-<path d="M932 558 H948" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>
-<rect x="952" y="502" width="208" height="112" rx="7" fill="#ffffff" stroke="#087f82" stroke-width="1.4"/>
-<text x="965" y="521" font-size="10" fill="#087f82" font-weight="700" text-anchor="start">05 / PUBLICATION</text>
-<text x="965" y="545" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Signed publication</text>
-<text x="965" y="565" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Verified strategy rankings</text>
-<text x="965" y="581" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Control arm and uplift</text>
-<text x="965" y="597" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Freeze or revert if needed</text>
-<path d="M240 250 V278 H30 V558 H36" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#m087f82)"/>
-<text x="43" y="295" font-size="11" fill="#087f82" font-weight="400" text-anchor="start">Confirmed outcomes</text>
-<path d="M1160 558 H1171 V430 H447 V234 H434" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#m087f82)"/>
-<rect x="675" y="420" width="270" height="20" rx="3" fill="#ffffff" stroke="none" stroke-width="1.4"/>
-<text x="810" y="434" font-size="12" fill="#087f82" font-weight="400" text-anchor="middle">Verified ranking via Strategy Service</text>
-<rect x="20" y="650" width="1160" height="156" rx="10" fill="#fbf3f5" stroke="#d9a3b4" stroke-width="1.4"/>
-<text x="40" y="675" font-size="13" fill="#a13d5c" font-weight="700" text-anchor="start">03 / REVIEW OF MISSED ANSWERS</text>
-<text x="1160" y="675" font-size="12" fill="#a13d5c" font-weight="400" text-anchor="end">Daily Azure Container Apps Job · Own managed identity · Nothing goes live by itself</text>
-<rect x="40" y="694" width="208" height="100" rx="7" fill="#ffffff" stroke="#087f82" stroke-width="1.4"/>
-<text x="53" y="712" font-size="10" fill="#087f82" font-weight="700" text-anchor="start">01 / EVIDENCE</text>
-<text x="53" y="735" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Declined answers</text>
-<text x="53" y="754" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Question kept 30 days</text>
-<text x="53" y="770" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Owners only</text>
-<text x="53" y="786" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Not a learning input</text>
-<path d="M248 744 H264" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>
-<rect x="268" y="694" width="208" height="100" rx="7" fill="#ffffff" stroke="#087f82" stroke-width="1.4"/>
-<text x="281" y="712" font-size="10" fill="#087f82" font-weight="700" text-anchor="start">02 / REVIEW</text>
-<text x="281" y="735" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Gap review</text>
-<text x="281" y="754" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Counts per situation</text>
-<text x="281" y="770" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Finds missing content</text>
-<text x="281" y="786" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Finds missing styles</text>
-<path d="M476 744 H492" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>
-<rect x="496" y="694" width="208" height="100" rx="7" fill="#ffffff" stroke="#087f82" stroke-width="1.4"/>
-<text x="509" y="712" font-size="10" fill="#087f82" font-weight="700" text-anchor="start">03 / AI DRAFT</text>
-<text x="509" y="735" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Drafting agent</text>
-<text x="509" y="754" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Reads the questions, no tools</text>
-<text x="509" y="770" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Drafts and recommends</text>
-<text x="509" y="786" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Output checked by code</text>
-<path d="M704 744 H720" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>
-<rect x="724" y="694" width="208" height="100" rx="7" fill="#ffffff" stroke="#a13d5c" stroke-width="1.4"/>
-<text x="737" y="712" font-size="10" fill="#a13d5c" font-weight="700" text-anchor="start">04 / OWNER</text>
-<text x="737" y="735" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Improvement ideas</text>
-<text x="737" y="754" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Reviewed in the console</text>
-<text x="737" y="770" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Approve, reject or defer</text>
-<text x="737" y="786" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Source recorded</text>
-<path d="M932 744 H948" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>
-<rect x="952" y="694" width="208" height="100" rx="7" fill="#ffffff" stroke="#087f82" stroke-width="1.4"/>
-<text x="965" y="712" font-size="10" fill="#087f82" font-weight="700" text-anchor="start">05 / PUBLICATION</text>
-<text x="965" y="735" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Existing governed paths</text>
-<text x="965" y="754" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Signed catalogue release</text>
-<text x="965" y="770" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Approved-content publisher</text>
-<text x="965" y="786" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Same B3 and B8 gates</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1648" height="928" viewBox="0 0 1648 928" role="img" aria-labelledby="gg-title gg-desc">
+<title id="gg-title">GovernedGraph — Governed AI guidance with two continuous improvement loops</title>
+<desc id="gg-desc">A connected three-part architecture. The member journey uses host orchestration, Decision 1.1 and Foundry prompt agents, with a deterministic release gate binding authoritative values from a read-only source. Approved content, strategy rankings and domain configuration have distinct consumer connections. Confirmed outcomes enter bounded automatic learning, while eligible declined explanations feed a separate nightly gap-review job and tool-free Foundry agent. Owner-approved changes publish through existing governed content and catalogue release paths. This is an illustrative Azure reference, not a production validation claim.</desc>
+<defs>
+  <linearGradient id="paper" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#f7fbff"/><stop offset=".55" stop-color="#eaf4ff"/><stop offset="1" stop-color="#fcfcff"/></linearGradient>
+  <linearGradient id="bluePanel" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#b6d9fc"/><stop offset=".62" stop-color="#c4e0ff"/><stop offset="1" stop-color="#d9ebff"/></linearGradient>
+  <linearGradient id="greenPanel" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#cff9e5"/><stop offset="1" stop-color="#c3f0de"/></linearGradient>
+  <linearGradient id="purplePanel" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#e4d9ff"/><stop offset="1" stop-color="#e7e2ff"/></linearGradient>
+  <linearGradient id="blueHead" x1="0" x2="1"><stop stop-color="#087ee0"/><stop offset="1" stop-color="#08418b"/></linearGradient>
+  <linearGradient id="greenHead" x1="0" x2="1"><stop stop-color="#149a76"/><stop offset="1" stop-color="#075a3f"/></linearGradient>
+  <linearGradient id="purpleHead" x1="0" x2="1"><stop stop-color="#9662df"/><stop offset="1" stop-color="#5126a6"/></linearGradient>
+  <linearGradient id="tile" x1="0" x2="0" y1="0" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#e8f3ff"/></linearGradient>
+  <linearGradient id="foundry" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#f2ebff"/><stop offset="1" stop-color="#d6ddff"/></linearGradient>
+  <linearGradient id="success" x1="0" x2="1"><stop stop-color="#f9fffe"/><stop offset="1" stop-color="#d4f8e8"/></linearGradient>
+  <filter id="shadow" x="-22%" y="-33%" width="144%" height="180%"><feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#4277ac" flood-opacity=".20"/></filter>
+  <marker id="arrowBlue" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0 0 9 4.5 0 9Z" fill="#2f72b8"/></marker>
+  <marker id="arrowGreen" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0 0 9 4.5 0 9Z" fill="#0f906e"/></marker>
+  <marker id="arrowPurple" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0 0 9 4.5 0 9Z" fill="#7e2aca"/></marker>
+  <marker id="arrowTeal" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0 0 9 4.5 0 9Z" fill="#078c9a"/></marker>
+  <style>text{font-family:'Segoe UI',Inter,Arial,sans-serif} .tiny{letter-spacing:.2px}</style>
+</defs>
+<rect x="0" y="0" width="1648" height="928" rx="0" fill="url(#paper)" stroke="none" stroke-width="1" />
+<path d="M1180 0q150 125 310 52t158-48v98H1050Z" fill="#a8d4fc" opacity=".38"/><path d="M0 928v-18q110-55 260-8t390 0q240-50 415 22Z" fill="#9bcfff" opacity=".30"/>
+<path d="M76 43 L100 63 L125 41" fill="none" stroke="#0c8fa8" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"   />
+<path d="M76 43 L91 12 L125 41" fill="none" stroke="#0c8fa8" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"   />
+<rect x="68" y="35" width="16" height="16" rx="9" fill="#f7fcff" stroke="#1470ac" stroke-width="4" />
+<rect x="83" y="4" width="16" height="16" rx="9" fill="#f7fcff" stroke="#1470ac" stroke-width="4" />
+<rect x="92" y="55" width="16" height="16" rx="9" fill="#f7fcff" stroke="#1470ac" stroke-width="4" />
+<rect x="117" y="33" width="16" height="16" rx="9" fill="#f7fcff" stroke="#1470ac" stroke-width="4" />
+<text x="155" y="39" font-size="34" fill="#161a44" font-weight="750" text-anchor="start" >GovernedGraph — Governed AI guidance with two continuous improvement loops</text>
+<text x="157" y="78" font-size="25" fill="#5d5c70" font-weight="400" text-anchor="start" >Deterministic facts · bounded learning · owner-approved improvements</text>
+<rect x="2" y="104" width="1644" height="424" rx="35" fill="url(#bluePanel)" stroke="#b3d8fd" stroke-width="1.5" />
+<rect x="36" y="114" width="442" height="57" rx="14" fill="url(#blueHead)" stroke="#4596da" stroke-width="1" filter="url(#shadow)"/>
+<rect x="66" y="124" width="56" height="38" rx="10" fill="#50a8f8" stroke="none" stroke-width="1" />
+<text x="94" y="152" font-size="28" fill="#fff" font-weight="750" text-anchor="middle" >01</text>
+<text x="147" y="152" font-size="27" fill="#fff" font-weight="740" text-anchor="start" >Member journey</text>
+<path d="M234 262 H257" fill="none" stroke="#2f72b8" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowBlue)" />
+<path d="M524 262 H546" fill="none" stroke="#2f72b8" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowBlue)" />
+<path d="M1050 262 H1080" fill="none" stroke="#2f72b8" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowBlue)" />
+<path d="M1365 262 H1398" fill="none" stroke="#2f72b8" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowBlue)" />
+<path d="M165 410 V362 H354 V333" fill="none" stroke="#246ed0" stroke-width="3.3" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowBlue)" />
+<path d="M235 411 V390 H670 V333" fill="none" stroke="#246ed0" stroke-width="3.3" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowBlue)" />
+<path d="M529 410 V385 H934 V334" fill="none" stroke="#7e2aca" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowPurple)" />
+<path d="M861 410 V372 H1199 V333" fill="none" stroke="#078c9a" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowTeal)" />
+<path d="M1080 411 V508 H401 V332" fill="none" stroke="#0f906e" stroke-width="3.4" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowGreen)" />
+<rect x="29" y="194" width="206" height="136" rx="16" fill="url(#tile)" stroke="#b7d5f5" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(54 223) scale(1.03)" stroke="#168ce5" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<circle cx="23" cy="12" r="10" fill="currentColor" stroke="none" opacity=".05"/><circle cx="23" cy="12" r="9"/><path d="M4 49c1-15 9-23 19-23s18 8 19 23"/>
+</g>
+<text x="118" y="251" font-size="23" fill="#141c39" font-weight="760" text-anchor="start" >Member</text>
+<text x="118" y="282" font-size="16" fill="#202b49" font-weight="450" text-anchor="start" >Chat or voice</text>
+<rect x="263" y="194" width="261" height="136" rx="16" fill="url(#tile)" stroke="#b7d5f5" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(285 219)" stroke="#1762bc" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<rect x="17" y="0" width="17" height="17" rx="3"/><rect x="0" y="34" width="17" height="17" rx="3"/><rect x="34" y="34" width="17" height="17" rx="3"/><path d="M25 17v9H8v8m17-8h18v8"/>
+</g>
+<text x="356" y="233" font-size="21" fill="#15182d" font-weight="750" text-anchor="start" >Journey</text>
+<text x="356" y="256" font-size="21" fill="#15182d" font-weight="750" text-anchor="start" >orchestrator</text>
+<text x="356" y="278" font-size="13" fill="#222d47" font-weight="480" text-anchor="start" >Authenticate, screen, route</text>
+<text x="356" y="297" font-size="13" fill="#222d47" font-weight="480" text-anchor="start" >Host-owned workflow state</text>
+<rect x="551" y="172" width="498" height="163" rx="20" fill="url(#foundry)" stroke="#bfcafa" stroke-width="1.5" filter="url(#shadow)"/>
+<g transform="translate(580 186) scale(0.47)" stroke="#8565f4" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="m25 2 5 17 17 5-17 5-5 17-5-17-17-5 17-5Z"/><path d="M42 3v10m-5-5h10"/>
+</g>
+<text x="637" y="204" font-size="22" fill="#252059" font-weight="740" text-anchor="start" >Microsoft Foundry semantic services</text>
+<rect x="564" y="217" width="257" height="109" rx="13" fill="url(#tile)" stroke="#c6c5f5" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(583 234) scale(0.72)" stroke="#3963e8" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M23 7c-9-12-19 0-14 9-12 5-5 18 1 18-1 14 13 15 14 5V7Zm2 0c9-12 19 0 14 9 12 5 5 18-1 18 1 14-13 15-14 5V7Z"/><path d="M15 17c8-1 10 8 9 12m10-12c-8-1-10 8-9 12M14 35c6-4 9-2 10 1m14-1c-6-4-9-2-10 1"/>
+</g>
+<text x="634" y="249" font-size="17" fill="#171536" font-weight="740" text-anchor="start" >Decision 1.1 /</text>
+<text x="634" y="269" font-size="17" fill="#171536" font-weight="740" text-anchor="start" >SystemOne</text>
+<text x="635" y="296" font-size="12.6" fill="#303556" font-weight="470" text-anchor="start" >Intent · understanding</text>
+<text x="635" y="313" font-size="12.6" fill="#303556" font-weight="470" text-anchor="start" >Answer quality review</text>
+<rect x="833" y="217" width="204" height="109" rx="13" fill="url(#tile)" stroke="#c6c5f5" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(849 239) scale(0.65)" stroke="#5a45d8" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<rect x="3" y="15" width="46" height="30" rx="8"/><path d="M26 15V4m-7 0h14"/><circle cx="17" cy="29" r="2" fill="#5a45d8" stroke="none"/><circle cx="35" cy="29" r="2" fill="#5a45d8" stroke="none"/><path d="M22 38h9M3 27h-5m51 0h5"/>
+</g>
+<text x="901" y="249" font-size="16.5" fill="#1b1742" font-weight="740" text-anchor="start" >Foundry Agent</text>
+<text x="901" y="270" font-size="16.5" fill="#1b1742" font-weight="740" text-anchor="start" >Service</text>
+<text x="901" y="297" font-size="12.5" fill="#303556" font-weight="450" text-anchor="start" >Counsellor drafts</text>
+<text x="901" y="314" font-size="12.5" fill="#303556" font-weight="450" text-anchor="start" >explanations</text>
+<rect x="1083" y="194" width="283" height="136" rx="16" fill="url(#tile)" stroke="#b7d5f5" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(1102 219) scale(0.93)" stroke="#0a8198" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M25 2 46 10v20c0 13-9 21-21 27C13 51 4 43 4 30V10Z"/><path d="m14 29 7 7 16-17"/>
+</g>
+<text x="1179" y="228" font-size="20" fill="#141c36" font-weight="760" text-anchor="start" >Deterministic</text>
+<text x="1179" y="252" font-size="20" fill="#141c36" font-weight="760" text-anchor="start" >release gate</text>
+<text x="1179" y="281" font-size="13" fill="#30374c" font-weight="470" text-anchor="start" >Bind official values</text>
+<text x="1179" y="298" font-size="13" fill="#30374c" font-weight="470" text-anchor="start" >Enforce safety and fidelity</text>
+<text x="1179" y="315" font-size="13" fill="#30374c" font-weight="470" text-anchor="start" >Commit durable audit</text>
+<rect x="1402" y="194" width="217" height="136" rx="16" fill="url(#success)" stroke="#a6decf" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(1422 222) scale(0.92)" stroke="#23a552" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<circle cx="25" cy="25" r="23" fill="#23a552" opacity=".13"/><path d="m10 26 10 11 22-24"/>
+</g>
+<text x="1491" y="229" font-size="21" fill="#141b35" font-weight="760" text-anchor="start" >Checked</text>
+<text x="1491" y="253" font-size="21" fill="#141b35" font-weight="760" text-anchor="start" >response</text>
+<text x="1491" y="286" font-size="14.6" fill="#252d47" font-weight="470" text-anchor="start" >Released to</text>
+<text x="1491" y="306" font-size="14.6" fill="#252d47" font-weight="470" text-anchor="start" >the member</text>
+<rect x="205" y="340" width="96" height="30" rx="15" fill="#156bd3" stroke="none" stroke-width="1" />
+<text x="253" y="360" font-size="13" fill="#fff" font-weight="700" text-anchor="middle" >prompts</text>
+<rect x="476" y="355" width="128" height="30" rx="15" fill="#2677df" stroke="none" stroke-width="1" />
+<text x="540" y="375" font-size="13" fill="#fff" font-weight="700" text-anchor="middle" >domain criteria</text>
+<rect x="560" y="373" width="142" height="30" rx="15" fill="#7e2aca" stroke="none" stroke-width="1" />
+<text x="631" y="393" font-size="12.5" fill="#fff" font-weight="700" text-anchor="middle" >approved passages</text>
+<rect x="963" y="355" width="131" height="30" rx="15" fill="#088f9e" stroke="none" stroke-width="1" />
+<text x="1028.5" y="375" font-size="12.8" fill="#fff" font-weight="700" text-anchor="middle" >official values</text>
+<rect x="601" y="493" width="234" height="30" rx="15" fill="#0c8e65" stroke="none" stroke-width="1" />
+<text x="718" y="513" font-size="13" fill="#fff" font-weight="700" text-anchor="middle" >ranking · eligibility · vetoes</text>
+<rect x="50" y="411" width="314" height="82" rx="16" fill="url(#tile)" stroke="#b7d5f5" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(69 426) scale(0.76)" stroke="#1b82e5" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M25 1 48 13 25 25 2 13 25 1Zm-23 21 23 12 23-12M2 33l23 12 23-12"/>
+</g>
+<text x="135" y="442" font-size="18" fill="#18233e" font-weight="740" text-anchor="start" >Domain pack you supply</text>
+<text x="135" y="462" font-size="14" fill="#2d3853" font-weight="470" text-anchor="start" >Approved strategies, prompts,</text>
+<text x="135" y="480" font-size="14" fill="#2d3853" font-weight="470" text-anchor="start" >decision criteria, limits</text>
+<rect x="425" y="411" width="225" height="82" rx="16" fill="url(#tile)" stroke="#b7d5f5" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(445 424) scale(0.8)" stroke="#188dea" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<circle cx="22" cy="22" r="17"/><path d="m35 35 15 15"/>
+</g>
+<text x="507" y="447" font-size="17.5" fill="#18233e" font-weight="740" text-anchor="start" >Approved content</text>
+<text x="507" y="472" font-size="14.2" fill="#2d3853" font-weight="470" text-anchor="start" >Azure AI Search</text>
+<rect x="685" y="411" width="276" height="82" rx="16" fill="url(#tile)" stroke="#b7d5f5" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(706 425) scale(0.74)" stroke="#126abb" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<ellipse cx="25" cy="9" rx="21" ry="7"/><path d="M4 9v32c0 9 42 9 42 0V9M4 25c0 9 42 9 42 0"/>
+</g>
+<text x="769" y="440" font-size="17" fill="#18233e" font-weight="740" text-anchor="start" >Authoritative values source</text>
+<text x="769" y="460" font-size="13.5" fill="#2d3853" font-weight="470" text-anchor="start" >Read-only system of record</text>
+<text x="769" y="477" font-size="13.5" fill="#2d3853" font-weight="470" text-anchor="start" >via APIM</text>
+<rect x="992" y="411" width="254" height="82" rx="16" fill="url(#tile)" stroke="#b7d5f5" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(1012 424) scale(0.75)" stroke="#157cb8" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<rect x="17" y="0" width="17" height="17" rx="3"/><rect x="0" y="34" width="17" height="17" rx="3"/><rect x="34" y="34" width="17" height="17" rx="3"/><path d="M25 17v9H8v8m17-8h18v8"/>
+</g>
+<text x="1072" y="440" font-size="17" fill="#18233e" font-weight="740" text-anchor="start" >Strategy Service</text>
+<text x="1072" y="461" font-size="13.5" fill="#2d3853" font-weight="470" text-anchor="start" >Signed rankings · eligibility</text>
+<text x="1072" y="478" font-size="13.5" fill="#2d3853" font-weight="470" text-anchor="start" >universal vetoes</text>
+<path d="M1274 396 V499" fill="none" stroke="#7599bf" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"   />
+<rect x="1297" y="385" width="316" height="113" rx="16" fill="url(#foundry)" stroke="#bba5f1" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(1317 403) scale(0.85)" stroke="#1761bc" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<rect x="2" y="4" width="47" height="33" rx="3"/><path d="M25 37v11M15 48h20"/>
+</g>
+<text x="1390" y="412" font-size="17.8" fill="#19203a" font-weight="740" text-anchor="start" >Administration console</text>
+<rect x="1392" y="425" width="185" height="30" rx="15" fill="#ded2fa" stroke="none" stroke-width="1" />
+<text x="1484.5" y="445" font-size="12.8" fill="#4e3689" font-weight="700" text-anchor="middle" >Governance / observation</text>
+<text x="1390" y="462" font-size="13.3" fill="#2d3853" font-weight="470" text-anchor="start" >Observe evidence · freeze/suspend</text>
+<text x="1390" y="479" font-size="13.3" fill="#2d3853" font-weight="470" text-anchor="start" >Owner decisions</text>
+<rect x="4" y="620" width="741" height="268" rx="32" fill="url(#greenPanel)" stroke="#b4ebd0" stroke-width="1.4" />
+<rect x="753" y="620" width="891" height="268" rx="32" fill="url(#purplePanel)" stroke="#d0bcf3" stroke-width="1.4" />
+<path d="M685 704 V596 H1042 V496" fill="none" stroke="#0f906e" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowGreen)" />
+<path d="M1550 705 V565 H1103 V497" fill="none" stroke="#7e2aca" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowPurple)" />
+<path d="M1551 790 V578 H529 V497" fill="none" stroke="#7e2aca" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowPurple)" />
+<rect x="272" y="547" width="244" height="30" rx="15" fill="#2d9c4a" stroke="none" stroke-width="1" />
+<text x="394" y="567" font-size="15.3" fill="#fff" font-weight="700" text-anchor="middle" >Updated approved ranking</text>
+<rect x="659" y="539" width="242" height="45" rx="14" fill="#9057d4" stroke="#7c43c4" stroke-width="1" filter="url(#shadow)"/>
+<text x="780" y="556" font-size="14" fill="#fff" font-weight="650" text-anchor="middle" >Publish to approved content</text>
+<text x="780" y="573" font-size="14" fill="#fff" font-weight="650" text-anchor="middle" >(new or revised passage)</text>
+<rect x="1202" y="538" width="243" height="45" rx="14" fill="#9259db" stroke="#7145bd" stroke-width="1" filter="url(#shadow)"/>
+<text x="1323" y="555" font-size="13.5" fill="#fff" font-weight="650" text-anchor="middle" >Publish to Strategy Service</text>
+<text x="1323" y="572" font-size="13.5" fill="#fff" font-weight="650" text-anchor="middle" >(approved catalogue release)</text>
+<rect x="19" y="634" width="428" height="48" rx="13" fill="url(#greenHead)" stroke="#369f77" stroke-width="1" filter="url(#shadow)"/>
+<g transform="translate(34 646) scale(0.43)" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M3 8h46M3 23h40M3 38h32M8 0v2M8 15v2M8 30v2"/>
+</g>
+<rect x="76" y="639" width="43" height="38" rx="10" fill="#46bf8b" stroke="none" stroke-width="1" />
+<text x="97" y="665" font-size="25" fill="#fff" font-weight="760" text-anchor="middle" >02</text>
+<text x="132" y="666" font-size="24" fill="#fff" font-weight="740" text-anchor="start" >Bounded automatic learning</text>
+<rect x="767" y="634" width="560" height="48" rx="13" fill="url(#purpleHead)" stroke="#7651bf" stroke-width="1" filter="url(#shadow)"/>
+<g transform="translate(782 644) scale(0.52)" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<circle cx="18" cy="14" r="7"/><circle cx="36" cy="15" r="7"/><path d="M2 41c0-11 6-17 16-17s16 6 16 17M24 41c0-10 5-15 13-15s14 5 14 15"/>
+</g>
+<rect x="826" y="639" width="47" height="38" rx="10" fill="#a88be6" stroke="none" stroke-width="1" />
+<text x="849" y="665" font-size="25" fill="#fff" font-weight="760" text-anchor="middle" >03</text>
+<text x="884" y="665" font-size="22.3" fill="#fff" font-weight="720" text-anchor="start" >Human-guided review of missed answers</text>
+<rect x="16" y="704" width="102" height="164" rx="15" fill="url(#tile)" stroke="#bfdfd2" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(49 716) scale(0.7)" stroke="#0b9873" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<ellipse cx="25" cy="9" rx="21" ry="7"/><path d="M4 9v32c0 9 42 9 42 0V9M4 25c0 9 42 9 42 0"/>
+</g>
+<text x="67" y="781" font-size="15.1" fill="#111b2f" font-weight="760" text-anchor="middle" >Confirmed</text>
+<text x="67" y="800" font-size="15.1" fill="#111b2f" font-weight="760" text-anchor="middle" >outcomes</text>
+<text x="67" y="822" font-size="12.2" fill="#293047" font-weight="480" text-anchor="middle" >Confirmed journey</text>
+<text x="67" y="838" font-size="12.2" fill="#293047" font-weight="480" text-anchor="middle" >results</text>
+<path d="M120 787 H129" fill="none" stroke="#0f906e" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowGreen)" />
+<rect x="134" y="704" width="102" height="164" rx="15" fill="url(#tile)" stroke="#bfdfd2" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(167 716) scale(0.7)" stroke="#0b9873" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M5 47V32h8v15M21 47V22h8v25M37 47V10h8v37"/>
+</g>
+<text x="185" y="781" font-size="15.1" fill="#111b2f" font-weight="760" text-anchor="middle" >Outcome</text>
+<text x="185" y="800" font-size="15.1" fill="#111b2f" font-weight="760" text-anchor="middle" >aggregates</text>
+<text x="185" y="822" font-size="12.2" fill="#293047" font-weight="480" text-anchor="middle" >Immutable counts</text>
+<text x="185" y="838" font-size="12.2" fill="#293047" font-weight="480" text-anchor="middle" >only</text>
+<path d="M238 787 H247" fill="none" stroke="#0f906e" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowGreen)" />
+<rect x="252" y="704" width="107" height="164" rx="15" fill="url(#tile)" stroke="#bfdfd2" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(287.5 716) scale(0.7)" stroke="#0b9873" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M3 8h46M3 23h40M3 38h32M8 0v2M8 15v2M8 30v2"/>
+</g>
+<text x="305.5" y="781" font-size="15.1" fill="#111b2f" font-weight="760" text-anchor="middle" >Bounded</text>
+<text x="305.5" y="800" font-size="15.1" fill="#111b2f" font-weight="760" text-anchor="middle" >ranking</text>
+<text x="305.5" y="822" font-size="12.2" fill="#293047" font-weight="480" text-anchor="middle" >Reorder approved</text>
+<text x="305.5" y="838" font-size="12.2" fill="#293047" font-weight="480" text-anchor="middle" >strategies only</text>
+<path d="M361 787 H371" fill="none" stroke="#0f906e" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowGreen)" />
+<rect x="376" y="704" width="111" height="164" rx="15" fill="url(#tile)" stroke="#bfdfd2" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(413.5 716) scale(0.7)" stroke="#249b57" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M25 3v43M10 46h30M5 12h40M12 12 3 35h18L12 12Zm27 0-9 23h18L39 12Z"/>
+</g>
+<text x="431.5" y="781" font-size="15.1" fill="#111b2f" font-weight="760" text-anchor="middle" >Fairness</text>
+<text x="431.5" y="800" font-size="15.1" fill="#111b2f" font-weight="760" text-anchor="middle" >audit &amp; veto</text>
+<text x="431.5" y="822" font-size="12.2" fill="#293047" font-weight="480" text-anchor="middle" >Isolated cohorts</text>
+<text x="431.5" y="838" font-size="12.2" fill="#293047" font-weight="480" text-anchor="middle" >universal veto</text>
+<path d="M489 787 H499" fill="none" stroke="#0f906e" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowGreen)" />
+<rect x="504" y="704" width="114" height="164" rx="15" fill="url(#tile)" stroke="#bfdfd2" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(543 716) scale(0.7)" stroke="#0b9873" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M25 1 48 13 25 25 2 13 25 1Zm-23 21 23 12 23-12M2 33l23 12 23-12"/>
+</g>
+<text x="561" y="781" font-size="15.1" fill="#111b2f" font-weight="760" text-anchor="middle" >Tiered</text>
+<text x="561" y="800" font-size="15.1" fill="#111b2f" font-weight="760" text-anchor="middle" >governance</text>
+<text x="561" y="822" font-size="12.2" fill="#293047" font-weight="480" text-anchor="middle" >Tier 0 automatic</text>
+<text x="561" y="838" font-size="12.2" fill="#293047" font-weight="480" text-anchor="middle" >Tier 1 assurance</text>
+<text x="561" y="854" font-size="12.2" fill="#293047" font-weight="480" text-anchor="middle" >Tier 2 human</text>
+<path d="M620 787 H631" fill="none" stroke="#0f906e" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowGreen)" />
+<rect x="636" y="704" width="98" height="164" rx="15" fill="url(#tile)" stroke="#bfdfd2" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(667 716) scale(0.7)" stroke="#0b9873" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="m25 4 7 5 10 1 2 10 6 8-7 8-1 10-10 1-7 6-8-6-10-1-1-10-7-8 7-8 1-10 10-1Z"/><path d="m16 29 7 6 12-14"/>
+</g>
+<text x="685" y="781" font-size="15.1" fill="#111b2f" font-weight="760" text-anchor="middle" >Signed</text>
+<text x="685" y="800" font-size="15.1" fill="#111b2f" font-weight="760" text-anchor="middle" >publication</text>
+<text x="685" y="822" font-size="12.2" fill="#293047" font-weight="480" text-anchor="middle" >Verified rank</text>
+<text x="685" y="838" font-size="12.2" fill="#293047" font-weight="480" text-anchor="middle" >snapshot</text>
+<rect x="767" y="704" width="121" height="164" rx="15" fill="url(#tile)" stroke="#d4c5f0" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(809.5 717) scale(0.7)" stroke="#7938ce" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<circle cx="25" cy="24" r="21"/><path d="M17 16c1-11 18-11 18 0 0 7-10 9-10 15M25 40v1"/>
+</g>
+<text x="827.5" y="781" font-size="14.8" fill="#17112e" font-weight="760" text-anchor="middle" >Declined</text>
+<text x="827.5" y="800" font-size="14.8" fill="#17112e" font-weight="760" text-anchor="middle" >explanations</text>
+<text x="827.5" y="822" font-size="12" fill="#373049" font-weight="480" text-anchor="middle" >Eligible cases</text>
+<text x="827.5" y="838" font-size="12" fill="#373049" font-weight="480" text-anchor="middle" >kept 30 days</text>
+<path d="M890 787 H900" fill="none" stroke="#7e2aca" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowPurple)" />
+<rect x="905" y="704" width="107" height="164" rx="15" fill="url(#tile)" stroke="#d4c5f0" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(940.5 717) scale(0.7)" stroke="#7938ce" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<rect x="4" y="10" width="43" height="39" rx="4"/><path d="M4 20h43M14 3v12M37 3v12M16 31h8m9 0h8"/>
+</g>
+<text x="958.5" y="781" font-size="14.8" fill="#17112e" font-weight="760" text-anchor="middle" >Gap-review</text>
+<text x="958.5" y="800" font-size="14.8" fill="#17112e" font-weight="760" text-anchor="middle" >job</text>
+<text x="958.5" y="822" font-size="12" fill="#373049" font-weight="480" text-anchor="middle" >Nightly scan</text>
+<text x="958.5" y="838" font-size="12" fill="#373049" font-weight="480" text-anchor="middle" >recurring gaps</text>
+<path d="M1014 787 H1023" fill="none" stroke="#7e2aca" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowPurple)" />
+<rect x="1028" y="704" width="118" height="164" rx="15" fill="url(#tile)" stroke="#d4c5f0" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(1069 717) scale(0.7)" stroke="#7938ce" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="m25 2 5 17 17 5-17 5-5 17-5-17-17-5 17-5Z"/><path d="M42 3v10m-5-5h10"/>
+</g>
+<text x="1087" y="781" font-size="14.8" fill="#17112e" font-weight="760" text-anchor="middle" >gg-gap-review</text>
+<text x="1087" y="800" font-size="14.8" fill="#17112e" font-weight="760" text-anchor="middle" >agent</text>
+<text x="1087" y="822" font-size="12" fill="#373049" font-weight="480" text-anchor="middle" >Tool-free Foundry</text>
+<text x="1087" y="838" font-size="12" fill="#373049" font-weight="480" text-anchor="middle" >drafts ideas</text>
+<path d="M1148 787 H1161" fill="none" stroke="#7e2aca" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowPurple)" />
+<rect x="1166" y="704" width="129" height="164" rx="15" fill="url(#tile)" stroke="#d4c5f0" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(1212.5 717) scale(0.7)" stroke="#7938ce" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<rect x="5" y="4" width="42" height="44" rx="4"/><path d="M15 16h23M15 26h23M15 36h15"/>
+</g>
+<text x="1230.5" y="781" font-size="14.8" fill="#17112e" font-weight="760" text-anchor="middle" >Improvement</text>
+<text x="1230.5" y="800" font-size="14.8" fill="#17112e" font-weight="760" text-anchor="middle" >ideas</text>
+<text x="1230.5" y="822" font-size="12" fill="#373049" font-weight="480" text-anchor="middle" >Content · style</text>
+<text x="1230.5" y="838" font-size="12" fill="#373049" font-weight="480" text-anchor="middle" >possible false</text>
+<text x="1230.5" y="854" font-size="12" fill="#373049" font-weight="480" text-anchor="middle" >negatives</text>
+<path d="M1297 787 H1306" fill="none" stroke="#7e2aca" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowPurple)" />
+<rect x="1311" y="704" width="101" height="164" rx="15" fill="url(#tile)" stroke="#d4c5f0" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(1343.5 717) scale(0.7)" stroke="#7938ce" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<circle cx="21" cy="13" r="10"/><path d="M3 50c1-16 8-24 18-24s18 8 19 24m-8-15 7 7 12-16"/>
+</g>
+<text x="1361.5" y="781" font-size="14.8" fill="#17112e" font-weight="760" text-anchor="middle" >Owner</text>
+<text x="1361.5" y="800" font-size="14.8" fill="#17112e" font-weight="760" text-anchor="middle" >decision</text>
+<text x="1361.5" y="822" font-size="12" fill="#373049" font-weight="480" text-anchor="middle" >Approve</text>
+<text x="1361.5" y="838" font-size="12" fill="#373049" font-weight="480" text-anchor="middle" >defer · reject</text>
+<path d="M1412 786 H1428 V742 H1447" fill="none" stroke="#7e2aca" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowPurple)" />
+<path d="M1428 786 V821 H1447" fill="none" stroke="#7e2aca" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"  marker-end="url(#arrowPurple)" />
+<rect x="1452" y="704" width="179" height="67" rx="12" fill="url(#tile)" stroke="#d4c4ec" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(1462 720) scale(0.65)" stroke="#7440b5" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M25 11c-11-7-18-7-22-5v39c11-2 18-1 22 5 4-6 11-7 22-5V6c-4-2-11-2-22 5ZM25 11v39"/>
+</g>
+<text x="1511" y="736" font-size="14.6" fill="#201b35" font-weight="710" text-anchor="start" >Signed</text>
+<text x="1511" y="754" font-size="14.6" fill="#201b35" font-weight="710" text-anchor="start" >catalogue release</text>
+<rect x="1452" y="790" width="179" height="66" rx="12" fill="url(#tile)" stroke="#d4c4ec" stroke-width="1.4" filter="url(#shadow)"/>
+<g transform="translate(1462 805) scale(0.65)" stroke="#7941c9" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M25 1 48 13 25 25 2 13 25 1Zm-23 21 23 12 23-12M2 33l23 12 23-12"/>
+</g>
+<text x="1511" y="822" font-size="14" fill="#201b35" font-weight="710" text-anchor="start" >Approved-content</text>
+<text x="1511" y="840" font-size="14" fill="#201b35" font-weight="710" text-anchor="start" >publisher</text>
 </svg>

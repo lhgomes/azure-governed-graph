@@ -17,6 +17,7 @@ evidence do not belong in public documentation.
 |---|---|---|
 | P1: member-facing runtime | Authenticate, guide, retrieve approved facts, enforce output gates and record delivery | Authorized member requests, approved content, official values and verified strategy state |
 | P2: isolated learning and assurance | Reorder approved strategies, audit fairness, govern and sign publication | Immutable outcome counts and segregated cohort audit evidence |
+| Gap review: separately governed improvement | Analyze eligible declined explanation cases, generate inert proposals for an owner | Declined-response metadata and questions retained up to 30 days, approved content and style patterns |
 | Content governance | Approve and version the knowledge and explanation patterns | Human-reviewed domain material |
 
 All features and bounded learning are available from the first release. There
@@ -48,6 +49,8 @@ Deeper design pages: [conversation continuity](architecture-conversation-continu
 | Explainability store | Append-only response metadata in private immutable Blob storage |
 | Event transport | Service Bus with stable domain IDs and durable consumer deduplication |
 | Learning and fairness hosts | Scheduled Container Apps Jobs with separate managed identities |
+| Gap-review job and Foundry drafting agent | Independent nightly Container Apps Job and a tool-free `gg-gap-review` Foundry agent; writes proposals, not approvals |
+| Content publisher | Separately authorized job verifies owner approval, guards against newer content versions, and publishes approved passages |
 | Signing | Key Vault; only the isolated P2 signer can sign ranking snapshots |
 | Administration console | Internal Container App behind `/admin/`; evidence, protective controls and human owner decisions |
 | Observability | Content-free OpenTelemetry, Application Insights and Azure Monitor |
@@ -352,12 +355,9 @@ not a demographic inference or automatic translation permission.
 
 ## Gap review
 
-A daily job reviews declined interactions and proposes missing approved content and explanation styles to the
-administration console. A tool-free drafting agent analyses the kept questions and drafts a passage or
-recommends a style. Every output is checked in code, and an owner decides in the console. Approved styles go
-through the signed catalogue release and approved passages through the content publisher. Nothing it proposes
-goes live by itself. This is the one governed exception to B4, because kept member questions inform proposals for
-people only. See [gap review](architecture-gap-review.md).
+A daily job (03:30 UTC by default, when administration is enabled) analyzes **eligible explanation-routed declines and final-review-flagged responses**, not every failed conversation. A situation needs at least five eligible declines across three journeys in the default 30-day lookback. A separate tool-free Foundry agent may analyze redacted kept questions and draft a passage or recommend a style on an existing approved pattern. Its output is inert and untrusted; the owner verifies material claims and records the decision.
+
+Approved styles enter the **signed catalogue release**, while owner-approved passages enter the **separate content publisher** with journal and version checks. Neither the job nor the agent can change runtime behavior directly. This human-governed path is the limited B4 exception for short-lived member wording; aggregate-only P2 ranking still cannot read raw conversations. Later effectiveness must be measured against the static control and safety/fairness gates; publication alone does not demonstrate uplift. See [gap review](architecture-gap-review.md).
 
 ## Governed speech channel
 

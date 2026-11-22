@@ -36,13 +36,11 @@ readiness. It does **not** run paid evaluations or claim acceptance.
 
 1. A verified member starts a journey through APIM and the durable Azure Container
    Apps orchestrator. Member identity and step-up claims are host-validated.
-2. The intent/understanding agents identify the bounded request; advice and
-   ambiguous intent can escalate to a human.
-3. Approved strategy ranking comes from the Azure Strategy Service. A signed
+2. Microsoft Decision 1.1 returns bounded intent and understanding decisions through the SystemOne API; advice and ambiguous intent can escalate to a human. These roles are not separate Foundry prompt agents.
+3. The host requests approved strategy ranking from the Azure Strategy Service. A signed
    snapshot is verified against the active catalogue; universal suspensions
    override both treatment and control arms.
-4. Official member values come from the protected values API and approved
-   passages come from Azure AI Search. The model never determines or rounds a value.
+4. The **host-controlled release gate** binds official member values obtained from the protected read-only values API; approved passages are retrieved through host-authorized Azure AI Search tools. A model never determines or rounds an authoritative value.
 5. Foundry agents compose explanations with placeholders. The host binds
    authoritative values, enforces numeric fidelity and records immutable audit
    evidence before exposing a response.
@@ -57,6 +55,14 @@ the segregated fairness identity, enforce fairness vetoes and bounded rank shift
 sign an approved snapshot with Key Vault and publish through the Strategy API.
 The control arm remains on static expert rankings. Tier 2 changes require human
 governance. See [architecture](architecture.md) and [evaluation](evaluation.md).
+
+## How human-guided improvement works
+
+The separate gap-review job (`job-gg-gap-review`, default schedule **03:30 UTC daily**) is deployed when the administration console is enabled. It selects explanation-routed declined or final-review-flagged answers from a default 30-day window, excluding selected-style tests and other nonqualifying exits. The job groups situations by stage, topic, channel, accessibility mode and language; at least five eligible declines across three journeys are required for a proposal.
+
+A separately authorized, **tool-free Foundry `gg-gap-review` agent** can draft missing or revised content and recommend styles based on already approved patterns. Its output is untrusted. The administration console presents missing content, content revisions, style gaps and possible false refusals. Only an authorized owner may approve a material change. Approved content is verified and published by the content publisher; approved styles use the signed catalogue release. New explanation patterns not yet approved cannot be activated by this mechanism.
+
+Short-lived question text is retained for up to 30 days for this workflow, but **not used for bounded ranking or model retraining**. Approval and publication are not proof of improved outcomes; new behavior needs evaluation against the control arm and safety/fairness gates. See the [gap-review architecture](architecture-gap-review.md) and [improvement-idea administration guide](administration.md#improvement-ideas-declined-answers-and-proposed-fixes).
 
 ## Verify after deployment
 
@@ -84,3 +90,6 @@ The execution and evidence contract is described in
 | P1 / P2 | Member-facing Azure runtime / isolated Azure learning and assurance plane |
 | Control arm | Static approved expert ranking used for governed comparison |
 | Explainability record | Immutable reference-only evidence of a delivered response |
+| Gap-review proposal | Inert, owner-reviewed suggestion from recurring eligible declined explanations |
+| Content publisher | Separate job that validates and publishes owner-approved passages |
+| Catalogue publication | Existing signed process that makes owner-approved explanation styles eligible |

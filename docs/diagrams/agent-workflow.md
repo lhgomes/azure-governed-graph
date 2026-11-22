@@ -3,10 +3,9 @@
 New to the project? Start with the simpler [overview diagram](overview.svg), which the README uses:
 the framework, what you supply, the people involved and the learning loop in one picture. This page is the detail behind it.
 
-[Vector SVG](agent-workflow.svg) (1600 × 1100, white background). The [overview SVG](overview.svg) is 1200 × 820. Both are canonical, scalable diagram assets. Export a PNG when required, for example with `inkscape agent-workflow.svg --export-type=png --export-width=3840 --export-filename=agent-workflow.png` (or substitute `overview` for `agent-workflow`) from this directory.
+[Vector SVG](agent-workflow.svg) (1600 × 1100, white background). The [overview SVG](overview.svg) is 1648 × 928, redrawn as editable vector artwork from the latest approved three-section layout. Both are canonical, scalable diagram assets. Export a PNG when required, for example with `inkscape agent-workflow.svg --export-type=png --export-width=3840 --export-filename=agent-workflow.png` (or substitute `overview` for `agent-workflow`) from this directory.
 
-The diagram presents the implemented member-guidance workflow and separate
-governed learning loop, not an unrestricted agent-to-agent conversation.
+The diagram presents the implemented member-guidance workflow and **two complementary improvement loops**: bounded aggregate ranking and separately owner-reviewed gap proposals. It is not an unrestricted agent-to-agent conversation.
 All examples and data are **ILLUSTRATIVE - synthetic data**.
 Boxes outlined in dashed gold (the approved-content and official-values columns) are what **your domain supplies**:
 the domain pack's content and your read-only system of record. The rose box is the [administration console](../administration.md),
@@ -28,7 +27,7 @@ where authorized operators observe evidence and can freeze or suspend; separatel
   integration is a synthetic stand-in, not a real advisor callback.
 - **Learning changes ranking, not knowledge or entitlement.** Only immutable
   outcome aggregates enter bounded reordering of the approved catalogue.
-  Raw conversations and operational telemetry are not learning inputs.
+  Raw conversations and operational telemetry are not ranking inputs. A **separate** gap-review workflow handles eligible declined questions under a 30-day retention limit and cannot directly alter runtime behavior.
 - **Fairness can veto performance.** The deterministic isolated cohort audit can suspend a
   strategy for all members. The separately authorized fairness prompt agent is retained for explicit operator proof, not the scheduled veto. Runtime receives universal suspensions, never
   demographics or cohort-specific routing.
@@ -36,8 +35,8 @@ where authorized operators observe evidence and can freeze or suspend; separatel
   Tier 1 moves require agentic assurance checks. Material changes and
   reinstatement require Tier 2 human approval; they are not automatic outputs
   of the ranking pipeline. Protective actions do not wait for approval.
-- **Publication is not proof of uplift.** The control arm retains expert ranking;
-  uplift monitoring can return treatment to static ranking.
+- **Gap proposals require owner judgment.** The nightly batch detects repeated decline patterns (at least five eligible declines from three journeys), and its tool-free agent drafts candidate passages or styles. It cannot approve or publish them. The owner decides; the catalogue signing path and content publisher are distinct.
+- **Publication is not proof of uplift.** After approval and publication, outcomes can be evaluated through the existing governed learning and control-arm mechanisms; uplift monitoring can return treatment to static ranking.
 
 Scope: the pension sample's Transition Calculation, Event Processing and Transition Adoption Guide
 remain design-depth contracts/offline stubs. They are intentionally not drawn as
@@ -45,46 +44,56 @@ live participants in this workflow.
 
 ## Application Architecture
 
-```mermaid
-flowchart TD
-    subgraph Channels["Member channels"]
-        channel["Chat or voice with AI disclosure"]
-    end
-    subgraph Runtime["Host-controlled member journey"]
-        host["Journey Orchestrator - Agent Framework"]
-        decision["Decision 1.1 - SystemOne API"]
-        roles["Foundry Agent Service - named writers"]
-        gates["Deterministic gates and durable audit"]
-        human["Human handover - synthetic adapter"]
-    end
-    subgraph Services["Approved read surfaces"]
-        search["Azure AI Search - approved content"]
-        values["APIM - read-only deterministic values"]
-        strategy["Strategy Service - signed ranking and vetoes"]
-    end
-    subgraph Learning["Separate governed learning plane"]
-        aggregates["Immutable outcome aggregates"]
-        bounded["Bounded ranking and isolated fairness audit"]
-        governance["Tiered governance and signed publication"]
-    end
-    channel -->|"authenticated and screened turn"| host
-    host -->|"closed semantic task"| decision
-    decision -->|"closed label and confidence"| host
-    host -->|"bounded drafting task"| roles
-    roles -->|"grounded draft"| host
-    host -->|"approved retrieval"| search
-    host -->|"official value references"| values
-    host -->|"approved explanation strategy"| strategy
-    host -->|"checked result"| gates
-    gates -->|"audited response"| channel
-    host -->|"request, advice or required-service failure"| human
-    host -->|"confirmed journey outcomes only"| aggregates
-    aggregates -->|"counts, never transcripts"| bounded
-    bounded -->|"candidate and audit evidence"| governance
-    bounded -.->|"universal protective veto"| strategy
-    governance -->|"signed approved ranking"| strategy
-```
+This logical diagram follows **specific read and publication paths**, not a shared bus where every component consumes every source. The deterministic release gate is the only box shown reading the authoritative values facade. The orchestrator uses the signed strategy state; the approved retrieval path supplies evidence to the writing process.
 
+```mermaid
+flowchart LR
+    subgraph Member["01 · Governed member journey"]
+      direction LR
+      channel["Member / chat or voice"]
+      host["Journey orchestrator<br/>host-owned state and authorization"]
+      decision["Decision 1.1<br/>closed semantic decisions"]
+      writer["Foundry Counsellor agents<br/>explanation drafting"]
+      gates["Deterministic release gate<br/>value binding, safety, durable audit"]
+      answer["Checked response"]
+      channel --> host
+      host <-->|"intent / understanding / review"| decision
+      host <-->|"bounded drafting"| writer
+      host --> gates --> answer
+    end
+    subgraph Reads["Governed read surfaces"]
+      direction TB
+      domain["Domain pack<br/>prompts, criteria, limits"]
+      search["Approved content<br/>Azure AI Search"]
+      values["Authoritative values<br/>APIM / read-only source"]
+      strategy["Strategy Service<br/>signed rankings and vetoes"]
+    end
+    subgraph Learning["02 · Bounded automatic learning"]
+      direction LR
+      outcomes["Confirmed outcome aggregates"] --> ranking["Bounded ranking"]
+      ranking --> audit["Fairness audit and assurance"]
+      audit --> signed["Signed ranking publication"]
+    end
+    subgraph Improvement["03 · Human-guided gap review"]
+      direction LR
+      evidence["Eligible declined explanations<br/>questions retained 30 days"] --> job["Daily gap-review job"]
+      job --> drafter["Tool-free gg-gap-review agent"]
+      drafter --> ideas["Improvement ideas"]
+      ideas --> owner["Authorized owner decision"]
+      owner --> catalogue["Signed catalogue publication"]
+      owner --> publisher["Approved-content publisher"]
+    end
+    domain -->|"approved prompts and criteria"| host
+    domain -->|"semantic criteria"| decision
+    host -->|"strategy selection"| strategy
+    host -->|"host-authorized evidence retrieval"| search
+    gates -->|"only authoritative-value read"| values
+    gates -->|"confirmed outcomes only"| outcomes
+    gates -->|"response records and eligible questions"| evidence
+    signed -->|"verified ranking snapshot"| strategy
+    catalogue -->|"approved explanation style"| strategy
+    publisher -->|"approved new or revised passage"| search
+```
 ### Technology stack summary
 
 | Layer | Technology | Version policy | Purpose |
@@ -93,7 +102,8 @@ flowchart TD
 | Closed semantic decisions | Microsoft Decision 1.1 / SystemOne API | Pinned model deployment and domain criteria | Intent, understanding, answer review |
 | Explanation | Microsoft Foundry Agent Service | Named agent definitions | Primary and compact Counsellor |
 | Approved reads | APIM, AI Search, Strategy Service | Versioned contracts/content/snapshots | Official values, grounded content and governed strategies |
-| Evidence and learning | Blob storage, Service Bus, Container Apps Jobs | Versioned schemas and release images | Durable audit, aggregate projection and isolated learning |
+| Evidence and learning | Blob storage, Service Bus, Container Apps Jobs | Versioned schemas and release images | Durable audit, aggregate projection and isolated bounded learning |
+| Owner-reviewed improvement | Separate Container Apps Job, tool-free Foundry agent, administration console | Reviewed proposals and owner decisions | Analyze eligible declined explanations; publish only through existing governed paths |
 
 ### Data storage and external services
 
@@ -135,10 +145,11 @@ flowchart LR
         publish["Sign and publish"]
     end
     subgraph Review["Daily review of missed answers"]
-        declined["Declined answers and kept questions"]
+        declined["Eligible declined explanations and kept questions"]
         gapjob["Gap review job"]
         drafter["gg-gap-review agent, no tools"]
         ideas["Improvement ideas"]
+        contentpublisher["Approved-content publisher"]
     end
     owner["Owner decision in the administration console"]
     route -->|"closed routing decision"| intent
@@ -164,7 +175,8 @@ flowchart LR
     drafter -->|"checked recommendation"| ideas
     ideas --> owner
     owner -->|"approved style: signed catalogue release"| publish
-    owner -->|"approved passage: content publisher"| reads
+    owner -->|"approved passage: queued with source"| contentpublisher
+    contentpublisher -->|"verified, published content"| reads
 ```
 
 ### Component inventory
@@ -188,6 +200,8 @@ flowchart LR
 | Improvement ideas | Administration console | Owner approves, rejects or defers; approvals use the signed catalogue release and the content publisher |
 
 ## Source references
+
+- [Gap-review architecture, eligibility and publication](../architecture-gap-review.md)
 
 - [Decision 1.1 client](../../src/governedgraph/agents/decision_model.py)
 - [Semantic decision definitions](../../src/governedgraph/agents/decision_agents.py)

@@ -40,6 +40,7 @@ The active runtime, embedded tester and learning readers use the published catal
 | Explanation styles | One row per approved style: availability, explanation, eligibility and recorded uses; orders, pauses and digest-verified learning counts in details |
 | Conversations | Immutable reference-only explainability records and optional captured synthetic turns |
 | Activity | Fairness case references, immutable Tier 1/control evidence and the append-only administrative action journal |
+| Improvement ideas | Recurring explanation gaps, evidence and candidate changes from the separate nightly review; owner decisions and publication state |
 
 ### Built-in help for new users
 
@@ -117,11 +118,7 @@ live decisions rather than claiming that every aggregate interaction was observe
 
 ## Improvement ideas: declined answers and proposed fixes
 
-A scheduled review (`job-gg-gap-review`, daily) looks at every explanation question whose answer was declined: it ended
-in an advisor offer, or the answer review flagged it. Some of these answers were legitimate. The review groups them by
-journey stage, topic, channel, accessibility mode and language, and proposes a fix when a situation has at least five
-declined answers from three journeys. **Improvement ideas** lists the proposals; see
-[Gap review](architecture-gap-review.md) for the rules.
+The scheduled `job-gg-gap-review` (03:30 UTC daily by default) examines **eligible explanation-routed declined responses**, including delivered responses flagged by their final answer review. It is not an analysis of all unsuccessful conversations. The review excludes selected-style test journeys and other nonqualifying cases, groups the remaining signals by journey stage, topic, channel, accessibility mode and language, and proposes ideas only when a situation has at least **five declines from three journeys** within the default 30-day lookback. **Improvement ideas** lists proposals that an authorized owner may investigate; see [Gap review](architecture-gap-review.md) for exact rules and the limitations of AI drafts.
 
 | Idea | What an owner decides |
 |---|---|
@@ -139,6 +136,8 @@ every other owner decision. **Approve** never makes a change live by itself:
   the publisher has indexed it, then *Published to approved content*. If the live passage changed after you approved,
   the publisher refuses it and the status reads *Not published*; decide again on the new idea that follows. An operator starts the publisher with
   `python -m governedgraph.search.run_publisher_job --approved-proposals`.
+
+**Approval is not measured improvement:** once a change is activated, evaluate subsequent outcomes and safety/fairness against the governed static-control baseline. A rejected or acknowledged false-refusal finding does not relax the deterministic output gates.
 
 An idea lists up to ten declined answers, one per journey, each with a link to its journey in **Conversations**, the outcome,
 the reason, the member's question (owners only) and the approved passages found. *What was available* names the styles that

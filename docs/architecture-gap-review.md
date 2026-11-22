@@ -7,16 +7,15 @@ decide; nothing it proposes goes live by itself. The owner-facing screen is desc
 
 ## What runs
 
-The daily `job-gg-gap-review` (`governedgraph.learning.gap_review_job`) reviews every declined interaction of the
-last 30 days and writes **proposals** for the administration console. It reads the immutable response records, the
+The scheduled `job-gg-gap-review` (`governedgraph.learning.gap_review_job`, default **03:30 UTC daily**) reads response records from a configurable lookback (30 days by default), selects **eligible declined explanation interactions**, and writes **inert proposals** for the administration console. The job is provisioned when the administration console is enabled; the drafting agent is a separately published dependency. It reads the immutable response records, the
 member questions kept for declined answers and, to leave selected-style test journeys out of its counts, the journey
 state. It runs under its own identity. That identity can read response records, kept questions, journey state and
 content approvals, write proposals, and call its own drafting agent. It cannot write an approval, sign, publish
 content, change the catalogue or start a job.
 
-A declined interaction is an explanation question that ended in an advisor offer, or whose delivered answer the final
-answer review flagged. Findings on a draft that was repaired and then passed review do not count. Interactions are grouped by closed situation (journey stage, topic, channel, accessibility mode, language).
-A proposal needs at least five declined answers from three journeys.
+Eligibility requires an **explanation-routed** request and one of the recognized outcomes: an unanswered acknowledgment, a `no_eligible_style` escalation, or a delivered explanation whose **final** answer review has findings. Other escalations are contextual evidence rather than declined-count inputs. Findings on a draft that was repaired and then passed its final review do not count. Selected-style test journeys and journeys whose test status cannot be verified are excluded. Other unsuccessful conversations or dissatisfied members are not comprehensively captured by this job.
+
+Interactions are grouped by a closed situation (journey stage, topic, channel, accessibility mode and language). A proposal requires **at least five eligible declined responses in three distinct journeys in the lookback window**; fewer cases produce no proposal. This job complements—but does not consume inputs from—the aggregate-only bounded-ranking pipeline.
 
 ## Inputs
 
@@ -52,7 +51,7 @@ administration console is deployed, so tell members that declined questions are 
 | Missing explanation style | At most one approved style can explain, or most declined answers had no eligible style | An AI recommendation: the themes, why current styles do not fit, and either a style on an approved pattern scoped to the situation, or a described new style that can only be acknowledged. Not offered without the AI answer |
 | Answers refused that may have been fine | Content and styles exist, and the refusals came from quality-only review findings or output gates | None. An owner looks at examples; no check is changed |
 
-Proposals are immutable, content-addressed blobs (`proposals/<id>/<evidence-digest>.json`). An unchanged situation
+Proposals are content-addressed blobs (`proposals/<id>/<evidence-digest>.json`), **created once per evidence revision but deliberately not protected by WORM immutability**: the job may overwrite a stored proposal to remove expired member wording. An unchanged situation
 adds nothing on the next run. Each batch summary names the digest it currently observes for every proposal, and the
 console shows that revision, so evidence that returns to an earlier state shows that state again. A proposal to revise a
 newer base passage has a different identity from one already decided for an older base. Each proposal also carries up to ten **cases**, one per journey: journey id, outcome,
@@ -117,7 +116,13 @@ existing governed path:
 Every listing the console, the job and the publisher rely on fails closed when it hits its cap (5,000 blobs), instead
 of acting on part of the history.
 
-Both improvement containers carry a 30-day immutability policy, so blobs are create-only by enforcement.
+`content-approvals` carries a 30-day WORM immutability policy; owner decisions also have an immutable action journal. By contrast, `improvement-proposals` and `declined-questions` are **not WORM**: a 30-day Blob lifecycle policy expires their data, and the gap-review job can overwrite proposal records specifically to redact question text when its original retention period expires. The proposal store is create-once for new evidence revisions as an application rule, not a storage-enforced write prohibition. This difference matters for erasure and 30-day data minimization.
+
+## Validation and evaluation
+
+The implementation in the repository provides the daily schedule, identity isolation, proposal checks and owner-controlled publication paths. The merged implementation PR did not include evidence of a live Azure job execution, a completed Foundry drafting request, or an end-to-end approved-content publisher run. These must be validated in the authorized deployed environment before claiming operational readiness.
+
+Published content or a new signed catalogue style is **not evidence of uplift**. Review subsequent eligible journey outcomes, safety/fairness gates, and the governed control arm before claiming improved effectiveness; the gap-review job itself neither certifies benefit nor modifies model weights.
 
 ## Boundaries
 
