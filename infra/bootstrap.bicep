@@ -82,6 +82,6 @@ module fixtures 'modules/dev-learning-fixtures.bicep' = {
   }
 }
 output contentJob string = publisher.outputs.name
-output approvalsReconcilerJob string = deployAdminConsole ? 'job-gg-approved-content-reconciler' : ''
+output approvalsReconcilerJob string = deployAdminConsole ? 'job-gg-approved-reconciler' : ''
 output issuerJob string = 'job-gg-dev-member-issuer'
 output fixturesJob string = 'job-gg-dev-learning-fixtures'

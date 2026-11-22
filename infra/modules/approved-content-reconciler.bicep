@@ -12,7 +12,7 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' existing = {
   name: 'cae-gg-${token}'
 }
 resource reconciler 'Microsoft.App/jobs@2024-03-01' = {
-  name: 'job-gg-approved-content-reconciler'
+  name: 'job-gg-approved-reconciler'
   location: location
   tags: { data: 'synthetic', purpose: 'p3-owner-approved-content-reconciliation' }
   identity: { type: 'UserAssigned', userAssignedIdentities: { '${identityId}': {} } }

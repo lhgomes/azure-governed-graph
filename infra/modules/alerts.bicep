@@ -171,13 +171,13 @@ resource gapReviewFreshness 'Microsoft.Insights/scheduledQueryRules@2023-12-01' 
       allOf: [
         {
           query: '''
-let latest = toscalar(
+let last_completed = toscalar(
   union isfuzzy=true ContainerAppConsoleLogs_CL, ContainerAppConsoleLogs
   | extend Raw=tostring(column_ifexists("Log_s", column_ifexists("Log", "")))
   | where tostring(parse_json(Raw).event) == "gap_review_completed"
   | summarize max(TimeGenerated)
 );
-print TimeGenerated=now(), missed=iif(isnull(latest) or latest < ago(36h), 1, 0)
+print TimeGenerated=now(), missed=iif(isnull(last_completed) or last_completed < ago(36h), 1, 0)
 | where missed == 1
 '''
           timeAggregation: 'Count'
@@ -212,13 +212,13 @@ resource publicationFreshness 'Microsoft.Insights/scheduledQueryRules@2023-12-01
       allOf: [
         {
           query: '''
-let latest = toscalar(
+let last_completed = toscalar(
   union isfuzzy=true ContainerAppConsoleLogs_CL, ContainerAppConsoleLogs
   | extend Raw=tostring(column_ifexists("Log_s", column_ifexists("Log", "")))
   | where tostring(parse_json(Raw).event) == "publication_reconciliation_completed"
   | summarize max(TimeGenerated)
 );
-print TimeGenerated=now(), missed=iif(isnull(latest) or latest < ago(36h), 1, 0)
+print TimeGenerated=now(), missed=iif(isnull(last_completed) or last_completed < ago(36h), 1, 0)
 | where missed == 1
 '''
           timeAggregation: 'Count'
