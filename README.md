@@ -152,4 +152,4 @@ integration or production acceptance. See the [limits to state with any result](
 
 ## Licence
 
-[Apache-2.0](LICENSE); see [NOTICE](NOTICE). Synthetic sample data and content are illustrative only. See [contributing](CONTRIBUTING.md) and [security](SECURITY.md) for collaboration and reporting guidance. Copyright ownership and publication authority must be independently confirmed before changing repository visibility.
+[Apache-2.0](LICENSE); see [NOTICE](NOTICE). Synthetic sample data and content are illustrative only. See [contributing](CONTRIBUTING.md) and [security](SECURITY.md) for collaboration and reporting guidance.
