@@ -324,11 +324,10 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
                 raise HTTPException(404, "no such proposal")
             if proposal.evidence_digest != decision.evidence_digest:
                 raise HTTPException(409, "the proposal changed; refresh and review it again")
-            status = proposal_review.status_of(proposal, source.actions(), source.state(), improvement["published"])
+            status = proposal_review.status_of(proposal, source.actions(), source.state(), improvement["published"],
+                                               improvement["approved"])
             if status["code"] in proposal_review.CLOSED:
                 raise HTTPException(409, "this proposal already has a decision")
-            if status["code"] == "uncertain" and decision.decision == "approve":
-                raise HTTPException(409, f"an earlier decision is not complete; investigate {status['decision_ref']} first")
             if decision.decision not in proposal_review.DECISIONS[proposal.kind]:
                 raise HTTPException(400, "this decision is not available for this proposal")
             marker = {"proposal_id": proposal.proposal_id, "evidence_digest": proposal.evidence_digest}

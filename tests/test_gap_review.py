@@ -182,6 +182,12 @@ def batch(records, journeys, proposals=None):
     return store, Container(journeys), proposals if proposals is not None else Container()
 
 
+def job(records, journeys, proposals, approvals=None, **options):
+    return gap_review_job.run(records=records, journeys=journeys, proposals=proposals,
+                              approvals=approvals if approvals is not None else Container(), catalogue=Catalogue.load(),
+                              vocabulary=VOCABULARY, seed=CORPUS, **options)
+
+
 def journey_blob(journey_id, test=""):
     from governedgraph.orchestrator.state_machine import Journey
     from governedgraph.orchestrator.store import JourneyRecord
@@ -192,14 +198,14 @@ def journey_blob(journey_id, test=""):
 def test_b8_the_job_writes_only_proposals_and_one_batch_summary_and_is_idempotent():
     records = unanswered(8)
     store, journeys, proposals = batch(records, {f"J-{index}.json": journey_blob(f"J-{index}") for index in range(8)})
-    options = dict(records=store, journeys=journeys, proposals=proposals, catalogue=Catalogue.load(),
-                   vocabulary=VOCABULARY, seed=CORPUS)
-    result = gap_review_job.run(**options, now=NOW)
+    approvals = Container()
+    result = job(store, journeys, proposals, approvals, now=NOW)
     assert result["proposals"] == 1 and result["new_revisions"] == 1
     assert {name.split("/")[0] for name in proposals.blobs} == {"proposals", "batches"}
     saved, _ = improvement_store.read_proposals(proposals)
     assert [item.kind for item in saved] == ["content_gap"]
-    again = gap_review_job.run(**options, now=NOW + timedelta(minutes=5))
+    assert approvals.blobs == {}
+    again = job(store, journeys, proposals, approvals, now=NOW + timedelta(minutes=5))
     assert again["new_revisions"] == 0 and len(improvement_store.read_batches(proposals)) == 2
 
 
@@ -207,8 +213,7 @@ def test_b4_test_and_unverifiable_journeys_never_reach_a_proposal():
     records = unanswered(8)
     known = {f"J-{index}.json": journey_blob(f"J-{index}", test="S1" if index < 4 else "") for index in range(6)}
     store, journeys, proposals = batch(records, known)
-    result = gap_review_job.run(records=store, journeys=journeys, proposals=proposals, catalogue=Catalogue.load(),
-                                vocabulary=VOCABULARY, seed=CORPUS, now=NOW)
+    result = job(store, journeys, proposals, now=NOW)
     # J-0..J-3 are tests, J-6 and J-7 have no journey state to verify: only J-4 and J-5 remain, below the threshold.
     assert result["test_records_excluded"] == 6 and result["proposals"] == 0
 
@@ -218,8 +223,7 @@ def test_the_job_ignores_records_older_than_its_lookback_window():
     store, journeys, proposals = batch(records, {f"J-{index}.json": journey_blob(f"J-{index}") for index in range(8)})
     store.list_blobs = lambda name_starts_with="": [SimpleNamespace(name=name, last_modified=NOW - timedelta(days=60))
                                                     for name in store.blobs]
-    result = gap_review_job.run(records=store, journeys=journeys, proposals=proposals, catalogue=Catalogue.load(),
-                                vocabulary=VOCABULARY, seed=CORPUS, now=NOW, lookback_days=30)
+    result = job(store, journeys, proposals, now=NOW, lookback_days=30)
     assert result["records_read"] == 0 and result["proposals"] == 0
 
 
@@ -241,10 +245,15 @@ def test_approved_content_awaits_the_publisher_until_its_marker_exists():
         improvement_store.ContentApproval.from_dict({**asdict(approval), "decision_ref": "GB-" + "f" * 32})
 
 
-def test_b8_the_publisher_publishes_only_owner_approved_passages_once_in_version_order():
-    from governedgraph.search import reindex_on_approval
+def journal_of(*approvals):
+    """The console's journal as it holds an owner decision: one create-only blob per step."""
+    return Container({f"{item.decision_ref}/requested.json": json.dumps({
+        "action_id": item.decision_ref, "action": "proposal_content_approve", "document_id": item.content.id,
+        "content_name": item.name, "proposal": {"proposal_id": item.proposal_id, "evidence_digest": "0" * 64},
+        "status": "requested"}).encode() for item in approvals})
 
-    store = Container()
+
+def two_approvals():
     base = next(doc for doc in CORPUS if doc.id == "C-001-v1.3")
     content = {"title": base.title, "journey_states": list(base.journey_states), "answers": base.answers}
     first = gap_review.content_document(
@@ -253,14 +262,56 @@ def test_b8_the_publisher_publishes_only_owner_approved_passages_once_in_version
     second = gap_review.content_document(
         draft={"action": "revise", "base_id": first.id, "language": "en"}, content={**content, "body": base.body + " More still."},
         corpus=gap_review.effective_corpus(CORPUS, [first]), approval_ref="GB-" + "2" * 32)
-    for document in (second, first):
-        improvement_store.write_approval(store, improvement_store.ContentApproval.for_document(
-            document, document.approval_ref, "GP-" + "1" * 24))
+    return [improvement_store.ContentApproval.for_document(item, item.approval_ref, "GP-" + "1" * 24) for item in (second, first)]
+
+
+def test_b8_the_publisher_publishes_only_owner_approved_passages_once_in_version_order():
+    from governedgraph.search import reindex_on_approval
+
+    store, approvals = Container(), two_approvals()
+    for approval in approvals:
+        improvement_store.write_approval(store, approval)
     published = []
     publisher = SimpleNamespace(publish=lambda seed, candidates: published.append([doc.id for doc in candidates]))
-    assert reindex_on_approval.publish_approvals(store, CORPUS, publisher, "job-1") == 2
+    journal = journal_of(*approvals)
+    assert reindex_on_approval.publish_approvals(store, journal, CORPUS, publisher, "job-1") == 2
     assert published == [["C-001-v1.4", "C-001-v1.5"]]
-    assert reindex_on_approval.publish_approvals(store, CORPUS, publisher, "job-2") == 0 and len(published) == 1
+    assert reindex_on_approval.publish_approvals(store, journal, CORPUS, publisher, "job-2") == 0 and len(published) == 1
+
+
+def test_b8_an_approval_without_a_matching_journalled_owner_decision_is_never_published():
+    from governedgraph.search import reindex_on_approval
+
+    approvals = two_approvals()
+    published = []
+    publisher = SimpleNamespace(publish=lambda seed, candidates: published.append(candidates))
+    for journal in (journal_of(approvals[0]), journal_of(),
+                    Container({f"{approvals[0].decision_ref}/requested.json": json.dumps({"action": "other"}).encode(),
+                               **journal_of(approvals[1]).blobs})):
+        store = Container()
+        for approval in approvals:
+            improvement_store.write_approval(store, approval)
+        with pytest.raises(PermissionError):
+            reindex_on_approval.publish_approvals(store, journal, CORPUS, publisher, "job-1")
+        assert improvement_store.published_names(store) == set()
+    assert published == []
+
+
+def test_b8_the_gap_review_has_read_access_to_approvals_and_nothing_in_the_job_writes_them():
+    from pathlib import Path
+
+    source = Path(gap_review_job.__file__).read_text()
+    assert "write_approval" not in source and "mark_published" not in source
+    assert source.count("create_once(proposals") == 2
+
+
+@pytest.mark.parametrize("field", ["title", "answers"])
+def test_title_and_questions_answered_follow_the_same_content_rules_as_the_body(field):
+    content = {"title": "Payment", "journey_states": ["*"], "answers": "Will my payment change?", "body": "Described in your letter."}
+    for bad in ("{{value:capital}}", "You should choose the new contract."):
+        with pytest.raises(ContractError):
+            gap_review.content_document(draft={"action": "add", "language": "en"}, corpus=CORPUS,
+                                        approval_ref="GB-" + "a" * 32, content={**content, field: bad})
 
 
 @pytest.mark.parametrize("module", [gap_review, improvement_store])

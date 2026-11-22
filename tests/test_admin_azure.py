@@ -157,7 +157,7 @@ def test_overview_projects_the_deployed_stores_without_cohort_or_conversation_da
 def test_only_the_expected_containers_are_ever_read_or_written():
     text = Path(sources.__file__).read_text(encoding="utf-8")
     assert set(re.findall(r'get_container_client\(\s*"([a-z-]+)"', text)) == {"learning-aggregates", "learning-evidence"}
-    assert set(Containers.__dataclass_fields__) == {"explainability", "aggregates", "evidence", "actions", "proposals"}
+    assert set(Containers.__dataclass_fields__) == {"explainability", "aggregates", "evidence", "actions", "proposals", "approvals"}
     assert "cohort-zone" not in text and "journey-state" not in text and "approved-content" not in text
 
 

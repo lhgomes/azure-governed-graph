@@ -56,6 +56,8 @@ class Settings:
     explainability_container: str = os.getenv("EXPLAINABILITY_CONTAINER", "explainability-records")
     journey_storage_url: str = os.getenv("JOURNEY_STORAGE_URL", "")
     improvement_container: str = os.getenv("GOVERNEDGRAPH_IMPROVEMENT_CONTAINER", "improvement-proposals")
+    approvals_container: str = os.getenv("GOVERNEDGRAPH_APPROVALS_CONTAINER", "content-approvals")
+    admin_actions_container: str = os.getenv("GOVERNEDGRAPH_ADMIN_ACTIONS_CONTAINER", "admin-actions")
     service_bus_namespace: str = os.getenv("SERVICE_BUS_NAMESPACE", "")
     contact_centre_url: str = os.getenv("CONTACT_CENTRE_URL", "")
     contact_centre_client_id: str = os.getenv("CONTACT_CENTRE_CLIENT_ID", "")

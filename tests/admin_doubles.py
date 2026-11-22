@@ -91,16 +91,19 @@ class LocalSources:
     mode = "local"
     profile = "test-double"
 
-    def __init__(self, service: StrategyService, directory: Path, proposals: MemoryContainer | None = None):
+    def __init__(self, service: StrategyService, directory: Path, proposals: MemoryContainer | None = None,
+                 approvals: MemoryContainer | None = None):
         self.service, self.directory = service, Path(directory)
         self.proposals = proposals if proposals is not None else MemoryContainer()
+        self.approvals = approvals if approvals is not None else MemoryContainer()
 
     def improvement(self) -> dict:
         from governedgraph.learning import improvement_store
 
         found, truncated = improvement_store.read_proposals(self.proposals)
         return {"proposals": found, "truncated": truncated, "batches": improvement_store.read_batches(self.proposals),
-                "published": improvement_store.published_names(self.proposals)}
+                "approved": {item.name for item in improvement_store.read_approvals(self.approvals)},
+                "published": improvement_store.published_names(self.approvals)}
 
     def content_corpus(self):
         from governedgraph.common.config import DATA_DIR
@@ -109,12 +112,12 @@ class LocalSources:
         from governedgraph.search.corpus import load_corpus
 
         seed = load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text())
-        return effective_corpus(seed, [item.content for item in improvement_store.read_approvals(self.proposals)])
+        return effective_corpus(seed, [item.content for item in improvement_store.read_approvals(self.approvals)])
 
     def approve_content(self, approval) -> None:
         from governedgraph.learning import improvement_store
 
-        improvement_store.write_approval(self.proposals, approval)
+        improvement_store.write_approval(self.approvals, approval)
 
     def context(self, state: dict | None = None) -> Context:
         return Context(self.service.catalogue, self.service.priors, self.service.thresholds, self.service.control_share)

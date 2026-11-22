@@ -312,8 +312,10 @@ def content_document(*, draft: dict, content: dict, corpus: list[ContentDocument
     if set(content) != {"title", "journey_states", "answers", "body"}:
         raise ContractError("content needs a title, stages, questions answered and a body")
     body = _text(content["body"], 8000)
-    if "{{" in body or "}}" in body or response_steers_choice(body):
-        raise ContractError("content may not hold value placeholders or steer a choice")
+    # Title and questions answered are indexed and searched like the body, so they follow the same rules.
+    for text in (body, _text(content["title"], 200), _text(content["answers"], 1000, allow_empty=True)):
+        if "{{" in text or "}}" in text or response_steers_choice(text):
+            raise ContractError("content may not hold value placeholders or steer a choice")
     states = content["journey_states"]
     if not isinstance(states, list) or not states or any(not isinstance(item, str) or item not in stages() | {"*"} for item in states):
         raise ContractError("choose approved journey stages")

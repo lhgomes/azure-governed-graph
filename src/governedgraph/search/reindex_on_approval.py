@@ -29,10 +29,13 @@ def pending_approvals(container) -> list[improvement_store.ContentApproval]:
     return sorted(pending, key=lambda item: (item.content.content_id, version_key(item.content.version), item.content.language))
 
 
-def publish_approvals(container, seed, publisher, execution: str) -> int:
+def publish_approvals(container, journal, seed, publisher, execution: str) -> int:
+    """Publish owner-approved passages. Every approval must match a journalled owner decision, or nothing is published."""
     pending = pending_approvals(container)
     if not pending:
         return 0
+    for item in pending:
+        improvement_store.verify_decision(journal, item)
     publisher.publish(seed, [item.content for item in pending])
     for item in pending:
         improvement_store.mark_published(container, item, execution)
@@ -56,10 +59,12 @@ def main() -> None:
         if not settings.explainability_account_url:
             parser.error("EXPLAINABILITY_STORAGE_URL is required")
         with DefaultAzureCredential() as credential:
-            container = BlobServiceClient(settings.explainability_account_url, credential=credential).get_container_client(
-                settings.improvement_container)
+            account = BlobServiceClient(settings.explainability_account_url, credential=credential)
             seed = load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text())
-            count = publish_approvals(container, seed, AzureContentPublisher(), os.getenv("CONTAINER_APP_JOB_EXECUTION_NAME", ""))
+            count = publish_approvals(
+                account.get_container_client(settings.approvals_container),
+                account.get_container_client(settings.admin_actions_container), seed, AzureContentPublisher(),
+                os.getenv("CONTAINER_APP_JOB_EXECUTION_NAME", ""))
         print(f"published {count} owner-approved passages", flush=True)
         return
     if args.from_env:

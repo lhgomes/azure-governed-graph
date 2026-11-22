@@ -30,7 +30,7 @@ module publisher 'modules/content-publisher.bicep' = {
       CONTENT_STORAGE_RESOURCE_ID: foundation.data.contentStorageId
       CONTENT_CONTAINER: 'approved-content'
       EXPLAINABILITY_STORAGE_URL: foundation.data.blobEndpoint
-      GOVERNEDGRAPH_IMPROVEMENT_CONTAINER: 'improvement-proposals'
+      GOVERNEDGRAPH_APPROVALS_CONTAINER: 'content-approvals'
       AZURE_OPENAI_EMBEDDING_ENDPOINT: foundation.ai.embeddingEndpoint
       AZURE_OPENAI_EMBEDDING_DEPLOYMENT: 'embedding'
       AZURE_OPENAI_EMBEDDING_MODEL: 'text-embedding-3-large'

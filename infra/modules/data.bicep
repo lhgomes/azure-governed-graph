@@ -49,12 +49,27 @@ resource adminActions 'Microsoft.Storage/storageAccounts/blobServices/containers
   name: 'admin-actions'
   properties: { publicAccess: 'None' }
 }
-// Gap-review proposals, owner-approved passages awaiting the content publisher, and their publication markers.
-// Every blob is create-only by convention; owner decisions are journalled in admin-actions, not here.
+// Gap-review proposals: written once by the gap-review job, read by the administration console.
 resource improvementProposals 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (deployAdminConsole) {
   parent: blob
   name: 'improvement-proposals'
   properties: { publicAccess: 'None' }
+}
+resource improvementProposalsWorm 'Microsoft.Storage/storageAccounts/blobServices/containers/immutabilityPolicies@2023-05-01' = if (deployAdminConsole) {
+  parent: improvementProposals
+  name: 'default'
+  properties: { immutabilityPeriodSinceCreationInDays: 30, allowProtectedAppendWrites: false }
+}
+// Owner-approved passages awaiting the content publisher, and its publication markers. Create-only, enforced by retention.
+resource contentApprovals 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (deployAdminConsole) {
+  parent: blob
+  name: 'content-approvals'
+  properties: { publicAccess: 'None' }
+}
+resource contentApprovalsWorm 'Microsoft.Storage/storageAccounts/blobServices/containers/immutabilityPolicies@2023-05-01' = if (deployAdminConsole) {
+  parent: contentApprovals
+  name: 'default'
+  properties: { immutabilityPeriodSinceCreationInDays: 30, allowProtectedAppendWrites: false }
 }
 resource adminActionsWorm 'Microsoft.Storage/storageAccounts/blobServices/containers/immutabilityPolicies@2023-05-01' = if (deployAdminConsole) {
   parent: adminActions

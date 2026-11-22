@@ -127,16 +127,17 @@ def test_b7_b8_console_grants_are_container_scoped_and_exclude_cohorts_content_a
     rbac = (ROOT / "infra/modules/rbac.bicep").read_text()
     admin = block(rbac, "// --- administration console", "// --- developer")
     scopes = re.findall(r"scope: (\w+)", admin)
-    assert sorted(scopes) == ["adminActionsContainer", "improvementContainer", "learningEvidence", "outcomeContainer",
-                              "recordsContainer"]
+    assert sorted(scopes) == ["adminActionsContainer", "approvalsContainer", "improvementContainer", "learningEvidence",
+                              "outcomeContainer", "recordsContainer"]
     for forbidden in ("cohortContainer", "auditContainer", "rankingContainer", "contentContainer", "journey", "snapshotKey",
                       "scope: st\n", "scope: contentStorage", "scope: kv", "keySignerRole", "verifyRole", "scope: search"):
         assert forbidden not in admin
     roles = re.findall(r"roleDefinitionId: subscriptionResourceId\('Microsoft.Authorization/roleDefinitions', (roles\.\w+)\)", admin)
-    assert roles.count("roles.blobDataContributor") == 2 and roles.count("roles.blobDataReader") == 3
+    assert roles.count("roles.blobDataContributor") == 2 and roles.count("roles.blobDataReader") == 4
     contributor = block(admin, "resource adminJournalWrite", "\n}\n")
     assert "adminActionsContainer" in contributor
-    assert "improvementContainer" in block(admin, "resource adminProposalAccess", "\n}\n")
+    assert "roles.blobDataReader" in block(admin, "resource adminProposalRead", "\n}\n")
+    assert "approvalsContainer" in block(admin, "resource adminApprovalWrite", "\n}\n")
     assert "principalId: adminPrincipalId" in admin and "principalId: runtimePrincipalId" not in admin
 
 
@@ -186,15 +187,17 @@ def test_b8_risky_console_options_are_off_by_default_and_reviewed_access_is_expl
     assert "azure-monitor-query==2.0.0" in (ROOT / "requirements-azure.txt").read_text()
 
 
-def test_b3_b4_b8_gap_review_has_its_own_identity_reads_records_and_writes_only_proposals():
+def test_b3_b4_b8_gap_review_has_its_own_identity_reads_records_and_cannot_write_an_approval():
     rbac = (ROOT / "infra/modules/rbac.bicep").read_text()
-    review = block(rbac, "// --- gap review and improvement proposals", "// --- administration console")
+    review = block(rbac, "// --- gap review, improvement proposals", "// --- administration console")
     grants = re.findall(r"scope: ([\w\[\]]+)\n\s+name: guid\([^,]+, (\w+), (roles\.\w+)\)", review)
     assert sorted(grants) == sorted([
         ("recordsContainer", "gapReviewPrincipalId", "roles.blobDataReader"),
         ("journeyContainers[0]", "gapReviewPrincipalId", "roles.blobDataReader"),
         ("improvementContainer", "gapReviewPrincipalId", "roles.blobDataContributor"),
-        ("improvementContainer", "contentPublisherPrincipalId", "roles.blobDataContributor")])
+        ("approvalsContainer", "gapReviewPrincipalId", "roles.blobDataReader"),
+        ("approvalsContainer", "contentPublisherPrincipalId", "roles.blobDataContributor"),
+        ("adminActionsContainer", "contentPublisherPrincipalId", "roles.blobDataReader")])
     for forbidden in ("snapshotKey", "keySignerRole", "scope: search", "scope: kv", "cohortContainer", "contentContainer",
                       "pipelinePrincipalId", "adminPrincipalId", "runtimePrincipalId"):
         assert forbidden not in review
@@ -205,5 +208,6 @@ def test_b3_b4_b8_gap_review_has_its_own_identity_reads_records_and_writes_only_
     for forbidden in ("KEY_VAULT", "SEARCH", "SERVICE_BUS", "AZURE_AI_", "Strategy.", "keyVault"):
         assert forbidden not in job
     data = (ROOT / "infra/modules/data.bicep").read_text()
-    assert "name: 'improvement-proposals'" in data and "publicAccess: 'None'" in block(
-        data, "resource improvementProposals", "\n}\n")
+    for name, resource in (("improvement-proposals", "improvementProposals"), ("content-approvals", "contentApprovals")):
+        assert f"name: '{name}'" in data and "publicAccess: 'None'" in block(data, f"resource {resource} ", "\n}\n")
+        assert "allowProtectedAppendWrites: false" in block(data, f"resource {resource}Worm", "\n}\n")

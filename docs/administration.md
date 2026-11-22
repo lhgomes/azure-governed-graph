@@ -141,8 +141,9 @@ every other owner decision. **Approve** never makes a change live by itself:
 
 An idea holds counts and labels only, never what a member said. It lists up to five example journey IDs; open them in
 **Conversations** to judge an answer. A deferred idea returns to *Open* when its evidence changes; a rejected or
-acknowledged idea stays closed. A decision that was recorded but never completed is shown as *uncertain*; investigate its
-reference in **Activity** before approving again.
+acknowledged idea stays closed. A decision whose journal was never completed counts only if its effect exists: an approval that
+did land is shown as queued and cannot be rejected, and one that did not land leaves the idea open. Investigate any
+*Requested* entry in **Activity**.
 
 ## Protective controls
 
@@ -288,7 +289,7 @@ What is created, and why it is narrow:
 | Gateway route `/admin/` | Explicit routes only: page, assets, reads, the protective action, owner actions and the improvement-idea decision. Everything else is a 404 at the gateway. |
 | Reader on `explainability-records`, `learning-aggregates`, `learning-evidence` | Container scope only. These hold immutable audit references, aggregates and committee/uplift evidence. |
 | Contributor on `admin-actions` | Container scope. The container is a 30-day immutable store: each action step is a separate create-only blob. |
-| Contributor on `improvement-proposals` | Container scope. Reads gap-review proposals and writes owner-approved passages for the content publisher, create-only. It has no access to Search or the approved-content container. |
+| Reader on `improvement-proposals`, contributor on `content-approvals` | Container scope. Reads gap-review proposals and hands owner-approved passages to the content publisher, create-only (30-day immutable). It has no access to Search or the approved-content container. |
 | `Strategy.Freeze` and `Strategy.Suspend` app roles | Admin protective rights only; `Strategy.Suspend` also authenticates the journal-writing proxy on owner requests. It has no `Strategy.Publish` or signing rights. A separate verified human owner token is mandatory for overrides. |
 
 It cannot read the cohort zone, approved content, journey state, member values, signing keys or

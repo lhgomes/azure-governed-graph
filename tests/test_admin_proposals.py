@@ -29,9 +29,9 @@ class OwnerSources(LocalSources):
 def desk(tmp_path, monkeypatch):
     signed = SignedIn(monkeypatch)
     owners = str(uuid4())
-    proposals = MemoryContainer()
+    proposals, approvals = MemoryContainer(), MemoryContainer()
     service = local_strategy_service(tmp_path / "strategy_service")
-    source = OwnerSources(service, tmp_path, proposals)
+    source = OwnerSources(service, tmp_path, proposals, approvals)
     client = open_console(monkeypatch, source, signed.policy(owner_group=owners))
     client.headers.update(signed.bearer([signed.readers]))
     reader = dict(client.headers)
@@ -104,42 +104,59 @@ def test_b8_approved_content_is_handed_to_the_publisher_not_published_by_the_con
         rejected = owner.post("/api/proposals/decision", json=decision(proposal, "approve", content={
             "title": "Payment", "journey_states": ["*"], "answers": "", "body": body}))
         assert rejected.status_code == 400
-    assert journal(directory) == [] and improvement_store.read_approvals(proposals) == []
+    assert journal(directory) == [] and improvement_store.read_approvals(source.approvals) == []
     content = {"title": "Will my payment change?", "journey_states": ["first_contact"],
                "answers": "Does my monthly payment change?", "body": "Your payment is explained in your official letter."}
     response = owner.post("/api/proposals/decision", json=decision(proposal, "approve", content=content))
     assert response.status_code == 200 and response.json()["status"] == "pending_publication"
     reference = response.json()["decision_ref"]
     assert reference.startswith("GB-")
-    (approval,) = improvement_store.read_approvals(proposals)
+    (approval,) = improvement_store.read_approvals(source.approvals)
     assert approval.decision_ref == reference and approval.content.id == "C-G001-v1.0"
     assert approval.content.approval_ref == reference and approval.content.status == "approved"
     rows = journal(directory)
     assert [row["status"] for row in rows] == ["requested", "pending_publication"]
     assert rows[0]["proposal"] == {"proposal_id": proposal.proposal_id, "evidence_digest": proposal.evidence_digest}
     assert owner.get("/api/proposals").json()["proposals"][0]["status"]["code"] == "queued_publication"
-    improvement_store.mark_published(proposals, approval, "job-1")
+    improvement_store.mark_published(source.approvals, approval, "job-1")
     source._cache = {}
     assert owner.get("/api/proposals").json()["proposals"][0]["status"]["code"] == "published"
     assert owner.post("/api/proposals/decision", json=decision(proposal, "approve", content=content)).status_code == 409
 
 
-def test_a_failed_hand_off_is_journalled_as_uncertain_and_blocks_a_second_approval(desk, monkeypatch):
+def test_b8_an_unfinished_approval_counts_only_if_its_effect_exists(desk, monkeypatch):
     _, as_owner, _, source, proposals, directory = desk
     found = publish(proposals, unanswered(6))
     owner = as_owner()
+    proposal = found["content_gap"]
     content = {"title": "t", "journey_states": ["*"], "answers": "", "body": "Your payment is in your letter."}
+    write = source.approve_content
 
     def outage(approval):
         raise AdminSourceError("ILLUSTRATIVE - synthetic storage outage")
 
     monkeypatch.setattr(source, "approve_content", outage)
-    response = owner.post("/api/proposals/decision", json=decision(found["content_gap"], "approve", content=content))
+    response = owner.post("/api/proposals/decision", json=decision(proposal, "approve", content=content))
     assert response.status_code == 503 and "uncertain" in response.json()["detail"]
     assert [row["status"] for row in journal(directory)] == ["requested", "uncertain"]
-    assert owner.get("/api/proposals").json()["proposals"][0]["status"]["code"] == "uncertain"
-    again = owner.post("/api/proposals/decision", json=decision(found["content_gap"], "approve", content=content))
-    assert again.status_code == 409
+    assert owner.get("/api/proposals").json()["proposals"][0]["status"]["code"] == "open"
+    monkeypatch.setattr(source, "approve_content", write)
+    original = source.journal
+
+    def incomplete(row):
+        if row["status"] == "pending_publication":
+            raise AdminSourceError("ILLUSTRATIVE - synthetic journal outage")
+        original(row)
+
+    monkeypatch.setattr(source, "journal", incomplete)
+    landed = owner.post("/api/proposals/decision", json=decision(proposal, "approve", content=content))
+    assert landed.status_code == 503 and "may have applied" in landed.json()["detail"]
+    monkeypatch.setattr(source, "journal", original)
+    assert len(improvement_store.read_approvals(source.approvals)) == 1
+    row = owner.get("/api/proposals").json()["proposals"][0]
+    assert row["status"]["code"] == "queued_publication"
+    # A later rejection can neither hide nor replace an approval that landed.
+    assert owner.post("/api/proposals/decision", json=decision(proposal, "reject")).status_code == 409
 
 
 def test_b3_b8_approving_a_style_uses_the_owner_catalogue_path_with_the_displayed_revision(desk):
@@ -201,9 +218,9 @@ def test_the_azure_source_reads_proposals_and_explains_unreadable_or_missing_sto
 
     from governedgraph.admin.sources import AzureSources, Containers
 
-    container, empty = MemoryContainer(), SimpleNamespace()
+    container, approvals, empty = MemoryContainer(), MemoryContainer(), SimpleNamespace()
     publish(container, unanswered(6))
-    source = AzureSources(http=empty, containers=Containers(empty, empty, empty, empty, container),
+    source = AzureSources(http=empty, containers=Containers(empty, empty, empty, empty, container, approvals),
                           strategy_client_factory=lambda: None)
     assert [item.kind for item in source.improvement()["proposals"]] == ["content_gap"]
     assert any(doc.id == "C-001-v1.3" for doc in source.content_corpus())

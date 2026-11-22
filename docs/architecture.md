@@ -448,8 +448,8 @@ style yet. The scheduled `job-gg-gap-review` (`governedgraph.learning.gap_review
 declined interaction of the last 30 days and writes **proposals** for the administration console. It reads only
 the immutable response records (closed fields, no utterance, no draft, no member value) and, to leave
 selected-style test journeys out of its counts, the journey state. It runs under its own identity
-`id-gg-gap-review-*`: reader on `explainability-records` and `journey-state`, contributor on
-`improvement-proposals`; it cannot sign, publish content, change the catalogue or start a job.
+`id-gg-gap-review-*`: reader on `explainability-records`, `journey-state` and `content-approvals`, contributor on
+`improvement-proposals`; it cannot write an approval, sign, publish content, change the catalogue or start a job.
 
 A declined interaction is an explanation question that ended in an advisor offer, or whose answer an answer
 review flagged. Interactions are grouped by closed situation (journey stage, topic, channel, accessibility mode,
@@ -471,9 +471,12 @@ takes effect and implemented only through an existing governed path:
   job signs and activates. Nothing changes until then.
 - **Content**: the owner writes the passage (a revision starts from the approved text). The console validates it
   as an approved `ContentDocument` carrying the owner's `GB-` decision reference and writes it to
-  `approved-content/` in the proposal container. The content publisher (`--from-approvals`, started through
-  `run_publisher_job --approved-proposals`) then publishes it under its normal lease, retirement and verification rules and
-  writes a `published/` marker. The console never writes to Search or the approved-content container.
+  `approved/` in the separate `content-approvals` container, after journalling the decision. The content publisher
+  (`--from-approvals`, started through `run_publisher_job --approved-proposals`) first checks each approval against the
+  immutable journal (reader on `admin-actions`; an approval without a matching journalled owner decision publishes nothing),
+  then publishes it under its normal lease, retirement and verification rules and writes a `published/` marker.
+  The console never writes to Search or the approved-content container, and the gap review cannot write an approval.
+  Both improvement containers carry a 30-day immutability policy, so blobs are create-only by enforcement.
 
 B4 is kept by construction: proposals are built from closed response-record fields, so no conversation text can
 reach a proposal, prompt, template or catalogue. Mining utterances or blocked drafts would add such a path and needs

@@ -1,11 +1,14 @@
-"""Blob layout of the improvement-proposal container, shared by the batch job, the console and the content publisher.
+"""Blob layout of the two improvement containers, shared by the batch job, the console and the content publisher.
 
-    proposals/<proposal-id>/<evidence-digest>.json   written once by the gap-review job
-    batches/<batch-id>.json                          written once by the gap-review job
-    approved-content/<document-id>-<language>.json   written once by the console when an owner approves a passage
-    published/<document-id>-<language>.json          written once by the content publisher after indexing
+``improvement-proposals`` (the gap-review job writes, the console reads):
+    proposals/<proposal-id>/<evidence-digest>.json
+    batches/<batch-id>.json
+``content-approvals`` (the console and the content publisher write; the gap-review job can only read):
+    approved/<document-id>-<language>.json    written once by the console when an owner approves a passage
+    published/<document-id>-<language>.json   written once by the content publisher after indexing
 
-Every blob is create-only. Owner decisions live in the console's own immutable journal, not here.
+Both containers are immutable stores, and every blob is written create-only. Owner decisions live in the console's
+immutable action journal; the publisher refuses an approval that has no matching journalled owner decision.
 """
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ from governedgraph.common.contracts import ContractError, _strict
 from governedgraph.learning.gap_review import PROPOSAL_ID, WATERMARK, Proposal
 from governedgraph.search.corpus import ContentDocument
 
-APPROVED = "approved-content/"
+APPROVED = "approved/"
 PUBLISHED = "published/"
 MAX_PROPOSALS = 500
 BATCH_FIELDS = {"batch_id", "created_at", "rules_version", "watermark", "records_read", "declined_signals",
@@ -117,6 +120,21 @@ def read_approvals(container) -> list[ContentApproval]:
 def published_names(container) -> set[str]:
     items, _ = _blobs(container, PUBLISHED, 5000)
     return {item.name.removeprefix(PUBLISHED) for item in items}
+
+
+def verify_decision(journal, approval: ContentApproval) -> None:
+    """An approval is publishable only when the console journalled the owner decision before writing it."""
+    from azure.core.exceptions import ResourceNotFoundError
+
+    try:
+        row = _load(journal, f"{approval.decision_ref}/requested.json")
+    except ResourceNotFoundError as error:
+        raise PermissionError(f"approval {approval.decision_ref} has no journalled owner decision") from error
+    proposal = row.get("proposal")
+    if (row.get("action_id") != approval.decision_ref or row.get("action") != "proposal_content_approve"
+            or row.get("document_id") != approval.content.id or row.get("content_name") != approval.name
+            or not isinstance(proposal, dict) or proposal.get("proposal_id") != approval.proposal_id):
+        raise PermissionError(f"approval {approval.decision_ref} does not match its journalled owner decision")
 
 
 def create_once(container, name: str, payload: bytes) -> bool:

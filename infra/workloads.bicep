@@ -370,6 +370,7 @@ module gapReview 'modules/gap-review-job.bicep' = if (deployAdminConsole) {
       EXPLAINABILITY_STORAGE_URL: data.outputs.blobEndpoint
       EXPLAINABILITY_CONTAINER: 'explainability-records'
       GOVERNEDGRAPH_IMPROVEMENT_CONTAINER: 'improvement-proposals'
+      GOVERNEDGRAPH_APPROVALS_CONTAINER: 'content-approvals'
       JOURNEY_STORAGE_URL: data.outputs.contentBlobEndpoint
       STRATEGY_ADMIN_URL: '${gateway.outputs.gatewayUrl}/strategy-admin'
       STRATEGY_API_CLIENT_ID: strategyApiClientId

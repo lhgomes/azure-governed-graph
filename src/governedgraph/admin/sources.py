@@ -60,6 +60,7 @@ class Containers:
     evidence: object
     actions: object
     proposals: object | None = None
+    approvals: object | None = None
 
 
 class AzureSources:
@@ -99,6 +100,7 @@ class AzureSources:
             content.get_container_client("learning-evidence"),
             records.get_container_client(os.getenv("GOVERNEDGRAPH_ADMIN_ACTIONS_CONTAINER", "admin-actions")),
             records.get_container_client(settings.improvement_container),
+            records.get_container_client(settings.approvals_container),
         )
 
         def client():
@@ -261,18 +263,19 @@ class AzureSources:
         return sorted(rows, key=lambda row: (str(row.get("created_at", "")), str(row.get("status", ""))))
 
     # ----- improvement proposals (written by the gap-review job; read here, approved content handed to the publisher) -----
-    def _improvement_container(self):
-        if self.containers.proposals is None:
+    def _improvement_containers(self):
+        if self.containers.proposals is None or self.containers.approvals is None:
             raise AdminSourceError("Improvement review is not configured for this deployment.")
-        return self.containers.proposals
+        return self.containers.proposals, self.containers.approvals
 
     def improvement(self) -> dict:
         def load() -> dict:
-            container = self._improvement_container()
+            proposals, approvals = self._improvement_containers()
             try:
-                proposals, truncated = improvement_store.read_proposals(container)
-                return {"proposals": proposals, "truncated": truncated, "batches": improvement_store.read_batches(container),
-                        "published": improvement_store.published_names(container)}
+                found, truncated = improvement_store.read_proposals(proposals)
+                return {"proposals": found, "truncated": truncated, "batches": improvement_store.read_batches(proposals),
+                        "approved": {item.name for item in improvement_store.read_approvals(approvals)},
+                        "published": improvement_store.published_names(approvals)}
             except (ValueError, TypeError, KeyError) as error:
                 raise AdminSourceError("An improvement proposal is unreadable; investigate before relying on this view.") from error
             except Exception as error:
@@ -284,7 +287,7 @@ class AzureSources:
     def content_corpus(self) -> list[ContentDocument]:
         try:
             seed = load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text())
-            approvals = [item.content for item in improvement_store.read_approvals(self._improvement_container())]
+            approvals = [item.content for item in improvement_store.read_approvals(self._improvement_containers()[1])]
             return effective_corpus(seed, approvals)
         except AdminSourceError:
             raise
@@ -298,7 +301,7 @@ class AzureSources:
         from azure.core.exceptions import AzureError
 
         try:
-            improvement_store.write_approval(self._improvement_container(), approval)
+            improvement_store.write_approval(self._improvement_containers()[1], approval)
         except AzureError as error:
             raise AdminSourceError("The approved content hand-off failed; investigate the decision reference.") from error
         finally:

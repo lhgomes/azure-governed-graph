@@ -1,7 +1,7 @@
 """Scheduled gap review: read declined interactions, write inert improvement proposals for the administration console.
 
-Runs under its own identity with read access to response records and journey state and write access to the proposal
-container only. It cannot sign, publish, change a catalogue or approve anything (B3, B4, B8).
+Runs under its own identity with read access to response records, journey state and owner-approved passages, and
+write access to the proposal container only. It cannot sign, publish, change a catalogue or write an approval (B3, B4, B8).
 
     python -m governedgraph.learning.gap_review_job
 """
@@ -51,11 +51,11 @@ def excluded_test_journeys(journeys, journey_ids: set[str]) -> set[str]:
     return excluded
 
 
-def run(*, records, journeys, proposals, catalogue, vocabulary, seed, now: datetime | None = None,
+def run(*, records, journeys, proposals, approvals, catalogue, vocabulary, seed, now: datetime | None = None,
         lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> dict:
     now = now or datetime.now(timezone.utc)
     since = now - timedelta(days=lookback_days)
-    approved = [approval.content for approval in improvement_store.read_approvals(proposals)]
+    approved = [approval.content for approval in improvement_store.read_approvals(approvals)]
     corpus = gap_review.effective_corpus(seed, approved)
     observed = read_records(records, since)
     candidates, _ = gap_review.signals(observed, since=since.isoformat(timespec="seconds"))
@@ -95,6 +95,7 @@ def main() -> None:
             records=records_account.get_container_client(settings.explainability_container),
             journeys=journey_account.get_container_client("journey-state"),
             proposals=records_account.get_container_client(settings.improvement_container),
+            approvals=records_account.get_container_client(settings.approvals_container),
             catalogue=StrategyAdminClient(protective_only=True, credential=credential).catalogue,
             vocabulary=domain.vocabulary(),
             seed=load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text()),
