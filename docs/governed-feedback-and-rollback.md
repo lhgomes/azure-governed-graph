@@ -39,7 +39,7 @@ any deployment has occurred.
 
 ## Synthetic supplemental gap-review signals
 
-The nightly gap-review job may additionally inspect **already stored closed outcome events** in the authorized `gg-dev` sample to count explicit reported-no responses and observed linked follow-ups for responses within its bounded scan. This is a diagnostic sample, not a complete denominator, causal effect, production KPI or raw-conversation learning input. It is disabled outside `gg-dev` and does not create new content changes automatically. Any production extension requires an independently approved B8 process, complete evidence coverage, and retained privacy constraints.
+The nightly gap-review job may additionally inspect **already stored closed outcome events** in the authorized `gg-dev` sample to count explicit reported-no responses and observed linked follow-ups for responses within its bounded scan. Linked contacts are recorded in subsequent journeys; attribution now matches both original journey ID and response ID, pseudonymous member identity and the observation window. Duplicates are counted once. Invalid, missing or test-origin links are not interpreted as complete evidence; the console exposes incomplete attribution and ambiguous cross-member links. This is a diagnostic sample, not a complete denominator, causal effect, production KPI or raw-conversation learning input. It is disabled outside `gg-dev` and does not create new content changes automatically. Any production extension requires an independently approved B8 process, complete evidence coverage, and retained privacy constraints.
 
 ## Signed static rollback
 

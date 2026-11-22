@@ -19,7 +19,7 @@ Interactions are grouped by a closed situation (journey stage, topic, channel, a
 
 ## Supplementary negative-feedback discovery (synthetic only)
 
-In the authorized `gg-dev` reference, the nightly review also computes **closed observational counters** from saved outcome events for inspected eligible explanation responses: distinct reported-no feedback and locally observed linked follow-ups. These counts are shown beside the latest batch in the console. They are **not exhaustive** population metrics, not used in bounded ranking, and do not generate/approve content or instructions. The extra scan is disabled outside synthetic `gg-dev`; production introduction would need separate B8 approval and a complete coverage projection. Unknown, skipped and inaccessible events are never treated as positive results.
+In the authorized `gg-dev` reference, the nightly review also computes **closed observational counters** from saved outcome events for inspected eligible explanation responses: distinct reported-no feedback and locally observed linked follow-ups. These counts are shown beside the latest batch in the console. The diagnostic checks subsequent journey records, cross-journey identity/member matches, event time and duplicate links. It flags unverified originating journeys and ambiguous matches instead of representing an incomplete inventory as a verified rate. They are **not exhaustive** population metrics, not used in bounded ranking, and do not generate/approve content or instructions. The extra scan is disabled outside synthetic `gg-dev`; production introduction would need separate B8 approval and a complete coverage projection. Unknown, skipped and inaccessible events are never treated as positive results.
 
 ## Inputs
 

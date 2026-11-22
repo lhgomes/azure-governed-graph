@@ -127,6 +127,7 @@ module alerts 'modules/alerts.bicep' = {
     tags: tags
     token: token
     monitorGapReview: deployAdminConsole
+    monitorPublication: deployAdminConsole
     logAnalyticsId: monitoring.outputs.logAnalyticsId
     serviceBusId: data.outputs.serviceBusId
     onCallEmail: onCallEmail

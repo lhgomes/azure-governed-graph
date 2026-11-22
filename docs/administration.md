@@ -139,6 +139,8 @@ every other owner decision. **Approve** never makes a change live by itself:
   the publisher refuses it and the status reads *Not published*; decide again on the new idea that follows. An operator starts the publisher with
   `python -m governedgraph.search.run_publisher_job --approved-proposals`.
 
+A separate 04:00 UTC approved-content reconciler uses the existing restricted P3 identity. Operators should review alerts for missed/failed reconciliation, approvals pending beyond 26 hours, and refused content that needs a new owner decision. These signals distinguish a recorded approval from an actual published version; manual publishing cannot mask a missed scheduled reconciliation.
+
 **Approval is not measured improvement:** once a change is activated, evaluate subsequent complete aggregate windows and safety/fairness against the governed static-control baseline. See the [private outcome-impact contract](improvement-effectiveness.md). A rejected or acknowledged false-refusal finding does not relax the deterministic output gates.
 
 An idea lists up to ten declined answers, one per journey, each with a link to its journey in **Conversations**, the outcome,

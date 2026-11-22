@@ -38,6 +38,7 @@ resource reconciler 'Microsoft.App/jobs@2024-03-01' = {
           args: [ '--from-approvals' ]
           env: concat(envList, [
             { name: 'AZURE_CLIENT_ID', value: identityClientId }
+            { name: 'GOVERNEDGRAPH_CONTENT_RECONCILER', value: 'true' }
           ])
           resources: { cpu: json('0.5'), memory: '1Gi' }
         }

@@ -108,9 +108,38 @@ def evaluate(payload: dict) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("closed_aggregates", type=Path, help="private operator-verified JSON; never commit")
+    parser.add_argument("closed_aggregates", nargs="?", type=Path,
+                        help="private operator-provided aggregate JSON (descriptive, unverified)")
+    parser.add_argument("--azure-scope", type=Path,
+                        help="closed situation and two windows only; read evidence from Azure under operator RBAC")
     options = parser.parse_args(argv)
-    report = evaluate(json.loads(options.closed_aggregates.read_text(encoding="utf-8")))
+    if (options.closed_aggregates is None) == (options.azure_scope is None):
+        parser.error("provide either closed_aggregates or --azure-scope, not both")
+    if options.azure_scope is not None:
+        from azure.identity import DefaultAzureCredential
+        from azure.storage.blob import BlobServiceClient
+
+        from governedgraph.common.config import settings
+        from governedgraph.learning.improvement_evidence import evaluate_azure
+
+        if not all((settings.explainability_account_url, settings.journey_storage_url,
+                    settings.content_storage_url)):
+            parser.error("protected evidence, journey and approved-content Azure endpoints are required")
+        scope = json.loads(options.azure_scope.read_text(encoding="utf-8"))
+        with DefaultAzureCredential() as credential:
+            audits = BlobServiceClient(settings.explainability_account_url, credential=credential)
+            journeys = BlobServiceClient(settings.journey_storage_url, credential=credential)
+            content = BlobServiceClient(settings.content_storage_url, credential=credential)
+            report = evaluate_azure(
+                scope,
+                audits=audits.get_container_client(settings.explainability_container),
+                journeys=journeys.get_container_client("journey-state"),
+                approvals=audits.get_container_client(settings.approvals_container),
+                journal=audits.get_container_client(settings.admin_actions_container),
+                content_blob=content.get_blob_client(settings.content_container, "corpus.jsonl"),
+            )
+    else:
+        report = evaluate(json.loads(options.closed_aggregates.read_text(encoding="utf-8")))
     print(json.dumps(report, sort_keys=True))
     return 0 if report["status"] == "observed_descriptive_change" else 1
 

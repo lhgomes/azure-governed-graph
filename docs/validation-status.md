@@ -11,7 +11,7 @@ This is a synthetic Azure Public reference. The latest source, governed ranking,
 | Member chat and voice | Synthetic sample, probes and observability queries | Real gateway-to-audio SLOs and end-to-end channel results |
 | Learning and fairness | Signed snapshot and segregated-cohort implementation | Same-cycle aggregate coverage, veto and static-arm comparisons |
 | Human-guided improvement | Nightly job, proposal/owner decision, publisher logic | Complete deployed failure/approval/refusal/publish scenarios |
-| Measured effectiveness | Closed-contract aggregate reporting | Adequate, comparable, complete before/after windows and human interpretation |
+| Measured effectiveness | Legacy descriptive aggregates and explicit Azure read-only source/journal/publication verification for approved passages | Authorized Azure evidence-reader execution, comparable closed observation windows, and operator interpretation of noncausal findings |
 
 Unrun is **not passed**. Evaluation evidence for a real deployment stays in a private, governed store; do not add transcripts, real identities, keys, endpoints, private approval documents or detailed internal evaluation exports to GitHub.
 

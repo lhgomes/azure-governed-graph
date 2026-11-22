@@ -148,14 +148,22 @@ def _batch(container, name: str) -> dict:
             or any(not PROPOSAL_ID.fullmatch(str(key)) or not re.fullmatch(r"[a-f0-9]{64}", str(value))
                    for key, value in row["current"].items())):
         raise ValueError("unexpected batch summary")
-    row.setdefault("supplemental_signals", {"status": "not_recorded", "eligible_response_references": 0,
-                                          "journeys_scanned": 0, "reported_no": 0, "linked_followups_observed": 0})
-    extra = row["supplemental_signals"]
-    if (not isinstance(extra, dict) or set(extra) != {
-            "status", "eligible_response_references", "journeys_scanned", "reported_no", "linked_followups_observed"}
+    # Preserve older batches and distinguish their unrecorded coverage from a
+    # complete new scan. Never infer completeness from a missing field.
+    legacy = {"status", "eligible_response_references", "journeys_scanned", "reported_no", "linked_followups_observed"}
+    extended = legacy | {"attribution_complete", "unverified_origin_journeys", "ambiguous_link_events"}
+    extra = row.setdefault("supplemental_signals", {"status": "not_recorded",
+        "eligible_response_references": 0, "journeys_scanned": 0, "reported_no": 0,
+        "linked_followups_observed": 0})
+    if isinstance(extra, dict) and set(extra) == legacy:
+        extra.update({"attribution_complete": False, "unverified_origin_journeys": 0,
+                      "ambiguous_link_events": 0})
+    if (not isinstance(extra, dict) or set(extra) != extended
             or extra["status"] not in {"not_recorded", "disabled", "synthetic_gg_dev_observational"}
+            or type(extra["attribution_complete"]) is not bool
             or any(type(extra[key]) is not int or extra[key] < 0 for key in (
-                "eligible_response_references", "journeys_scanned", "reported_no", "linked_followups_observed"))):
+                "eligible_response_references", "journeys_scanned", "reported_no",
+                "linked_followups_observed", "unverified_origin_journeys", "ambiguous_link_events"))):
         raise ValueError("invalid closed supplemental feedback counters")
     return row
 
