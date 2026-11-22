@@ -305,7 +305,7 @@ def test_authenticated_presenter_socket_is_bound_to_assigned_operator(presenter_
 @pytest.mark.parametrize("mode", ["chat", "presenter"])
 @pytest.mark.parametrize("issuer_status", [200, 503])
 @pytest.mark.parametrize("contact_type,has_history", [
-    ("first_contact", False), ("second_contact", False), ("second_contact", True),
+    ("first_contact", False), ("first_contact", True), ("second_contact", False), ("second_contact", True),
 ])
 def test_hosted_startup_delivers_disclosure_only_after_member_authorization(
         presenter_auth, monkeypatch, mode, issuer_status, contact_type, has_history):
@@ -316,7 +316,7 @@ def test_hosted_startup_delivers_disclosure_only_after_member_authorization(
     credential = SimpleNamespace(get_token=AsyncMock(return_value=SimpleNamespace(token="synthetic-app-token")))
     speech = SimpleNamespace(synthesize=AsyncMock(return_value=b"\0\0"))
     warmed = MagicMock()
-    greeting = START_GREETINGS["returning" if has_history else contact_type]
+    greeting = START_GREETINGS["returning" if contact_type == "second_contact" and has_history else contact_type]
 
     @asynccontextmanager
     async def identity(*, client_id):

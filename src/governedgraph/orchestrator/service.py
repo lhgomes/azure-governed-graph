@@ -148,10 +148,8 @@ class OrchestratorService:
                                          test=bool(test_strategy_id), journeys=self.store,
                                          flush=self._flush) as conversation:
                 text = DISCLOSURE
-                if conversation.messages:
-                    text = START_GREETINGS["returning"]
-                elif contact_type == "second_contact":
-                    text = START_GREETINGS["second_contact"]
+                if contact_type == "second_contact":
+                    text = START_GREETINGS["returning" if conversation.messages else "second_contact"]
                 journey.fire(Event.DISCLOSED_AND_AUTHENTICATED)
                 record = JourneyRecord(journey)
                 with self.store.transaction(journey.journey_id) as transaction:
@@ -281,7 +279,7 @@ class OrchestratorService:
         from governedgraph.guardrails.numeric_fidelity import check
 
         audit = counsellor.tools.trace.audit_record
-        if (audit is None or result.escalated or result.state == State.COMPREHENSION_CHECK.value
+        if (audit is None or result.escalated or result.state == State.COMPREHENSION_CHECK.value or "?" in result.text
                 or result.audit_status not in {"committed", "queued"}):
             return None
         if (audit.response_kind == "acknowledgment"

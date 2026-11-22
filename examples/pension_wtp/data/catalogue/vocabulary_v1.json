@@ -1,6 +1,6 @@
 {
   "vocabulary_version": "1.3",
-  "approval_ref": "HR-PENSION-WTP-CONTEXTUAL-FAILURE-2026-11-18",
+  "approval_ref": "IMP-TERM-FOCUS-2026-11-22-user-approval",
   "watermark": "ILLUSTRATIVE - synthetic data. Closed domain vocabulary; changing it is a Tier 2 material change (B8).",
   "response_languages": ["en", "nl"],
   "default_language": "nl",
@@ -42,9 +42,9 @@
       "payment_continuity": "Whether the monthly pension payment changes or stays the same after the transition",
       "rights_conversion": "What happens to built-up pension rights (conversion, invaren)",
       "official_calculation_source": "Who calculates the official figures or where they come from",
-      "personal_letter_context": "Asks to explain or interpret the customer's own transition letter or the official figures in it",
+      "personal_letter_context": "A broad request for help with an unseen personal transition letter, with no specific term, passage or substantive question supplied. Mentioning a letter or quoting a term is not enough: classify a question about that term or an official figure by its specific topic instead",
       "transition_information_gap": "Factual question whether it is possible to object, cancel or opt out, or how to do so (not whether the customer should)",
-      "official_value_details": "A specific official date, capital or other value",
+      "official_value_details": "Asks what a specific official date, capital or other value is or means. A question such as what 'personal pension capital after the transition' means belongs here, including when the term is quoted from a letter. Asking what a term means is not asking to inspect an unseen letter",
       "combined_transition_question": "A question that clearly spans several transition topics",
       "approved_fund_information": "Factual question about the fund unrelated to the transition, such as contact details or opening hours",
       "personal_choice_or_comparison": "Asks the assistant to decide or recommend: which option to choose, a comparison, or whether the customer should take an action such as objecting, or not. A worried tone or a question about payment impact is not a request to decide",
@@ -97,7 +97,7 @@
       "excluded": ["official_after_transition_amount", "official_source", "personal_capital_presentation"]
     },
     "official_value_details": {
-      "goal": "Explain the explicitly requested official value reference without inventing comparisons or adding calculation provenance.",
+      "goal": "Explain only the explicitly requested official term or value using authorized evidence. For a meaning question, explain the term first; do not quote a personal figure unless the member requests it. Do not invent comparisons, add calculation provenance or ask for a term or passage already supplied.",
       "excluded": ["official_source"]
     },
     "combined_transition_question": {

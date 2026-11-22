@@ -544,8 +544,14 @@ def test_b3_contextual_recovery_keeps_an_existing_approved_task_fallback(context
     install_responses(monkeypatch, client)
     result = contextual_answer.explain("Help me understand my letter.", "personal_letter_context")
     assert result.fidelity.passed and "happy to help you understand your letter" in result.text
+    assert result.state == "explaining"
     assert contextual_answer.counsellor.tools.trace.composition_source == "template_fallback"
     assert len(client.calls) == 1 and len(contextual_answer.records) == 1
+    assert contextual_answer.records[0].response_kind == "acknowledgment"
+    assert contextual_answer.counsellor.journey.events[-1].event == "output_delivered"
+    assert {"stage": "outcome", "result": "follow_up_question", "issues": []} in (
+        contextual_answer.counsellor.tools.trace.turn_trace)
+    assert not any(note["result"] == "answered" for note in contextual_answer.counsellor.tools.trace.turn_trace)
 
 
 @pytest.mark.parametrize("channel", ["chat", "voice"])

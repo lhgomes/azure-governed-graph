@@ -415,17 +415,22 @@ class Counsellor:
 
         self._current_strategy = strategy.strategy_id
         self.journey.unanswered_streak = 0
-        t.trace.note("outcome", "answered")
+        fallback_goal = t.trace.composition_source == "template_fallback" and bool(_task_template(t, strategy))
+        clarification = fallback_goal and "?" in text
+        t.trace.note("outcome", "follow_up_question" if clarification else "answered")
         self.journey.strategies_tried.append(strategy.strategy_id)
         with t.trace.measure("audit_commit"):
-            t.write_explainability_record(strategy.strategy_id, numeric_fidelity_passed=fid.passed)
+            t.write_explainability_record(
+                strategy.strategy_id, numeric_fidelity_passed=fid.passed,
+                response_kind="acknowledgment" if clarification else "explanation",
+            )
         reviews = [item for item in t.trace.decision_evidence if item.role == "answer-review"]
         if reviews and reviews[-1].decision["verdict"] != "pass":
             self._keep_declined_question(flagged=True)
         # A task-specific fallback is not a reviewed teach-back.
-        fallback_goal = t.trace.composition_source == "template_fallback" and bool(_task_template(t, strategy))
         teach_back_skipped = t.trace.composition_source == "foundry" and last_explanation is None
-        ev = (Event.RESPONSE_DELIVERED if strategy.teach_back and not fallback_goal and not teach_back_skipped
+        ev = (Event.OUTPUT_DELIVERED if clarification else
+              Event.RESPONSE_DELIVERED if strategy.teach_back and not fallback_goal and not teach_back_skipped
               else Event.NO_TEACH_BACK)
         self.journey.fire(ev, strategy=(strategy.strategy_id, strategy.version))
         self.journey.last_explanation = last_explanation

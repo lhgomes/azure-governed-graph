@@ -23,13 +23,14 @@ _WH_QUESTION = re.compile(r"(?:^|[,;]\s*|\b(?:but|and|so|also|then)\s+)(?:what|h
                           re.IGNORECASE)
 
 
-def asks_something_new(utterance: str) -> bool:
-    """True when a reply that recaps an explanation also asks for something (a request, or a wh-question).
+def asks_something_new(utterance: str, *, awaiting_teach_back: bool = False) -> bool:
+    """Detect requests and questions without mistaking a pending teach-back's confirmation tag for a new topic.
 
-    A recap closed by a confirmation tag ("... , right?") is still a recap and does not match."""
+    Outside a pending teach-back, confirmation questions need an answer too."""
     for sentence in re.findall(r"[^.!?]+[.!?]?", utterance):
         sentence = sentence.strip()
-        if sentence and (_REQUEST.search(sentence) or (sentence.endswith("?") and _WH_QUESTION.search(sentence))):
+        if sentence and (_REQUEST.search(sentence) or (
+                sentence.endswith("?") and (not awaiting_teach_back or _WH_QUESTION.search(sentence)))):
             return True
     return False
 
@@ -84,7 +85,8 @@ class JourneyStep(Executor):
                     j.response_language = decision.response_language
                     c.tools.trace.note("intent", decision.reason)
                     turn.decision, turn.route = decision, decision.route
-                    if decision.route == "comprehension" and asks_something_new(turn.utterance):
+                    if decision.route == "comprehension" and asks_something_new(
+                            turn.utterance, awaiting_teach_back=j.state == State.COMPREHENSION_CHECK):
                         # A recap that also asks something is a new question: never close it with an acknowledgement.
                         # Read its topic so the ranking request carries a real intent, not "unclassified".
                         c.tools.trace.note("intent", "new_question_in_reply")

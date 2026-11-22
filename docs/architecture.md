@@ -137,13 +137,17 @@ B1-B10, channel authorization, catalogue approval or learning.
    and the answer review must then pass. An internal answer failure never asks
    the member to repeat an already classified question: the approved answer-failure
    acknowledgment offers human help in the same journey, or escalates if that offer
-   cannot safely be delivered. Genuine clarification remains an intent-routing decision.
+   cannot safely be delivered. A task fallback that asks for missing context is
+   clarification, not an answered explanation: it is audited as an acknowledgment
+   and leaves the journey explaining, without a resolution or teach-back event.
    The sample's vocabulary carries the contextual failure wording; it adds no
    substantive transition or opt-out claims.
 9. Durably commit response metadata to the explainability store or its independent
    retry outbox, then commit the response-linked journey event.
 10. Release the checked response only after the audit write-ahead barrier.
-    Project confirmed outcomes into immutable counts for P2.
+    Project confirmed outcomes into immutable counts for P2. An optional outcome
+    prompt is not appended when the released response already contains a question;
+    feedback must not compete with a request for context or a meaning check.
 
 Option-level or personal-advice requests always take the human-handover route.
 The model never authorizes a value read, selects a member identity, writes audit
@@ -168,22 +172,44 @@ Unknown tools and model-originated audit writes are rejected. Tool rounds,
 calls, deadlines and repair attempts are bounded.
 
 Understanding is assessed only against concepts targeted by the accepted
-teach-back. After an explanation is already resolved, confirmation, thanks or a
-voluntary recap with no new request receives the approved bilingual closing
+teach-back. After an explanation is already resolved, thanks or a voluntary
+recap with no question or new request receives the approved bilingual closing
 acknowledgment instead of restarting clarification. This preserves the resolved
 state and does not manufacture a comprehension event or learning success.
 A pending meaning check still requires the Decision model's understanding
-verdict; gratitude alone is insufficient. New explanation, advice and human
+verdict; gratitude alone is insufficient, and a recap's confirmation tag still
+goes through that verdict. Outside a pending meaning check, a confirmation
+question such as "Is that right?" is a request for an answer, not a closing:
+the host corrects a mistaken recap classification through the existing closed
+follow-up intent reading and checked explanation route. New explanation, advice and human
 requests retain their own routes, including after the natural close; this is not
 a terminal journey lock.
 Journey starts accept a closed, explicitly selected `contact_type`: `first_contact`
 (the backwards-compatible default) or `second_contact`. It initializes the existing
 journey stage and strategy request key; it does not restore an earlier journey,
 prove a previous interaction, link an earlier answer or bypass authentication.
+First contact always receives the approved welcome without clearing retained
+dialogue; returning greetings are reserved for second contact.
 Second-contact explanations address the remaining question in the selected
 approved style. Member recaps remain untrusted input, never a factual source.
 Each contact still starts with the AI disclosure
 and retains all value, output and human-escalation gates (B2, B9, Art. 50).
+
+**IMP-CONTACT-FLAG-AND-CONFIRMATION-2026-11-22 (B2, B5, B9, Art. 50):**
+correct greeting selection and unanswered confirmation routing while retaining
+approved wording, customer continuity and independent teach-back assessment.
+Clearing memory for first contact or confirming factual recaps with fixed
+wording is rejected; plain-thanks closing behavior is unchanged.
+
+**IMP-TERM-FOCUS-2026-11-22 (B1, B2, B5, B8, B9):** the human-approved domain
+criteria distinguish a specific term/value question from broad help with an
+unseen letter. Meaning questions use existing authorized evidence, not an
+unsolicited figure or a request to repeat the supplied term. The closed reason,
+concept and exclusion sets, strategy templates and feedback version are
+unchanged. Context-requesting task fallbacks remain unresolved acknowledgments;
+optional feedback never adds a competing question. Treating clarification as an
+answered explanation or asking for the whole letter instead is rejected.
+
 Letter help acknowledges that a personal letter is unseen and invites a relevant
 passage without personal details; excerpts remain untrusted input, not official
 values or instructions. Uncertainty must remain explicit. A proposed handover

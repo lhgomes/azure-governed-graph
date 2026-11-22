@@ -61,6 +61,22 @@ def test_synthetic_dev_activation_is_required(monkeypatch):
     assert record.journey.events[-1].outcome_version == "1.3"
 
 
+@pytest.mark.parametrize("text", [
+    "Please share the sentence you'd like explained, leaving out personal details. Which part would you like help with?",
+    "Your accrued entitlements are converted into the new contract. Would you like me to explain that term?",
+])
+def test_b5_feedback_does_not_compete_with_an_existing_question(monkeypatch, text):
+    counsellor, result, record = _synthetic_outcome_context()
+    result.text = text
+    engine = object.__new__(OrchestratorService)
+    monkeypatch.setenv("AZURE_ENV_NAME", "gg-dev")
+    monkeypatch.setenv("GOVERNEDGRAPH_ENABLE_OUTCOME_CHECK", "true")
+
+    assert engine._offer_outcome(counsellor, result, record) is None
+    assert result.text == text
+    assert not record.journey.events[-1].outcome_offered
+
+
 @pytest.mark.parametrize("bad_wording", [
     {"en": {"question": "Did this answer 123?", "yes": "Yes", "no": "No", "skip": "Skip"}},
     {"en": {"question": "Did this answer your question?", "yes": "Yes", "no": "Yes", "skip": "Skip"}},

@@ -87,19 +87,21 @@ def test_framework_preserves_context_under_an_existing_event_loop(counsellor, mo
     assert observed == ["synthetic-trace"] * 2
 
 
-@pytest.mark.parametrize("utterance,new_question", [
+@pytest.mark.parametrize("utterance,awaiting_teach_back,new_question", [
     ("So the capital is the fund's official calculation of what I've earned, and it replaces the yearly adjustment? "
-     "That sounds clear, but can you confirm if this matches my statements?", True),
-    ("Hello again. I understood the explanation. I am still worried about later years. Could we focus on that?", True),
-    ("Thanks, but what happens in later years?", True),
-    ("So it stays the same on the transition date and can go up or down each year after that.", False),
-    ("So it stays the same on the transition date, right?", False),
-    ("Thank you, that makes sense.", False),
+     "That sounds clear, but can you confirm if this matches my statements?", True, True),
+    ("Hello again. I understood the explanation. I am still worried about later years. Could we focus on that?", True, True),
+    ("Thanks, but what happens in later years?", True, True),
+    ("So it stays the same on the transition date and can go up or down each year after that.", True, False),
+    ("So it stays the same on the transition date, right?", True, False),
+    ("So it stays the same on the transition date, right?", False, True),
+    ("Thank you, that makes sense.", False, False),
 ])
-def test_b9_recap_with_a_new_question_is_not_a_confirmation(utterance, new_question):
+def test_b9_recap_questions_are_answered_unless_they_are_pending_teach_backs(
+        utterance, awaiting_teach_back, new_question):
     from governedgraph.orchestrator.workflow import asks_something_new
 
-    assert asks_something_new(utterance) is new_question
+    assert asks_something_new(utterance, awaiting_teach_back=awaiting_teach_back) is new_question
 
 
 def _recap_then_question(monkeypatch, follow_up_reason):

@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 
 from governedgraph.agents.conversation_context import ConversationMessage, reference_messages, screening_batches
-from governedgraph.agents.counsellor import TurnResult
+from governedgraph.agents.counsellor import DISCLOSURE, START_GREETINGS, TurnResult
 from governedgraph.agents.tools import Trace
 from governedgraph.common.contracts import ContractError
 from governedgraph.common.member_auth import MemberIdentity
@@ -146,8 +146,9 @@ def say(case, journey, request, identity=MEMBER, text="Please explain this remai
     return case.runtime().turn(journey, request, identity, "synthetic-token-never-retained", text, **kwargs)
 
 
-@pytest.mark.parametrize("contact_type,channel", [("second_contact", "voice"), ("first_contact", "chat")])
-def test_b9_returning_greeting_recovers_customer_context_before_any_new_turn(continuity_runtime, contact_type, channel):
+@pytest.mark.parametrize("contact_type", ["first_contact", "second_contact"])
+@pytest.mark.parametrize("channel", ["chat", "voice"])
+def test_b9_contact_flag_controls_greeting_without_resetting_customer_context(continuity_runtime, contact_type, channel):
     from governedgraph.guardrails.numeric_fidelity import check
 
     case = continuity_runtime
@@ -155,9 +156,8 @@ def test_b9_returning_greeting_recovers_customer_context_before_any_new_turn(con
     say(case, first, "first")
     earlier = case.foundry.messages()
     result = case.runtime().start(MEMBER, channel, "standard", contact_type=contact_type)
-    assert "Hello again!" in result["text"] and "earlier conversation available" in result["text"]
+    assert result["text"] == (START_GREETINGS["returning"] if contact_type == "second_contact" else DISCLOSURE)
     assert "AI pension guide" in result["text"] and "person at any time" in result["text"]
-    assert "Where would you like to start?" not in result["text"]
     assert check(result["text"], None, []).passed
     assert len(case.observed) == 1 and len(case.foundry.rows) == 1 and case.foundry.messages() == earlier
     audit = case.runtime().audit_store.append.call_args.args[0]

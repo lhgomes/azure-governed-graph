@@ -14,8 +14,10 @@ it neither reads nor updates ordinary customer history.
 
 Session start recovers the verified customer's conversation before releasing
 the audited greeting, using the same customer-before-journey lock order as a
-turn. Retained dialogue selects an approved returning greeting regardless of
-the contact selector. `second_contact` without retained dialogue selects an
+turn. The contact selector controls the greeting: `first_contact` always uses
+the approved welcome, even when earlier dialogue is retained; it does not clear
+that dialogue. Only `second_contact` with retained dialogue selects the approved
+returning greeting. `second_contact` without retained dialogue selects an
 approved follow-up greeting that explicitly states the earlier conversation
 is unavailable; it does not create fictional history. New customers retain
 the existing first-contact greeting. Every variant includes the AI disclosure
@@ -24,7 +26,7 @@ The [closed channel start contract](../src/governedgraph/voice/voice_live_bridge
 accepts only these approved greetings, not arbitrary text containing an AI label.
 Greetings neither replay historical text or figures nor append a customer turn.
 Recovery failures prevent greeting release; a busy customer produces the
-retryable conflict rather than an uncontextualized first-contact greeting.
+retryable conflict rather than ignoring required customer-context recovery.
 
 The [continuity adapter](../src/governedgraph/orchestrator/continuity.py) keeps
 only an opaque owner key, Foundry conversation ID and pending commit references
