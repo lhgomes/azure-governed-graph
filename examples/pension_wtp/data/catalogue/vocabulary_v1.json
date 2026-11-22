@@ -1,6 +1,6 @@
 {
   "vocabulary_version": "1.3",
-  "approval_ref": "IMP-TERM-FOCUS-2026-11-22-user-approval",
+  "approval_ref": "IMP-ANSWER-REVIEW-REDESIGN-2026-11-23-user-approval",
   "watermark": "ILLUSTRATIVE - synthetic data. Closed domain vocabulary; changing it is a Tier 2 material change (B8).",
   "response_languages": ["en", "nl"],
   "default_language": "nl",
@@ -60,6 +60,12 @@
       "document_scope": "General letter information is not the customer's own letter",
       "information_gap": "The requested information was not available",
       "personal_capital_presentation": "Entitlements are presented as personal pension capital for members still building up pension"
+    },
+    "review": {
+      "pass_draft": "The draft answers the member's question, and every fact, promise or comparison in it is stated by the approved sources or the official amounts.",
+      "unsupported": "The draft states a fact, promise, guarantee or comparison of amounts that the approved sources and official amounts do not state, or claims to know what the member's own letter or records say. Anything a source states is supported, including that something stays the same or will change. Saying that information is not available is supported.",
+      "advice": "The draft recommends or compares the member's personal options, or tells the member what to choose. Stating facts about an option, or offering a person to talk to, is not advice.",
+      "off_target": "The draft does not answer the member's question, answers a different question, or talks about its own sources instead of the topic. A short, true, incidental detail is acceptable."
     }
   },
   "explanation_concepts": [

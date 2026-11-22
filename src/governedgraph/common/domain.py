@@ -13,6 +13,9 @@ from governedgraph.common.config import DATA_DIR
 from governedgraph.common.io import load_json
 
 PROMPT_NAMES = frozenset({"counsellor", "answer-review"})
+# The closed outcomes of the answer-review question, and the review issue each non-pass outcome records.
+REVIEW_LABEL_ISSUES = {"unsupported": "grounding", "advice": "advice", "off_target": "relevance"}
+REVIEW_LABELS = frozenset({"pass_draft", *REVIEW_LABEL_ISSUES})
 MESSAGE_KEYS = frozenset({
     "audit_unavailable", "advice_declined", "safety_declined", "component_failure", "conversation_limit",
     "handover_arranged", "clarify_question", "advice_escalation_summary", "journey_closed",
@@ -75,14 +78,17 @@ def vocabulary(data_dir: Path = DATA_DIR) -> dict:
     except re.error as error:
         raise DomainPackError("domain vocabulary: advice_patterns must be valid regular expressions") from error
     criteria = raw.get("decision_criteria")
-    if (not isinstance(criteria, dict) or set(criteria) != {"intent", "concepts"}
+    if (not isinstance(criteria, dict) or set(criteria) != {"intent", "concepts", "review"}
             or any(not isinstance(group, dict) or not group
                    or any(not isinstance(name, str) or not isinstance(text, str) or not text.strip()
                           for name, text in group.items())
                    for group in criteria.values())):
-        raise DomainPackError("domain vocabulary: decision_criteria must describe intent reasons and concepts")
+        raise DomainPackError("domain vocabulary: decision_criteria must describe intent reasons, concepts and review")
     if set(criteria["concepts"]) != set(concepts):
         raise DomainPackError("domain vocabulary: decision_criteria must describe exactly the explanation concepts")
+    if set(criteria["review"]) != REVIEW_LABELS:
+        raise DomainPackError(
+            f"domain vocabulary: decision_criteria.review must describe exactly {sorted(REVIEW_LABELS)}")
     if not (set(reasons) - set(historical)) <= set(criteria["intent"]):
         raise DomainPackError("domain vocabulary: decision_criteria must describe every explanation reason")
     messages = raw.get("messages")

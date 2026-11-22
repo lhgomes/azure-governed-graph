@@ -39,7 +39,7 @@ Point `GOVERNEDGRAPH_DATA_DIR` at a directory with this layout (see the sample's
 | `catalogue/strategy_catalogue_v1.json` | Approved, versioned explanation strategies | Tier 2 (B3, B8) |
 | `catalogue/templates_v1.json` | Fallback templates and the session-opening AI `disclosure`; placeholders only, never figures | Tier 2 |
 | `catalogue/expert_priors_v1.json` | Static expert ranking per request key (also the control arm) | Tier 2 (B10) |
-| `catalogue/prompts/{counsellor,answer-review}.md` and `catalogue/vocabulary_v1.json` `decision_criteria` | The counsellor and answer-review prompts, and the descriptions of every intent reason and teachable concept sent to the Decision model | Tier 2 |
+| `catalogue/prompts/{counsellor,answer-review}.md` and `catalogue/vocabulary_v1.json` `decision_criteria` | The counsellor prompt (and the evaluation-only answer-review prompt), and the descriptions of every intent reason, teachable concept and answer-review label (`pass_draft`, `advice`, `unsupported`, `off_target`) sent to the Decision model | Tier 2 |
 | `catalogue/vocabulary_v1.json` | Closed vocabulary: explanation intents and reasons, concepts, answer goals, languages and step labels, domain advice patterns, fixed member-facing messages, speech vocabulary, search probe, demo/proof profile, benchmark questions | Tier 2 |
 | `catalogue/ui/presenter.html` | Optional presenter page for the hosted voice demo | Sample asset |
 | `content/approved_content.jsonl` | Approved, versioned passages for retrieval | Content governance |

@@ -29,8 +29,10 @@ question (the answer-review concept checks) that is read without enough confiden
 token usage is recorded even if a decision is subsequently rejected; abstention
 does not imply missing usage. Chat inactivity emits `chat_idle_expired` with the
 journey ID and ends the channel normally, without claiming a message may be saved.
-Review question identifiers are `verdict` and `concept_` assessments; each must satisfy
-the unchanged confidence gate. `answer_review_quality_waived` (journey ID and issue labels only) marks
+Review question identifiers are `verdict`, `language` and `concept_` assessments; each must satisfy
+the unchanged confidence gate, except that an unclear `verdict` or `language` reading emits
+`answer_review_abstained` (journey ID only) and is treated as an unassessable review, not a service failure.
+`answer_review_quality_waived` (journey ID and issue labels only) marks
 a draft delivered without teach-back because relevance or teaching style were the only rejected issues.
 Decision throttling uses the existing `model_rate_limited_retry` event and
 per-turn waiting budget; a final failure still emits `decision_model_failed`.

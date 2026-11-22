@@ -84,8 +84,8 @@ def test_unavailable_decision_evidence_does_not_block_protective_handover(monkey
         raise decision_model.DecisionModelUnavailable("synthetic transport failure")
 
     monkeypatch.setattr(decision_model, "choose", unavailable)
-    monkeypatch.setattr(decision_agents, "review_payload", lambda *_: {})
-    turn = SimpleNamespace(trace=Trace(), conversation_context=lambda: [])
+    turn = SimpleNamespace(trace=Trace(), conversation_context=lambda: [],
+                           journey=SimpleNamespace(journey_id="J-unavailable", response_language="en"))
     with pytest.raises(decision_agents.DecisionUnavailable):
         if role == "intent":
             decision_agents.run_decision(
@@ -167,14 +167,15 @@ def test_b5_unclear_concept_reading_never_vetoes_an_approved_answer(monkeypatch)
     def choose(_tools, _state, questions, optional=frozenset()):
         if "verdict" in questions:
             return {"verdict": "pass_draft"}
+        if "language" in questions:
+            return {"language": "expected_language"}
         seen["optional"] = optional
         return {key: ("checked" if key == "concept_rights_transfer"
                       else None if key == "concept_official_after_transition_amount" else "absent")
                 for key in questions}
 
     monkeypatch.setattr(decision_model, "choose", choose)
-    monkeypatch.setattr(decision_agents, "review_payload", lambda *_: {})
-    turn = SimpleNamespace(trace=Trace(), journey=SimpleNamespace(journey_id="J-review"),
+    turn = SimpleNamespace(trace=Trace(), journey=SimpleNamespace(journey_id="J-review", response_language="en"),
                            conversation_context=lambda: [])
     review = decision_agents.review_with_decision_model(
         turn, "Synthetic question.", SimpleNamespace(teach_back=True), AnswerDraft("Synthetic explanation?", []))
@@ -187,14 +188,15 @@ def test_b5_unclear_concept_reading_never_vetoes_an_approved_answer(monkeypatch)
 def test_relevance_revision_is_told_which_excluded_concept_was_taught(monkeypatch):
     def choose(_tools, _state, questions, optional=frozenset()):
         if "verdict" in questions:
-            return {"verdict": "relevance"}
+            return {"verdict": "off_target"}
+        if "language" in questions:
+            return {"language": "expected_language"}
         return {key: ("taught" if key in {"concept_official_source", "concept_future_adjustments"} else "absent")
                 for key in questions}
 
     monkeypatch.setattr(decision_model, "choose", choose)
-    monkeypatch.setattr(decision_agents, "review_payload", lambda *_: {
-        "task": {"excluded_concepts": ["rights_transfer", "official_source"]}})
-    turn = SimpleNamespace(trace=Trace(), journey=SimpleNamespace(journey_id="J-review"),
+    monkeypatch.setattr(decision_agents, "_excluded_concepts", lambda *_: ["rights_transfer", "official_source"])
+    turn = SimpleNamespace(trace=Trace(), journey=SimpleNamespace(journey_id="J-review", response_language="en"),
                            conversation_context=lambda: [])
     review = decision_agents.review_with_decision_model(
         turn, "Synthetic question.", SimpleNamespace(teach_back=False), AnswerDraft("Synthetic explanation.", []))
@@ -209,6 +211,24 @@ def test_b5_nothing_taught_means_uncertain_without_a_model_call(monkeypatch):
     context = decision_agents.DecisionContext("comprehension_check", "unclassified", None)
     decision = decision_agents.run_decision("understanding", turn, "Yes, I understand.", context)
     assert (decision.outcome, decision.reason) == ("uncertain", "insufficient_evidence")
+
+
+@pytest.mark.parametrize("change", [("drop", "advice"), ("drop", "off_target"), ("add", "cannot_tell")])
+def test_decision_criteria_must_describe_exactly_the_closed_review_labels(tmp_path, change):
+    from governedgraph.common import domain
+    from governedgraph.common.config import DATA_DIR
+
+    action, label = change
+    vocabulary = json.loads((DATA_DIR / "catalogue" / "vocabulary_v1.json").read_text())
+    review = vocabulary["decision_criteria"]["review"]
+    if action == "drop":
+        del review[label]
+    else:
+        review[label] = "An extra label the host does not know."
+    (tmp_path / "catalogue").mkdir()
+    (tmp_path / "catalogue" / "vocabulary_v1.json").write_text(json.dumps(vocabulary))
+    with pytest.raises(domain.DomainPackError, match="review"):
+        domain.vocabulary(tmp_path)
 
 
 def test_decision_criteria_must_describe_exactly_the_closed_reason_set(monkeypatch):

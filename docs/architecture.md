@@ -71,19 +71,29 @@ or model fallback.
   (`decision_criteria` in the vocabulary), validated against the closed reason
   and concept sets. Unrelated questions are never combined in one request:
   intent reason and response language are separate parallel requests, as are the
-  review verdict and the concept checks.
+  review verdict, the review language check and the concept checks.
 - **Confidence gate.** A reason or verdict is accepted only above a
   greater-than-half confidence. Transport, response-contract and low-confidence
   failures are distinguished in content-free operational logs. Unavailable
   intent or review evidence fails closed to a human handover (B9).
-- **Answer review.** One holistic verdict is returned for the approved rubric
-  (most serious issue first; advice always blocks). Every safety defect (advice,
-  grounding, document access, uncertainty, language, unassessable evidence)
-  blocks the draft and falls back to approved wording. After the single bounded
-  repair, a rejection for relevance or teaching style alone delivers the draft
-  that already passed the safety checks and every deterministic gate, without a
-  teach-back. Concept checks only decide which concepts are recorded as taught,
-  so they are optional.
+- **Answer review.** The reviewer reads plain text in five labelled parts: the
+  member's question, the last exchange (context only), the draft, the official
+  amounts the draft refers to, and the approved sources it cites; it never sees
+  the writer's task or the whole conversation. It returns one of four labels,
+  described by the domain pack: `pass_draft`, `advice`, `unsupported` (a fact,
+  promise, guarantee, amount comparison or claim about the member's own
+  documents that no cited source or official amount states; a claim a source
+  does state is supported) and `off_target`. Whether the draft is in the
+  response language is a separate parallel request, so it never competes with
+  those labels. Advice and unsupported claims, and a wrong language, block the
+  draft; after the single bounded repair, a rejection for `off_target` or
+  teaching style alone delivers the draft that already passed the safety checks
+  and every deterministic gate, without a teach-back. An unclear review
+  (confidence at or below the gate) is neither a pass nor a service failure:
+  nothing is released and the host uses the approved wording that offers a
+  person. A transport or contract failure still fails closed to a human
+  handover (B9). Concept checks only decide which concepts are recorded as
+  taught, so they are optional; they see the draft alone.
 - **Understanding.** A restatement is `understood`, `needs_explanation` or
   `uncertain`. `uncertain` records neither a pass nor a failure (B5) and returns
   approved retry wording that asserts nothing about correctness, figures or

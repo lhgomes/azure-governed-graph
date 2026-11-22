@@ -1,5 +1,6 @@
 """ILLUSTRATIVE - synthetic data. Semantic decisions are agents; invariants remain host-owned."""
 import json
+import logging
 from dataclasses import asdict, replace
 from types import SimpleNamespace
 
@@ -26,6 +27,26 @@ CONTEXT = DecisionContext("identified", "unclassified", None)
 def tools():
     return SimpleNamespace(journey=SimpleNamespace(journey_id="J-synthetic"), trace_parent="",
                            trace=SimpleNamespace(decision_evidence=[]))
+
+
+def review_tools(*, history=(), values=(), sources=()):
+    turn = tools()
+    turn.journey.response_language = "en"
+    turn.trace.note = lambda *_: None
+    turn.trace.model_rounds = 0
+    turn.trace.composition_source = "foundry"
+    turn.trace.values = SimpleNamespace(values=list(values))
+    turn.trace.content_versions = [item[0] for item in sources]
+    turn.trace.content_texts = [item[1] for item in sources]
+    turn.conversation_context = lambda: list(history)
+    return turn
+
+
+def reading(verdict, *, language="expected_language", checked="concept_rights_transfer"):
+    def choose(_tools, _state, questions, optional=frozenset()):
+        return {key: verdict if key == "verdict" else language if key == "language"
+                else "checked" if key == checked else "absent" for key in questions}
+    return choose
 
 
 @pytest.mark.parametrize("reason,language,route", [
@@ -74,26 +95,21 @@ def test_decision_model_is_sole_intent_router(monkeypatch, reason, language, rou
         f"Established language: {CONTEXT.response_language}\nCustomer message: Synthetic request.")
 
 
-@pytest.mark.parametrize("verdict,expected", [("pass_draft", "pass"), ("advice", "fail"),
-                                              ("cannot_tell", "unassessable"), (None, None)])
+@pytest.mark.parametrize("verdict,expected", [("pass_draft", "pass"), ("advice", "fail"), ("unsupported", "revise"),
+                                              ("abstained", "unassessable"), (None, None)])
 def test_decision_model_is_sole_draft_reviewer(monkeypatch, verdict, expected):
     from governedgraph.agents import counsellor, decision_model
 
-    turn = tools()
-    turn.trace.note = lambda *_: None
-    turn.trace.model_rounds = 0
-    turn.trace.composition_source = "foundry"
-    turn.conversation_context = lambda: []
+    turn = review_tools()
     session = SimpleNamespace(tools=turn, decision_agents={}, journey=SimpleNamespace(journey_id="J-review"))
     monkeypatch.setattr(FoundryDecisionAgent, "judge", lambda *_: pytest.fail("legacy reviewer called"))
-    monkeypatch.setattr(decision_agents, "review_payload", lambda *_: {"task": {"excluded_concepts": []}})
+
     def choose(_tools, _state, questions, optional=frozenset()):
         if verdict is None:
             raise decision_model.DecisionModelUnavailable("synthetic transport failure")
-        return {
-            key: verdict if key == "verdict" else "checked" if key == "concept_rights_transfer" else "absent"
-            for key in questions
-        }
+        if verdict == "abstained" and "verdict" in questions:
+            raise decision_model.DecisionModelAbstained("below minimum confidence")
+        return reading(verdict)(_tools, _state, questions, optional)
 
     monkeypatch.setattr(decision_model, "choose", choose)
     draft = json.dumps({"text": "The arrangement changes.", "content_ids": []})
@@ -103,7 +119,7 @@ def test_decision_model_is_sole_draft_reviewer(monkeypatch, verdict, expected):
         assert not turn.trace.decision_evidence
         return
     actual, review = counsellor.Counsellor._review_answer(
-        session, "What changes?", SimpleNamespace(teach_back=True), draft,
+        session, "What changes?", SimpleNamespace(teach_back=True), draft, allow_repair=False,
     )
     assert review.verdict == expected
     assert review.teach_back_concepts == (["rights_transfer"] if expected == "pass" else [])
@@ -113,42 +129,122 @@ def test_decision_model_is_sole_draft_reviewer(monkeypatch, verdict, expected):
     ]
 
 
-def test_b3_document_context_rejection_quotes_the_letter_clauses_for_the_one_bounded_repair(monkeypatch):
+def test_review_question_gets_plain_text_with_only_what_a_reviewer_needs(monkeypatch):
     from governedgraph.agents import decision_model
     from governedgraph.common.contracts import AnswerDraft
 
-    turn = tools()
-    turn.trace.note = lambda *_: None
-    turn.trace.model_rounds = 0
-    turn.conversation_context = lambda: []
-    monkeypatch.setattr(decision_agents, "review_payload", lambda *_: {"task": {"excluded_concepts": []}})
-    monkeypatch.setattr(decision_model, "choose", lambda _t, _s, questions, optional=frozenset(): {
-        key: "document_context" if key == "verdict" else "absent" for key in questions})
+    history = [{"role": "user" if index % 2 == 0 else "assistant", "text": f"Earlier message {index}."}
+               for index in range(8)]
+    turn = review_tools(
+        history=history,
+        values=[SimpleNamespace(value_id="monthly_pension_after_transition",
+                                label="Gross monthly pension directly after transition"),
+                SimpleNamespace(value_id="current_monthly_pension", label="Current monthly pension")],
+        sources=[("C-002-v1.2", "The payment directly after the transition is your official amount."),
+                 ("C-009-v1.0", "A passage the draft did not cite.")])
+    requests = []
+
+    def choose(_tools, state, questions, optional=frozenset()):
+        requests.append((state, questions))
+        return reading("pass_draft")(_tools, state, questions, optional)
+
+    monkeypatch.setattr(decision_model, "choose", choose)
+    draft = AnswerDraft("Your amount is {{value:monthly_pension_after_transition}}.", ["C-002-v1.2"])
+    decision_agents.review_with_decision_model(
+        turn, "Will 1.500 euro change?", SimpleNamespace(teach_back=False), draft)
+    assert len(requests) == 3
+    verdict_state, verdict_questions = next(item for item in requests if "verdict" in item[1])
+    language_state, _ = next(item for item in requests if "language" in item[1])
+    concept_state, _ = next(item for item in requests if any(key.startswith("concept_") for key in item[1]))
+
+    with pytest.raises(ValueError):
+        json.loads(verdict_state)
+    assert verdict_state.startswith("MEMBER QUESTION:\nWill [member-supplied number] euro change?")
+    assert "Earlier message 6." in verdict_state and "Earlier message 7." in verdict_state
+    assert "Earlier message 5." not in verdict_state
+    assert ("{{value:monthly_pension_after_transition}} = Gross monthly pension directly after transition"
+            in verdict_state)
+    assert "current_monthly_pension" not in verdict_state
+    assert "[C-002-v1.2] The payment directly after" in verdict_state and "C-009" not in verdict_state
+    question = verdict_questions["verdict"]
+    for section in ("MEMBER QUESTION", "PREVIOUS EXCHANGE", "DRAFT REPLY TO REVIEW", "OFFICIAL AMOUNTS",
+                    "APPROVED SOURCES"):
+        assert section in question["instructions"]
+    assert list(question["criteria"]) == ["pass_draft", "advice", "unsupported", "off_target"]
+    assert "including that something stays the same or will change" in question["criteria"]["unsupported"]
+    assert language_state == f"EXPECTED LANGUAGE: en\n\nDRAFT REPLY:\n{draft.text}"
+    assert concept_state == f"DRAFT REPLY:\n{draft.text}"
+
+
+def test_b3_a_claim_about_the_members_own_letter_blocks_through_the_unsupported_label(monkeypatch):
+    from governedgraph.agents import decision_model
+    from governedgraph.common.contracts import AnswerDraft
+
+    monkeypatch.setattr(decision_model, "choose", reading("unsupported"))
     draft = AnswerDraft("Your amount is {{value:monthly_pension_after_transition}}. It is shown in your personal "
                         "transition letter. Adjustments can go up or down.", [])
-    review = decision_agents.review_with_decision_model(turn, "Will it change?", SimpleNamespace(teach_back=False), draft)
-    assert (review.verdict, review.issues) == ("revise", ["document_context"])
-    assert turn.trace.review_feedback == [
-        {"issue": "document_context", "quote": "It is shown in your personal transition letter."}]
+    review = decision_agents.review_with_decision_model(
+        review_tools(), "Will it change?", SimpleNamespace(teach_back=False), draft)
+    assert (review.verdict, review.issues) == ("revise", ["grounding"])
 
 
-@pytest.mark.parametrize("verdict,delivered", [("strategy", True), ("relevance", True), ("grounding", False)])
-def test_b3_quality_only_review_keeps_gated_draft_while_safety_defects_do_not(monkeypatch, verdict, delivered):
+@pytest.mark.parametrize("verdict,expected", [
+    ("pass_draft", ("revise", ["language"])),
+    ("off_target", ("revise", ["language", "relevance"])),
+    ("advice", ("fail", ["advice", "language"])),
+])
+def test_language_is_a_separate_blocking_check_beside_the_four_review_labels(monkeypatch, verdict, expected):
+    from governedgraph.agents import decision_model
+    from governedgraph.common.contracts import AnswerDraft
+
+    monkeypatch.setattr(decision_model, "choose", reading(verdict, language="other_language"))
+    monkeypatch.setattr(decision_agents, "_excluded_concepts", lambda *_: [])
+    review = decision_agents.review_with_decision_model(
+        review_tools(), "Will it change?", SimpleNamespace(teach_back=False), AnswerDraft("Een antwoord.", []))
+    assert (review.verdict, review.issues) == expected
+
+
+@pytest.mark.parametrize("unavailable,expected", [(False, "unassessable"), (True, "unavailable")])
+def test_b9_an_unclear_review_is_not_a_service_failure_but_a_real_failure_still_is(
+        monkeypatch, caplog, unavailable, expected):
+    from governedgraph.agents import decision_model
+    from governedgraph.common.contracts import AnswerDraft
+
+    def choose(_tools, _state, questions, optional=frozenset()):
+        if "verdict" in questions:
+            raise decision_model.DecisionModelAbstained("below minimum confidence")
+        if "language" in questions and unavailable:
+            raise decision_model.DecisionModelUnavailable("synthetic transport failure")
+        return reading("pass_draft")(_tools, _state, questions, optional)
+
+    monkeypatch.setattr(decision_model, "choose", choose)
+    caplog.set_level(logging.WARNING, logger="governedgraph.decision_agents")
+    draft = AnswerDraft("The arrangement changes.", [])
+    if expected == "unavailable":
+        with pytest.raises(DecisionUnavailable):
+            decision_agents.review_with_decision_model(
+                review_tools(), "What changes?", SimpleNamespace(teach_back=False), draft)
+        return
+    review = decision_agents.review_with_decision_model(
+        review_tools(), "What changes?", SimpleNamespace(teach_back=False), draft)
+    assert (review.verdict, review.issues) == ("unassessable", ["grounding"])
+    assert "answer_review_abstained" in caplog.text
+
+
+@pytest.mark.parametrize("verdict,delivered,issue", [("off_target", True, "relevance"),
+                                                     ("unsupported", False, "grounding")])
+def test_b3_quality_only_review_keeps_gated_draft_while_safety_defects_do_not(
+        monkeypatch, verdict, delivered, issue):
     from governedgraph.agents import counsellor, decision_model
 
-    turn = tools()
-    turn.trace.note = lambda *_: None
-    turn.trace.model_rounds = 0
-    turn.trace.composition_source = "foundry"
-    turn.conversation_context = lambda: []
+    turn = review_tools()
     session = SimpleNamespace(tools=turn, decision_agents={}, journey=SimpleNamespace(journey_id="J-style"))
-    monkeypatch.setattr(decision_agents, "review_payload", lambda *_: {"task": {"excluded_concepts": []}})
-    monkeypatch.setattr(decision_model, "choose", lambda _t, _s, questions, optional=frozenset(): {
-        key: verdict if key == "verdict" else "absent" for key in questions})
+    monkeypatch.setattr(decision_agents, "_excluded_concepts", lambda *_: [])
+    monkeypatch.setattr(decision_model, "choose", reading(verdict))
     draft = json.dumps({"text": "The arrangement changes.", "content_ids": []})
     actual, review = counsellor.Counsellor._review_answer(
         session, "What changes?", SimpleNamespace(teach_back=True), draft, allow_repair=False)
-    assert (review.verdict, review.issues) == ("revise", [verdict])
+    assert (review.verdict, review.issues) == ("revise", [issue])
     assert actual == (draft if delivered else "")
     assert turn.trace.composition_source == ("foundry" if delivered else "template_fallback")
 

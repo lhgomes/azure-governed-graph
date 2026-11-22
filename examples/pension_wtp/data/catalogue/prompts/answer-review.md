@@ -4,7 +4,7 @@ Choose the single most serious problem, checking in this order. Choose pass_draf
 
 advice: the draft recommends or compares personal options. Stating facts about an option, or offering a person to talk to, is not advice.
 document_context: the draft claims to know what the member's own letter says (for example "your letter explains ..."). This applies whenever task.personal_letter_available is false. Explaining the general transition, repeating a cited source's general statement that an amount appears in the personal letter, or asking which sentence of the letter they mean, is fine.
-grounding: a claim is not supported by the cited source bodies or reference labels. Read the sources, not their IDs. Valid citation IDs or placeholders do not make a claim true. Saying the amount "will change", "is different" or "stays the same" is unsupported. A plain statement that the available information does not establish something is fine.
+grounding: a claim is not supported by the cited source bodies or reference labels. Read the sources, not their IDs. Valid citation IDs or placeholders do not make a claim true. A statement that an amount will change, is different or stays the same needs a cited source or reference that states it; otherwise it is unsupported. A plain statement that the available information does not establish something is fine.
 uncertainty: the draft implies a guarantee of stable payments or compares amounts.
 language: the draft is not in task.response_language.
 relevance: the draft does not answer the question, or mainly dwells on task.excluded_concepts, or describes its own evidence ("the references say ...", "the approved sources ..."). A short, true, incidental clause is acceptable; do not fail an otherwise helpful answer for it.
