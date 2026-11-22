@@ -1,6 +1,6 @@
 "use strict";
 
-// Improvement ideas: what the overnight review of declined answers found, and the owner's decision on each.
+// Improvement ideas: what the regular review of declined answers found, and the owner's decision on each.
 window.AdminImprovements = {
   kinds: {
     content_gap: "Missing approved content",
@@ -10,152 +10,216 @@ window.AdminImprovements = {
   },
   tones: { open: "warn", deferred: "", uncertain: "bad", rejected: "", acknowledged: "good", superseded: "",
     queued: "warn", queued_publication: "warn", published: "good" },
+  words(value) { return String(value).replaceAll("_", " "); },
   label(row) {
     const place = row.situation;
-    const words = (value) => String(value).replaceAll("_", " ");
-    return `${words(place.topic)}: ${words(place.journey_state)}, ${words(place.channel)}`;
+    const topic = this.words(place.topic);
+    return `${topic[0].toUpperCase()}${topic.slice(1)}: ${this.words(place.journey_state)}, ${this.words(place.channel)}`;
+  },
+  // One plain sentence that says what happened, instead of the technical rationale.
+  headline(row) {
+    const place = row.situation, topic = this.words(place.topic), stage = this.words(place.journey_state);
+    return {
+      content_gap: `Members asked about ${topic}, and no approved passage could answer them.`,
+      content_revision: `The approved passage ${row.draft.base_id} did not fully answer questions about ${topic}.`,
+      strategy_gap: `No explanation style was left to answer ${topic} questions at ${stage} over ${this.words(place.channel)}.`,
+      false_negative_review: `Answers about ${topic} were refused, but they may have been fine.`,
+    }[row.kind];
+  },
+  next(row) {
+    return {
+      content_gap: "Write the missing passage, then approve it. It goes to the content publisher.",
+      content_revision: "Edit the passage, then approve it. The new version replaces the old one when published.",
+      strategy_gap: "Check the proposed style, then approve it. It joins the next signed release.",
+      false_negative_review: "Open an example journey in Conversations to judge the answers. Then acknowledge, defer or reject.",
+    }[row.kind];
   },
 
   mount(target, options) {
     const { row, extra, data, api, saved } = options;
     const make = (tag, text, className) => {
       const element = document.createElement(tag);
-      if (text !== undefined) element.textContent = text;
+      if (text !== undefined && text !== null) element.textContent = text;
       if (className) element.className = className;
       return element;
     };
-    const words = (value) => String(value).replaceAll("_", " ");
-    const proposal = row, evidence = row.evidence, draft = row.draft;
-    const body = make("div");
-    body.append(make("p", proposal.rationale, "lead"));
+    const words = this.words;
+    const proposal = row, evidence = row.evidence, draft = row.draft, idea = draft.suggested;
+    const owner = Boolean(data.access.can_own);
+    const decidable = ["open", "deferred", "uncertain"].includes(proposal.status.code);
+    const kind = proposal.kind;
+    const root = make("div", undefined, "idea");
+
+    // Header: what happened, in one sentence, with the numbers that matter.
+    const head = make("div", undefined, "idea-head");
+    head.append(make("p", this.headline(proposal), "idea-headline"));
+    const tiles = make("div", undefined, "stats");
+    const tile = (value, label) => { const item = make("div", undefined, "stat"); item.append(make("strong", value), make("span", label)); tiles.append(item); };
+    tile(String(evidence.declined), "declined answers");
+    tile(String(evidence.journeys), "journeys");
+    if (kind !== "strategy_gap") tile(`${Math.round(evidence.content_retrieved_share * 100)}%`, "had an approved passage");
+    else tile(String(evidence.eligible_styles.length), "styles could explain");
+    head.append(tiles, make("span", proposal.status.label, "badge " + (this.tones[proposal.status.code] || "")));
+    root.append(head);
+
+    const grid = make("div", undefined, "idea-grid");
+    const context = make("div", undefined, "idea-context");
+    const work = make("div", undefined, "idea-work");
+    grid.append(context, work);
+    root.append(grid);
+
+    // Left: what members said and what the model noticed.
+    const asked = make("section"); asked.append(make("h3", "What members asked"));
+    const quotes = evidence.examples || [];
+    if (quotes.length) {
+      const list = make("ul", undefined, "quotes");
+      quotes.forEach((text) => list.append(make("li", text)));
+      asked.append(list);
+    } else {
+      asked.append(make("p", owner ? "No questions were kept for this idea." : "Member questions are shown to owners only.", "cell-note"));
+    }
+    context.append(asked);
+    if (idea && (idea.themes.length || idea.coverage.length)) {
+      const found = make("section"); found.append(make("h3", "What the AI noticed"));
+      const list = make("ul", undefined, "plain");
+      idea.themes.forEach((item) => list.append(make("li", `Members ask: ${item}`)));
+      idea.coverage.forEach((item) => list.append(make("li", `Not yet covered: ${item}`)));
+      found.append(list); context.append(found);
+    }
+    const more = make("details", undefined, "technical");
+    more.append(make("summary", "Technical details"));
     const facts = make("dl", undefined, "facts");
-    const add = (key, value) => { if (value !== undefined && value !== "") facts.append(make("dt", key), make("dd", value)); };
-    add("Status", proposal.status.label);
-    add("Declined answers", `${evidence.declined} from ${evidence.journeys} journeys (${evidence.unanswered} not answered, ${evidence.review_flagged} flagged by the answer check, ${evidence.no_style || 0} with no style able to explain)`);
+    const add = (key, value) => { if (value) facts.append(make("dt", key), make("dd", value)); };
+    add("Unanswered / flagged / no style", `${evidence.unanswered} / ${evidence.review_flagged} / ${evidence.no_style || 0}`);
     add("Why they were declined", Object.entries(evidence.decline_reasons || {}).map(([key, count]) => `${words(key)}: ${count}`).join("\n"));
-    add("Also handed to a person", evidence.escalated ? String(evidence.escalated) : "");
-    add("Approved passage found", `${Math.round(evidence.content_retrieved_share * 100)}% of the time`);
-    add("Styles that can explain here", evidence.eligible_styles.length ? evidence.eligible_styles.join(", ") : "None");
     add("What the answer check said", Object.entries(evidence.review_issues).map(([key, count]) => `${words(key)}: ${count}`).join("\n"));
     add("Passages used", Object.entries(evidence.content_versions).map(([key, count]) => `${key}: ${count}`).join("\n"));
-    add("What members asked", (evidence.examples || []).map((item) => `“${item}”`).join("\n"));
+    add("Styles that can explain", evidence.eligible_styles.join(", "));
     add("Example journeys", evidence.sample_journey_ids.join(", "));
     add("Period", `${evidence.window_start} to ${evidence.window_end}`);
     add("Reference", `${proposal.proposal_id} (review ${proposal.batch_id})`);
-    body.append(facts);
-    body.append(make("p", "Counts and labels come from the saved answer records. The questions above are what members actually asked, kept briefly for this review. Open an example journey in Conversations to judge whether an answer was fine.", "cell-note"));
+    more.append(facts);
+    context.append(more);
 
-    const decidable = ["open", "deferred", "uncertain"].includes(proposal.status.code);
-    if (!decidable || !data.access.can_own) {
-      body.append(make("p", decidable ? "Only an owner can decide on this idea." : "This idea already has a decision.", "notice"));
-      target.replaceChildren(body);
+    if (!decidable || !owner) {
+      work.append(make("p", decidable ? "Only an owner can decide on this idea." : proposal.status.label, "notice"));
+      work.append(make("p", this.next(proposal), "cell-note"));
+      target.replaceChildren(root);
       return;
     }
-    const form = make("form");
-    const field = (title, input) => { const label = make("label", title); label.append(input); form.append(label); return input; };
-    const checks = (title, values, chosen, name) => {
-      const group = make("fieldset"); group.append(make("legend", title));
+
+    // Right: the thing the owner edits.
+    const form = make("form", undefined, "idea-form");
+    work.append(form);
+    const field = (title, input, hint) => {
+      const label = make("label"); label.append(make("span", title, "field-title"));
+      if (hint) label.append(make("span", hint, "cell-note"));
+      label.append(input); form.append(label); return input;
+    };
+    const chips = (title, values, chosen, parent) => {
+      const group = make("fieldset", undefined, "chips"); group.append(make("legend", title));
       const inputs = values.map((value) => {
-        const label = make("label", value === "*" ? "All stages" : words(value), "checkbox");
+        const chip = make("label", undefined, "chip");
         const input = make("input"); input.type = "checkbox"; input.value = value; input.checked = chosen.includes(value);
-        label.append(input); group.append(label); return input;
+        chip.append(input, make("span", value === "*" ? "All stages" : words(value)));
+        group.append(chip); return input;
       });
-      form.append(group); return () => inputs.filter((input) => input.checked).map((input) => input.value);
+      parent.append(group); return () => inputs.filter((input) => input.checked).map((input) => input.value);
     };
     let collect = null;
-    const kind = proposal.kind;
     if (kind === "strategy_gap") {
-      form.append(make("p", "Approving queues this style for the next signed release. Learning starts fresh for it. Nothing changes until then.", "notice"));
       const name = field("Style name", make("input")); name.maxLength = 120; name.value = draft.name;
       const pattern = field("How it explains", make("select"));
       for (const item of data.style_patterns) { const option = make("option", item.name); option.value = item.strategy_id; pattern.append(option); }
       pattern.value = draft.pattern_id;
-      const stages = checks("Journey stages", data.style_stages, draft.eligible_journey_states);
-      const channels = checks("Channels", data.style_channels, draft.channels);
-      const modes = checks("Accessibility", data.style_accessibility_modes, draft.accessibility_modes);
+      const where = make("details", undefined, "technical"); where.append(make("summary", "Where it can be used"));
+      form.append(where);
+      const stages = chips("Journey stages", data.style_stages, draft.eligible_journey_states, where);
+      const channels = chips("Channels", data.style_channels, draft.channels, where);
+      const modes = chips("Accessibility", data.style_accessibility_modes, draft.accessibility_modes, where);
       collect = () => {
-        if (!name.value.trim()) throw new Error("Give the style a name before approving.");
+        if (!name.value.trim()) throw new Error("Give the style a name.");
         return { expected_revision: data.revision, style: { name: name.value.trim(), pattern_id: pattern.value,
           eligible_journey_states: stages(), channels: channels(), accessibility_modes: modes() } };
       };
     } else if (kind === "content_gap" || kind === "content_revision") {
-      form.append(make("p", kind === "content_gap"
-        ? "Write the passage from an approved source. It is published only after you approve it here, and it may not hold figures from a member's own record."
-        : "Edit a copy of the approved passage. Approving queues a new version for the content publisher. The old version is retired when it publishes.", "notice"));
-      if (extra.related?.length) form.append(make("p", `Similar approved passages: ${extra.related.map((item) => `${item.id} (${item.title})`).join(", ")}`, "cell-note"));
-      const idea = draft.suggested;
       if (idea) {
-        const note = make("div", undefined, "notice");
-        note.append(make("strong", `Drafted by an AI agent (${idea.agent}). Not checked by a person.`),
-          make("p", `It was written from the model's own knowledge${idea.sources.length ? ` and kept consistent with: ${idea.sources.join(", ")}` : ""}. Facts and figures may be wrong or out of date. You are the one who makes them true.`));
-        if (idea.themes.length) note.append(make("p", `What members are asking: ${idea.themes.join("; ")}`));
-        if (idea.coverage.length) note.append(make("p", `Not covered by the approved passages: ${idea.coverage.join("; ")}`));
-        if (idea.gaps.length) note.append(make("p", `The model left these out as uncertain: ${idea.gaps.join(" ")}`));
+        const note = make("div", undefined, "notice soft");
+        note.append(make("strong", "Drafted by AI. Nobody has checked it yet."),
+          make("span", ` It is written from the model's own knowledge${idea.sources.length ? ` and consistent with ${idea.sources.join(", ")}` : ""}. Facts and figures can be wrong or out of date.`));
         form.append(note);
       }
+      const title = field("Title", make("input")); title.maxLength = 200; title.value = idea?.title || extra.base?.title || draft.title;
+      const text = field("Passage", make("textarea")); text.rows = 9; text.maxLength = 8000;
+      text.value = idea?.body || extra.base?.body || "";
+      if (idea?.gaps.length) form.append(make("p", `The AI left these out as uncertain: ${idea.gaps.join(" ")}`, "cell-note"));
+      if (idea?.claims.length) {
+        const claims = make("section", undefined, "claims");
+        claims.append(make("h3", "Check these against a source"));
+        const list = make("ol"); idea.claims.forEach((claim) => list.append(make("li", claim))); claims.append(list);
+        form.append(claims);
+      }
+      const source = field("Source you checked against", make("input"), "Required to approve: the document or authority, for example the fund regulations and date.");
+      source.maxLength = 300;
+      const settings = make("details", undefined, "technical"); settings.append(make("summary", "Where it applies and the questions it answers"));
+      form.append(settings);
+      const stages = chips("Journey stages", extra.stages, extra.base?.journey_states ?? draft.journey_states, settings);
+      const answersLabel = make("label"); answersLabel.append(make("span", "Questions this passage answers", "field-title"));
+      const answers = make("textarea"); answers.rows = 2; answers.maxLength = 1000;
+      answers.value = idea?.answers || extra.base?.answers || draft.answers;
+      answersLabel.append(answers); settings.append(answersLabel);
       if (extra.base) {
         const current = make("details", undefined, "technical");
         current.append(make("summary", `Current approved passage (${extra.base.id})`), make("pre", extra.base.body));
         form.append(current);
       }
-      const title = field("Title", make("input")); title.maxLength = 200; title.value = idea?.title || extra.base?.title || draft.title;
-      const stages = checks("Journey stages", extra.stages, extra.base?.journey_states ?? draft.journey_states);
-      const answers = field("Questions this passage answers", make("textarea")); answers.rows = 2; answers.maxLength = 1000;
-      answers.value = idea?.answers || extra.base?.answers || draft.answers;
-      const text = field("Passage", make("textarea")); text.rows = 8; text.maxLength = 8000;
-      text.value = idea?.body || extra.base?.body || "";
-      if (idea?.claims.length) {
-        const claims = make("div", undefined, "notice");
-        claims.append(make("strong", "Check each of these against an authoritative source before you approve:"));
-        const list = make("ul"); idea.claims.forEach((claim) => list.append(make("li", claim))); claims.append(list);
-        form.append(claims);
-      }
-      const source = field("Source you checked the passage against (document or authority, required to approve)", make("input"));
-      source.maxLength = 300; source.placeholder = "For example: the fund's pension regulations, article and date";
       collect = () => {
-        if (!title.value.trim() || !text.value.trim()) throw new Error("Give the passage a title and text before approving.");
+        if (!title.value.trim() || !text.value.trim()) throw new Error("Give the passage a title and text.");
         if (source.value.trim().length < 8) throw new Error("Record the source you checked the passage against.");
-        return { source: source.value.trim(),
-          content: { title: title.value.trim(), journey_states: stages(), answers: answers.value.trim(), body: text.value.trim() } };
+        return { source: source.value.trim(), content: { title: title.value.trim(), journey_states: stages(),
+          answers: answers.value.trim(), body: text.value.trim() } };
       };
     } else {
-      form.append(make("p", "Acknowledging records that a person looked at examples. It changes no check. Changes to a check go through the technical owners.", "notice"));
+      form.append(make("p", this.next(proposal), "lead"));
     }
-    const reason = field("Reason (no member details or conversation text)", make("textarea"));
-    reason.required = true; reason.minLength = 8; reason.maxLength = 500; reason.rows = 3;
-    const confirm = make("label", undefined, "checkbox");
-    const tick = make("input"); tick.type = "checkbox"; tick.required = true;
-    confirm.append(tick, make("span", "I decide this as a human owner, have verified every claim against the source above, and have read what this does."));
-    form.append(confirm);
+
+    // Footer: one short reason, one clear primary action. Clicking Approve is the approval.
+    const footer = make("div", undefined, "idea-actions");
     const error = make("p", undefined, "notice error"); error.hidden = true; error.setAttribute("role", "alert");
+    const reason = make("input"); reason.maxLength = 500; reason.placeholder = "Reason (optional when approving)";
+    reason.setAttribute("aria-label", "Reason for your decision");
     const bar = make("div", undefined, "row-actions");
-    form.append(error, bar);
+    footer.append(error, reason, bar);
+    form.append(footer);
     const buttons = [];
     const submit = async (decision) => {
-      if (buttons.some((item) => item.disabled) || !form.reportValidity()) return;
-      error.hidden = true; buttons.forEach((item) => { item.disabled = true; });
+      if (buttons.some((item) => item.disabled)) return;
+      error.hidden = true;
+      let text = reason.value.trim();
+      if (!text && decision === "approve") text = "Approved by owner.";
+      if (text.length < 8) { error.textContent = "Add a short reason (at least 8 characters)."; error.hidden = false; return; }
+      buttons.forEach((item) => { item.disabled = true; });
       try {
         const extras = decision === "approve" && collect ? collect() : {};
-        if (extras.style && !Object.values(extras.style).every((value) => value.length)) throw new Error("Select at least one choice in each group.");
-        if (extras.content && !extras.content.journey_states.length) throw new Error("Select at least one journey stage.");
+        if (extras.style && !Object.values(extras.style).every((value) => value.length)) throw new Error("Choose at least one option in each group under Where it can be used.");
+        if (extras.content && !extras.content.journey_states.length) throw new Error("Choose at least one journey stage under Where it applies.");
         const result = await api("/api/proposals/decision", { proposal_id: proposal.proposal_id,
-          content_digest: proposal.content_digest, decision, reason: reason.value.trim(), confirmed: true, ...extras });
+          content_digest: proposal.content_digest, decision, reason: text, confirmed: true, ...extras });
         await saved(result, decision);
       } catch (failure) {
-        error.textContent = `${failure.message} Refresh before retrying; the decision may already be recorded.`; error.hidden = false;
+        error.textContent = `${failure.message} If you retry, refresh first: the decision may already be recorded.`; error.hidden = false;
       } finally { buttons.forEach((item) => { item.disabled = false; }); }
     };
-    const labels = { approve: kind === "strategy_gap" ? "Approve and queue style" : "Approve and queue for publishing",
-      acknowledge: "Acknowledge", defer: "Defer", reject: "Reject" };
+    const labels = { approve: kind === "strategy_gap" ? "Approve style" : "Approve", acknowledge: "Acknowledge", defer: "Defer", reject: "Reject" };
     for (const decision of ["approve", "acknowledge", "defer", "reject"]) {
       if (!proposal.allowed_decisions.includes(decision)) continue;
       const item = make("button", labels[decision]); item.type = "button";
-      if (decision === "approve") item.className = "primary";
+      item.className = decision === "approve" || decision === "acknowledge" ? "primary" : "quiet";
       item.addEventListener("click", () => submit(decision));
       buttons.push(item); bar.append(item);
     }
+    footer.append(make("p", this.next(proposal), "cell-note"));
     form.addEventListener("submit", (event) => event.preventDefault());
-    body.append(form);
-    target.replaceChildren(body);
+    target.replaceChildren(root);
   },
 };

@@ -574,14 +574,17 @@ def test_an_owner_approves_a_proposed_style_from_its_details_and_a_reader_sees_n
   context.window.AdminImprovements.mount(target, {row, extra: {}, data: run("data"),
     api: async (path, payload) => { context.window.posts.push({path, payload}); return {decision_ref: "GB-1", status: "pending_signature"}; },
     saved: async (result, decision) => { context.window.saved.push(decision); }});
-  const form = target.children[0].children.find((child) => child.tag === "form");
+  const form = target.querySelectorAll("form")[0];
   const buttons = form.querySelectorAll("button");
-  assert.deepEqual(buttons.map((button) => button.textContent), ["Approve and queue style", "Defer", "Reject"]);
-  form.querySelectorAll("textarea")[0].value = "ILLUSTRATIVE - owner approves the proposed style.";
+  assert.deepEqual(buttons.map((button) => button.textContent), ["Approve style", "Defer", "Reject"]);
+  assert.equal(form.querySelectorAll("input").filter((input) => input.type === "checkbox" && input.required).length, 0,
+    "clicking Approve is the approval; there is no separate confirmation box");
   await buttons[0].listeners.click();
   const posted = plain(context.window.posts[0]);
   assert.equal(posted.path, "/api/proposals/decision");
   assert.equal(posted.payload.decision, "approve");
+  assert.equal(posted.payload.confirmed, true);
+  assert.equal(posted.payload.reason, "Approved by owner.");
   assert.equal(posted.payload.expected_revision, "a".repeat(64));
   assert.deepEqual(posted.payload.style, {name: "Proposed style", pattern_id: "S3",
     eligible_journey_states: ["first_contact"], channels: ["chat"], accessibility_modes: ["standard"]});
@@ -605,15 +608,27 @@ def test_a_content_proposal_asks_for_a_passage_only_when_approving_and_rejection
   context.window.AdminImprovements.mount(target, {row, data: run("data"), extra: {stages: ["*", "first_contact"], related: []},
     api: async (path, payload) => { context.window.posts.push(payload); return {decision_ref: "GB-1", status: "applied"}; },
     saved: async () => {}});
-  const form = target.children[0].children.find((child) => child.tag === "form");
+  const form = target.querySelectorAll("form")[0];
   const [approve, defer, reject] = form.querySelectorAll("button");
-  form.querySelectorAll("textarea").at(-1).value = "ILLUSTRATIVE - owner rejects this idea.";
+  await reject.listeners.click();
+  assert.equal(context.window.posts.length, 0, "rejecting needs a short reason");
+  assert.match(form.textContent, /Add a short reason/);
+  form.querySelectorAll("input").find((input) => (input.placeholder || "").startsWith("Reason")).value = "ILLUSTRATIVE - owner rejects this idea.";
   await reject.listeners.click();
   assert.equal(context.window.posts[0].decision, "reject");
   assert.equal(context.window.posts[0].content, undefined);
   await approve.listeners.click();
   assert.equal(context.window.posts.length, 1, "approving without a passage must not post");
   assert.match(form.textContent, /Give the passage a title and text/);
+  form.querySelectorAll("textarea")[0].value = "A passage";
+  form.querySelectorAll("input").find((input) => input.maxLength === 200).value = "A title";
+  await approve.listeners.click();
+  assert.equal(context.window.posts.length, 1, "approving a passage needs a recorded source");
+  assert.match(form.textContent, /Record the source/);
+  form.querySelectorAll("input").find((input) => input.maxLength === 300).value = "Fund regulations, article 12";
+  await approve.listeners.click();
+  assert.equal(context.window.posts[1].source, "Fund regulations, article 12");
+  assert.equal(context.window.posts[1].confirmed, true);
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 """)
 
@@ -631,13 +646,14 @@ def test_an_ai_suggestion_is_labelled_unchecked_and_prefills_the_owners_editor(a
   context.window.AdminImprovements.mount(target, {row, data: run("data"), extra: {stages: ["*", "first_contact"], related: []},
     api: async () => ({}), saved: async () => {}});
   assert.match(target.textContent, /Will my payment change\?/);
-  assert.match(target.textContent, /Drafted by an AI agent \(gg-gap-review:3\)\. Not checked by a person/);
+  assert.match(target.textContent, /Drafted by AI\. Nobody has checked it yet/);
   assert.match(target.textContent, /The payment date rule/);
   assert.match(target.textContent, /Payments continue after the transition/);
-  assert.match(target.textContent, /Source you checked the passage against/);
-  assert.match(target.textContent, /Does the payment change/);
-  const form = target.children[0].children.find((child) => child.tag === "form");
-  assert.equal(form.querySelectorAll("input").find((input) => input.type !== "checkbox").value, "Drafted title");
-  assert.equal(form.querySelectorAll("textarea")[1].value, "Drafted passage.");
+  assert.match(target.textContent, /Source you checked against/);
+  assert.match(target.textContent, /Members ask: Does the payment change/);
+  assert.match(target.textContent, /Not yet covered: First changed payment/);
+  const form = target.querySelectorAll("form")[0];
+  assert.equal(form.querySelectorAll("input").find((input) => input.maxLength === 200).value, "Drafted title");
+  assert.equal(form.querySelectorAll("textarea")[0].value, "Drafted passage.");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 """)

@@ -266,7 +266,7 @@ function gateFor(error) {
 // Plain-language detail view: a short explanation and a list of facts first, the raw record only on request.
 function showDetails(title, intro, facts, record) {
   activeTest?.stop(); activeTest = null;
-  $("detail-dialog").classList.remove("testing-dialog");
+  $("detail-dialog").classList.remove("testing-dialog", "idea-dialog");
   $("detail-title").textContent = title;
   const body = node("div");
   if (intro) body.append(node("p", intro, "lead"));
@@ -643,8 +643,12 @@ function improvementNote() {
   return base + (improvements.truncated ? " There are more ideas than this page can hold." : "");
 }
 async function improvementDetail(row) {
+  activeTest?.stop(); activeTest = null;
+  $("detail-dialog").classList.remove("testing-dialog");
+  $("detail-dialog").classList.add("idea-dialog");
   $("detail-title").textContent = window.AdminImprovements.kinds[row.kind];
-  const target = node("div", "Loading the idea...", "lead");
+  const target = node("div");
+  target.append(node("p", "Loading the idea...", "lead idea-loading"));
   $("detail-body").replaceChildren(target);
   $("detail-dialog").showModal();
   try {
@@ -1002,7 +1006,9 @@ $("close-help").addEventListener("click", () => $("help-dialog").close());
 $("guide").open = store.get("gg-admin-guide") === "open";
 $("guide").addEventListener("toggle", () => store.set("gg-admin-guide", $("guide").open ? "open" : "closed"));
 $("close-detail").addEventListener("click", () => $("detail-dialog").close());
-$("detail-dialog").addEventListener("close", () => { activeTest?.stop(); activeTest = null; });
+$("detail-dialog").addEventListener("close", () => {
+  activeTest?.stop(); activeTest = null; $("detail-dialog").classList.remove("idea-dialog");
+});
 $("close-action").addEventListener("click", () => $("action-dialog").close());
 $("action-dialog").addEventListener("cancel", (event) => { if (applying) event.preventDefault(); });
 $("action-kind").addEventListener("change", actionImpact);
