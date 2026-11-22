@@ -460,7 +460,8 @@ count as declined answers and can propose a new style; protective and member-req
 **Kept member questions (IMP-GAP-REVIEW-2, owner decision).** When an answer ends as `output_gate`, `answer_review`,
 `no_safe_answer` or `no_eligible_style`, the runtime writes the member's question as written to the quarantined
 `declined-questions` container (best effort, after the audit record, never logged, skipped for selected-style test
-journeys). The container is not immutable, so an erasure request can be honoured, and a lifecycle rule expires blobs after
+journeys). The question is also kept when an answer was delivered after the answer review raised a finding, so those gaps
+show real member wording. The container is not immutable, so an erasure request can be honoured, and a lifecycle rule expires blobs after
 30 days. Up to five distinct questions per proposal appear to owners as examples, and the same questions go to the
 drafting agent. Proposal blobs, which hold those examples, expire after 30 days too, and both lifecycle rules remove noncurrent versions. This text never feeds learning, ranking, prompts, templates, models
 or the catalogue; it reaches behaviour only through an owner approving a passage or style (B4 as amended by that decision).
@@ -481,7 +482,7 @@ source** before the console accepts an approval (the source goes into the immuta
 approval whose journal entry has no source). The suggestion is shown as not checked by a person, and nothing publishes
 without the owner's approval. A failed or rejected content suggestion is dropped and the idea stays without a draft.
 
-**Style gaps use the agent too.** Counting finds the gap (a situation where no style, or only one, can explain). The agent
+**Style gaps use the agent too (IMP-GAP-REVIEW-4, owner decision).** Counting finds the gap (a situation where no style, or only one, can explain). The agent
 then reads the kept member questions, why answers were declined, the styles that can already explain there and every
 approved pattern. It returns the themes, why the current styles do not suit these questions, and a decision: `existing`
 (add a new style on this approved pattern, with a name) or `new` (no approved pattern fits; a described idea for people to
@@ -492,6 +493,11 @@ A `new` idea can only be acknowledged, deferred or rejected, because the runtime
 agent answer a style idea is not offered at all; the nearest-pattern rule remains only as the scope scaffold the agent's
 choice is applied to.
 
+Each proposal also carries up to ten **cases**, one per journey (journey id, outcome, closed decline reason, review
+findings, approved passages found and the kept question). Cases sit outside the evidence digest, and readers never see
+their question text. The console links each case to its journey in Conversations and lists the styles and passages that
+were available. The record does not say which style was tried before a draft was refused, and the screen says so.
+
 A declined interaction is an explanation question that ended in an advisor offer, or whose answer an answer
 review flagged. Interactions are grouped by closed situation (journey stage, topic, channel, accessibility mode,
 language) and a proposal needs at least five declined answers from three journeys:
@@ -500,7 +506,7 @@ language) and a proposal needs at least five declined answers from three journey
 |---|---|---|
 | Missing approved content | Most declined answers retrieved no approved passage | Title, stage, language, questions answered, related passages, and an agent-drafted passage grounded in them when possible |
 | Approved content to revise | Most declined answers were flagged as not grounded in the retrieved passage | The retrieved passage as a base for a new version, with a grounded revision from the agent when possible |
-| Missing explanation style | At most one approved style can explain, or most declined answers had no eligible style | A `StyleChange` on an approved pattern with the situation added to its eligibility |
+| Missing explanation style | At most one approved style can explain, or most declined answers had no eligible style | An AI recommendation (IMP-GAP-REVIEW-4): the themes, why current styles do not fit, and either a `StyleChange` on an approved pattern scoped to the situation, or a described new style that can only be acknowledged. Not offered without the AI answer |
 | Answers refused that may have been fine | Content and styles exist, and the refusals came from quality-only review findings or output gates | None; an owner looks at examples, no check is changed |
 
 Proposals are immutable, content-addressed blobs (`proposals/<id>/<evidence-digest>.json`); an unchanged

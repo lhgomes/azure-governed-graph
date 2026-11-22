@@ -127,7 +127,7 @@ declined answers from three journeys. **Improvement ideas** lists the proposals;
 |---|---|
 | Missing approved content | Write the passage from an approved source, choose its stages, approve. |
 | Approved content to revise | Edit a copy of the approved passage, approve to publish a new version. |
-| Missing explanation style | Review the proposed name, pattern and eligibility, approve to queue it. |
+| Missing explanation style | Read the AI's reasoning, then edit and approve its recommended name, pattern and eligibility to queue it. If the AI says no approved pattern fits, acknowledge, defer or reject the described idea. |
 | Answers refused that may have been fine | Open example journeys in **Conversations**, then acknowledge, defer or reject. No check is changed here. |
 
 Readers can open every idea. Only owners decide. A decision needs a reason and explicit confirmation, shows the
@@ -139,7 +139,9 @@ every other owner decision. **Approve** never makes a change live by itself:
   the publisher has indexed it, then *Published to approved content*. An operator starts the publisher with
   `python -m governedgraph.search.run_publisher_job --approved-proposals`.
 
-An idea shows counts, labels and up to five of the questions members asked (kept for 30 days, shown to owners only) with example journey IDs;
+An idea lists up to ten declined answers, one per journey, each with a link to its journey in **Conversations**, the outcome,
+the reason, the member's question (owners only) and the approved passages found. *What was available* names the styles that
+could explain and the passages used. A badge says whether the AI proposed the fix. An idea shows counts, labels and up to five of the questions members asked (kept for 30 days, shown to owners only) with example journey IDs;
 open the journeys in **Conversations** to judge an answer. For missing or revisable content, an AI agent adds an analysis
 (what members are asking, what the approved passages do not cover) and a draft passage written from the model's own
 knowledge, labelled *Not checked by a person*. The draft can be wrong or out of date. The editor lists every claim it makes.
