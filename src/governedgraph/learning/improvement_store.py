@@ -25,7 +25,8 @@ APPROVED = "approved/"
 PUBLISHED = "published/"
 MAX_PROPOSALS = 500
 BATCH_FIELDS = {"batch_id", "created_at", "rules_version", "watermark", "records_read", "declined_signals",
-                "test_records_excluded", "situations", "proposals", "window_start", "window_end"}
+                "test_records_excluded", "situations", "proposals", "window_start", "window_end", "questions_read",
+                "suggestions_drafted"}
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,16 @@ def verify_decision(journal, approval: ContentApproval) -> None:
             or row.get("document_id") != approval.content.id or row.get("content_name") != approval.name
             or not isinstance(proposal, dict) or proposal.get("proposal_id") != approval.proposal_id):
         raise PermissionError(f"approval {approval.decision_ref} does not match its journalled owner decision")
+
+
+def exists(container, name: str) -> bool:
+    from azure.core.exceptions import ResourceNotFoundError
+
+    try:
+        container.get_blob_client(name).download_blob()
+    except ResourceNotFoundError:
+        return False
+    return True
 
 
 def create_once(container, name: str, payload: bytes) -> bool:

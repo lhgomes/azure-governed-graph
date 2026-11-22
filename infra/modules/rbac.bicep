@@ -411,6 +411,22 @@ resource p2EvidenceWrite 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   }
 }
 
+// --- declined-question capture: the runtime writes member questions that ended without an explanation ---
+resource declinedQuestionsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' existing = if (deployAdminConsole) {
+  parent: recordsBlobService
+  name: 'declined-questions'
+}
+resource runtimeDeclinedQuestionsWrite 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAdminConsole) {
+  scope: declinedQuestionsContainer
+  name: guid(declinedQuestionsContainer.id, runtimePrincipalId, roles.blobDataContributor)
+  properties: {
+    principalId: runtimePrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataContributor)
+    description: 'Runtime keeps declined member questions, create-only by use, for the gap review. Not readable by the console.'
+  }
+}
+
 // --- gap review, improvement proposals and approved-content hand-off (container-scoped) ---
 // The gap review can write proposals only. Owner-approved passages live in their own container, which it can only read,
 // so it cannot create an approval; the publisher also checks every approval against the immutable admin journal.
@@ -430,6 +446,16 @@ resource gapReviewRecordsRead 'Microsoft.Authorization/roleAssignments@2022-04-0
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataReader)
     description: 'Gap review reads immutable response records to find declined interactions.'
+  }
+}
+resource gapReviewQuestionsRead 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAdminConsole) {
+  scope: declinedQuestionsContainer
+  name: guid(declinedQuestionsContainer.id, gapReviewPrincipalId, roles.blobDataReader)
+  properties: {
+    principalId: gapReviewPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.blobDataReader)
+    description: 'Gap review reads declined member questions as examples and drafting input.'
   }
 }
 resource gapReviewJourneyRead 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAdminConsole) {

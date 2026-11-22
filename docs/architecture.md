@@ -446,10 +446,33 @@ not a demographic inference or automatic translation permission.
 Some answers are declined although they were legitimate, and some questions have no approved content or
 style yet. The scheduled `job-gg-gap-review` (`governedgraph.learning.gap_review_job`, daily) reviews every
 declined interaction of the last 30 days and writes **proposals** for the administration console. It reads only
-the immutable response records (closed fields, no utterance, no draft, no member value) and, to leave
+the immutable response records, the **member questions kept for declined answers** and, to leave
 selected-style test journeys out of its counts, the journey state. It runs under its own identity
-`id-gg-gap-review-*`: reader on `explainability-records`, `journey-state` and `content-approvals`, contributor on
-`improvement-proposals`; it cannot write an approval, sign, publish content, change the catalogue or start a job.
+`id-gg-gap-review-*`: reader on `explainability-records`, `declined-questions`, `journey-state` and `content-approvals`,
+contributor on `improvement-proposals`, and endpoint use on its own drafting agent; it cannot write an approval, sign,
+publish content, change the catalogue or start a job.
+
+**Closed decline reason.** Each acknowledgment or escalation record carries an optional closed `decline_reason`
+(`output_gate`, `answer_review`, `no_safe_answer`, `no_eligible_style`, `teach_back_failed`, `content_safety`, and so on),
+set at the runtime's decline points. Records without one are stored byte-identically. "No eligible style" escalations
+count as declined answers and can propose a new style; protective and member-requested exits stay context only.
+
+**Kept member questions (IMP-GAP-REVIEW-2, owner decision).** When an answer ends as `output_gate`, `answer_review`,
+`no_safe_answer` or `no_eligible_style`, the runtime writes the member's question as written to the quarantined
+`declined-questions` container (best effort, after the audit record, never logged, skipped for selected-style test
+journeys). The container is not immutable, so an erasure request can be honoured, and a lifecycle rule expires blobs after
+30 days. Up to five distinct questions per proposal appear to owners as examples, and the same questions go to the
+drafting agent. Proposal blobs expire after 90 days. This text never feeds learning, ranking, prompts, templates, models
+or the catalogue; it reaches behaviour only through an owner approving a passage or style (B4 as amended by that decision).
+
+**Drafting agent.** `gg-gap-review` is a pinned, tool-free Foundry agent (`agents/gap_drafter.py`), called once for each
+new content proposal. It receives the situation, the example questions and the related approved passages, and returns a
+closed JSON suggestion: title, questions answered, passage text, the passages it used and what the owner must supply.
+The job admits a suggestion only if it passes `gap_review.accept_suggestion`: closed shape, only cited source passages, no
+placeholder, no steering, **no figure that no source passage contains**, no copied member question, and text only if
+sources are cited. A failed or ungrounded suggestion is dropped and the rules-only draft remains. If the facts are not in an approved
+passage, the agent returns an empty body and lists what the owner must supply. The suggestion is a draft the owner edits;
+it is labelled as not checked by a person, and nothing publishes without the owner's approval.
 
 A declined interaction is an explanation question that ended in an advisor offer, or whose answer an answer
 review flagged. Interactions are grouped by closed situation (journey stage, topic, channel, accessibility mode,
@@ -457,9 +480,9 @@ language) and a proposal needs at least five declined answers from three journey
 
 | Proposal | Trigger | Draft |
 |---|---|---|
-| Missing approved content | Most declined answers retrieved no approved passage | Title, stage, language and questions answered from the domain vocabulary, related passages; no body |
-| Approved content to revise | Most declined answers were flagged as not grounded in the retrieved passage | The retrieved passage as a base for a new version |
-| Missing explanation style | At most one approved style can explain in the situation | A `StyleChange` on an approved pattern with the situation added to its eligibility |
+| Missing approved content | Most declined answers retrieved no approved passage | Title, stage, language, questions answered, related passages, and an agent-drafted passage grounded in them when possible |
+| Approved content to revise | Most declined answers were flagged as not grounded in the retrieved passage | The retrieved passage as a base for a new version, with a grounded revision from the agent when possible |
+| Missing explanation style | At most one approved style can explain, or most declined answers had no eligible style | A `StyleChange` on an approved pattern with the situation added to its eligibility |
 | Answers refused that may have been fine | Content and styles exist, and the refusals came from quality-only review findings or output gates | None; an owner looks at examples, no check is changed |
 
 Proposals are immutable, content-addressed blobs (`proposals/<id>/<evidence-digest>.json`); an unchanged
@@ -478,11 +501,10 @@ takes effect and implemented only through an existing governed path:
   The console never writes to Search or the approved-content container, and the gap review cannot write an approval.
   Both improvement containers carry a 30-day immutability policy, so blobs are create-only by enforcement.
 
-B4 is kept by construction: proposals are built from closed response-record fields, so no conversation text can
-reach a proposal, prompt, template or catalogue. Mining utterances or blocked drafts would add such a path and needs
-its own board decision. B7: the situation has no demographic field. B3/B8: drafts reuse approved patterns, are inert,
-and activation is an owner (Tier 2) decision. Limitation: the response record does not hold a closed decline reason,
-so escalations are counted as context but never trigger a proposal.
+B4 changed by owner decision (IMP-GAP-REVIEW-2): member words are now an input, but only to owner-reviewed proposals.
+They are kept briefly, never feed learning, and reach behaviour only when an owner approves a passage or style.
+B7: the situation has no demographic field. B3/B8: drafts reuse approved patterns, are inert, and activation is an owner
+(Tier 2) decision. B1/B2: a suggestion cannot carry a figure that its source passages do not contain.
 
 ## Governed speech channel
 

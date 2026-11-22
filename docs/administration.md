@@ -139,8 +139,11 @@ every other owner decision. **Approve** never makes a change live by itself:
   the publisher has indexed it, then *Published to approved content*. An operator starts the publisher with
   `python -m governedgraph.search.run_publisher_job --approved-proposals`.
 
-An idea holds counts and labels only, never what a member said. It lists up to five example journey IDs; open them in
-**Conversations** to judge an answer. A deferred idea returns to *Open* when its evidence changes; a rejected or
+An idea shows counts, labels and up to five of the questions members asked (kept for 30 days) with example journey IDs;
+open the journeys in **Conversations** to judge an answer. For missing or revisable content, an AI agent may add a draft
+passage, grounded in approved passages and labelled *Not checked by a person*. It is a starting point in the editor: read
+every statement, compare it with an approved source and change it before approving. Where the facts are not in an
+approved passage, the draft is empty and says what you must supply. A deferred idea returns to *Open* when its evidence changes; a rejected or
 acknowledged idea stays closed. A decision whose journal was never completed counts only if its effect exists: an approval that
 did land is shown as queued and cannot be rejected, and one that did not land leaves the idea open. Investigate any
 *Requested* entry in **Activity**. Idea status is derived from the whole action journal (up to 5,000 blobs); a larger

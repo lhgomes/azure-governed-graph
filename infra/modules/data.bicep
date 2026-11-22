@@ -55,10 +55,40 @@ resource improvementProposals 'Microsoft.Storage/storageAccounts/blobServices/co
   name: 'improvement-proposals'
   properties: { publicAccess: 'None' }
 }
-resource improvementProposalsWorm 'Microsoft.Storage/storageAccounts/blobServices/containers/immutabilityPolicies@2023-05-01' = if (deployAdminConsole) {
-  parent: improvementProposals
+// Member questions that ended without an explanation, kept for the gap review. Not immutable, so an erasure request
+// can be honoured; written by the runtime, read only by the gap review, expired by the lifecycle rule below.
+resource declinedQuestions 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (deployAdminConsole) {
+  parent: blob
+  name: 'declined-questions'
+  properties: { publicAccess: 'None' }
+}
+resource improvementLifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = if (deployAdminConsole) {
+  parent: st
   name: 'default'
-  properties: { immutabilityPeriodSinceCreationInDays: 30, allowProtectedAppendWrites: false }
+  properties: {
+    policy: {
+      rules: [
+        {
+          name: 'expire-declined-questions'
+          enabled: true
+          type: 'Lifecycle'
+          definition: {
+            filters: { blobTypes: [ 'blockBlob' ], prefixMatch: [ 'declined-questions/' ] }
+            actions: { baseBlob: { delete: { daysAfterModificationGreaterThan: 30 } } }
+          }
+        }
+        {
+          name: 'expire-improvement-proposals'
+          enabled: true
+          type: 'Lifecycle'
+          definition: {
+            filters: { blobTypes: [ 'blockBlob' ], prefixMatch: [ 'improvement-proposals/' ] }
+            actions: { baseBlob: { delete: { daysAfterModificationGreaterThan: 90 } } }
+          }
+        }
+      ]
+    }
+  }
 }
 // Owner-approved passages awaiting the content publisher, and its publication markers. Create-only, enforced by retention.
 resource contentApprovals 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (deployAdminConsole) {

@@ -124,6 +124,12 @@ def provision(project, *, apply: bool, role: str = "counsellor", agent_name: str
         model_deployment = persona_deployment()
         definition = live_persona_definition(model_deployment)
         name, decision = LIVE_PERSONA_AGENT_NAME, "IMP-persona-demo"
+    elif role == "gap-review":
+        from governedgraph.agents.gap_drafter import GAP_REVIEW_AGENT_NAME, gap_review_definition, gap_review_deployment
+
+        model_deployment = gap_review_deployment()
+        definition = gap_review_definition(model_deployment)
+        name, decision = GAP_REVIEW_AGENT_NAME, "IMP-GAP-REVIEW-2"
     elif role == "evaluation":
         model_deployment = "gpt-modern"
         definition = agent_definition(INSTRUCTIONS, model=model_deployment, reasoning_effort="none")
@@ -174,7 +180,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--role", choices=("counsellor", "fairness", "voice-compact",
-                                        "evaluation", "persona"),
+                                        "evaluation", "persona", "gap-review"),
                         default="counsellor")
     args = parser.parse_args()
     if args.apply:

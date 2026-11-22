@@ -94,7 +94,7 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
                 f"sign in as a user or supply operator_id explicitly. {error}"
             ) from None
     environment(runner, inputs, composition)
-    from scripts.bootstrap import agents, approve_search_link, persona_agent, release_approval, entra, initial_priors, member_public_jwk
+    from scripts.bootstrap import agents, approve_search_link, gap_review_agent, persona_agent, release_approval, entra, initial_priors, member_public_jwk
     from scripts.create_agents import provision as agent_plan
 
     plans = {role: agent_plan(None, apply=False, role=role, agent_name=AGENT_NAMES[role]) for role in AGENT_ROLES}
@@ -158,6 +158,7 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
         "voiceCompactAgentVersion": pins["voice-compact"]["agent_version"],
         "writerApproval": approval,
         "personaAgentVersion": persona_version,
+        "gapReviewAgentVersion": gap_review_agent(foundation["ai"]["projectEndpoint"], subscription=inputs.subscription),
         "memberTokenIssuer": ISSUER, "memberTokenPublicJwk": public_key, "onCallEmail": inputs.on_call_email,
         "deployVoiceDemo": inputs.voice_demo, "traceSyntheticConversations": inputs.voice_demo,
         "adminTraceLookup": inputs.voice_demo,
@@ -174,6 +175,7 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
         initial = initial_priors(runner, inputs, composition, foundation, images, catalogue_upgrade=True)
     environment_values = {**outputs, **{AGENT_ROLES[role]: pin["agent_version"] for role, pin in pins.items()},
                           **({"AZURE_AI_PERSONA_VERSION": persona_version} if persona_version else {}),
+                          "AZURE_AI_GAP_REVIEW_VERSION": workload["gapReviewAgentVersion"],
                           "GOVERNEDGRAPH_WRITER_APPROVAL_JSON": json.dumps(approval),
                           "MEMBER_TOKEN_PUBLIC_JWK": json.dumps(public_key), "MEMBER_TOKEN_ISSUER": ISSUER,
                           "P2_CONTAINER_IMAGE": images["p2"]["image"], "DEV_FIXTURES_IMAGE": images["fixtures"]["image"],

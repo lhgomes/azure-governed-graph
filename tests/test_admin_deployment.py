@@ -196,6 +196,7 @@ def test_b3_b4_b8_gap_review_has_its_own_identity_reads_records_and_cannot_write
         ("journeyContainers[0]", "gapReviewPrincipalId", "roles.blobDataReader"),
         ("improvementContainer", "gapReviewPrincipalId", "roles.blobDataContributor"),
         ("approvalsContainer", "gapReviewPrincipalId", "roles.blobDataReader"),
+        ("declinedQuestionsContainer", "gapReviewPrincipalId", "roles.blobDataReader"),
         ("approvalsContainer", "contentPublisherPrincipalId", "roles.blobDataContributor"),
         ("adminActionsContainer", "contentPublisherPrincipalId", "roles.blobDataReader")])
     for forbidden in ("snapshotKey", "keySignerRole", "scope: search", "scope: kv", "cohortContainer", "contentContainer",
@@ -208,6 +209,22 @@ def test_b3_b4_b8_gap_review_has_its_own_identity_reads_records_and_cannot_write
     for forbidden in ("KEY_VAULT", "SEARCH", "SERVICE_BUS", "AZURE_AI_", "Strategy.", "keyVault"):
         assert forbidden not in job
     data = (ROOT / "infra/modules/data.bicep").read_text()
-    for name, resource in (("improvement-proposals", "improvementProposals"), ("content-approvals", "contentApprovals")):
+    for name, resource in (("improvement-proposals", "improvementProposals"), ("content-approvals", "contentApprovals"),
+                           ("declined-questions", "declinedQuestions")):
         assert f"name: '{name}'" in data and "publicAccess: 'None'" in block(data, f"resource {resource} ", "\n}\n")
-        assert "allowProtectedAppendWrites: false" in block(data, f"resource {resource}Worm", "\n}\n")
+    assert "allowProtectedAppendWrites: false" in block(data, "resource contentApprovalsWorm", "\n}\n")
+    # Member text must stay erasable: no immutability on the containers that hold it, and a lifecycle expiry instead.
+    assert "improvementProposalsWorm" not in data and "declinedQuestionsWorm" not in data
+    lifecycle = block(data, "resource improvementLifecycle", "\n}\n")
+    assert "'declined-questions/'" in lifecycle and "daysAfterModificationGreaterThan: 30" in lifecycle
+
+
+def test_b4_only_the_runtime_writes_declined_questions_and_only_the_gap_review_reads_them():
+    rbac = (ROOT / "infra/modules/rbac.bicep").read_text()
+    grants = re.findall(r"scope: declinedQuestionsContainer\n\s+name: guid\([^,]+, (\w+), (roles\.\w+)\)", rbac)
+    assert sorted(grants) == [("gapReviewPrincipalId", "roles.blobDataReader"),
+                              ("runtimePrincipalId", "roles.blobDataContributor")]
+    workloads = (ROOT / "infra/workloads.bicep").read_text()
+    assert "GOVERNEDGRAPH_CAPTURE_DECLINED_QUESTIONS: deployAdminConsole" in workloads
+    consumer = (ROOT / "infra/modules/gap-review-agent-consumer.bicep").read_text()
+    assert "scope: agent" in consumer and "name: 'gg-gap-review'" in consumer and "scope: account" not in consumer

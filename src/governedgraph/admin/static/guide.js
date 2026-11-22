@@ -205,7 +205,7 @@ window.GUIDE = {
       title: "Improvement ideas",
       heading: "Missed answers and proposed fixes",
       description: "A regular review finds questions that got no answer. It proposes missing content or styles for an owner to decide.",
-      what: "One row per idea. Each idea comes from counts of declined answers in one situation. It holds no words a member said.",
+      what: "One row per idea. Each idea comes from declined answers in one situation. It shows counts and a few of the questions members asked.",
       look: "Ideas with many journeys are stronger than ideas with few. An idea about answers that may have been fine needs a person to look at examples first.",
       can: "Open an idea to read the evidence. Owners can approve, reject, defer or acknowledge it. Approving queues the change. It never takes effect by itself.",
       terms: ["idea", "declined", "content", "style", "advisor"],
@@ -236,7 +236,8 @@ window.GUIDE = {
     },
   },
   promises: [
-    "Improvement ideas use counts and labels, never what a member said.",
+    "Improvement ideas show a few questions members asked. They are kept briefly and never used for learning.",
+    "A passage drafted by an AI agent is only a draft. It is never used until an owner checks and approves it.",
     "An idea changes nothing until an owner approves it, and approved changes use the usual release steps.",
     "Owners can add, edit or remove explanation styles. The human advisor cannot be changed.",
     "It cannot activate an unsigned order or change any AI model.",

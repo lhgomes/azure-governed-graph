@@ -1761,3 +1761,46 @@ def test_agent_provisioning_is_no_write_by_default_and_reuses_a_matching_version
     assert not created
     assert module.provision(project, apply=True)["agent_version"] == "7"
     assert module.provision(project, apply=True)["agent_version"] == "7" and len(created) == 1
+
+
+class KeptQuestions:
+    def __init__(self, fail=False):
+        self.kept, self.fail = [], fail
+
+    def append(self, question):
+        if self.fail:
+            raise OSError("synthetic storage outage")
+        self.kept.append(question)
+
+
+def declined_turn(counsellor, monkeypatch):
+    client = FakeResponses(response(f"Your amount is {{{{value:current_monthly_pension}}}}.{ASK}"),
+                           judgments=[review_response("unassessable", ["grounding"])])
+    install_responses(monkeypatch, client)
+    return counsellor.handle("Will the transition change what I receive?")
+
+
+def test_b4_a_declined_question_is_kept_for_the_gap_review_linked_to_its_response_record(counsellor, monkeypatch):
+    counsellor.question_store = KeptQuestions()
+    result = declined_turn(counsellor, monkeypatch)
+    assert_unanswered(counsellor, result)
+    (kept,) = counsellor.question_store.kept
+    record = counsellor.tools.store.read_all()[-1]
+    assert kept.text == "Will the transition change what I receive?" and kept.response_id == record["response_id"]
+    assert kept.journey_id == record["journey_id"] and kept.text not in result.text
+
+
+def test_a_storage_problem_keeping_the_question_never_changes_the_members_answer(counsellor, monkeypatch, caplog):
+    counsellor.question_store = KeptQuestions(fail=True)
+    assert_unanswered(counsellor, declined_turn(counsellor, monkeypatch))
+    assert "declined_question_not_kept" in caplog.text and "Will the transition" not in caplog.text
+
+
+def test_selected_style_test_journeys_and_protective_exits_keep_no_question(counsellor, monkeypatch):
+    counsellor.question_store = KeptQuestions()
+    counsellor.journey.test_strategy_id = "S1"
+    assert_unanswered(counsellor, declined_turn(counsellor, monkeypatch))
+    counsellor.journey.test_strategy_id = ""
+    counsellor._utterance = "A question that ended in a safety escalation"
+    counsellor._escalate("content screening unavailable or blocked", "safety")
+    assert counsellor.question_store.kept == []

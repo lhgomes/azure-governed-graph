@@ -49,14 +49,18 @@ def unanswered(count, **options):
     return [record(index, **options) for index in range(count)]
 
 
-def test_b4_a_proposal_is_built_from_closed_fields_and_carries_no_conversation_text():
-    proposals, _ = run(unanswered(6))
+def test_b4_a_proposal_holds_closed_fields_and_at_most_a_few_bounded_example_questions():
+    proposals, _ = run(unanswered(6, decline="output_gate"), questions={record(i).response_id: f"Question number {i}?" for i in range(6)})
     assert proposals
     banned = {"utterance", "text", "message", "transcript", "answer", "member_ref", "member_value", "response_id"}
     for proposal in proposals:
         assert not banned & set(asdict(proposal)) and not banned & set(proposal.evidence)
         assert gap_review.Proposal.from_dict(json.loads(proposal.encode())) == proposal
-    assert not {field.name for field in fields(gap_review.Signal)} & {"utterance", "text", "member_ref", "response_id"}
+        assert 0 < len(proposal.evidence["examples"]) <= gap_review.SAMPLE_QUESTIONS
+        assert all(len(item) <= gap_review.QUESTION_CHARS for item in proposal.evidence["examples"])
+    assert not {field.name for field in fields(gap_review.Signal)} & {"member_ref", "utterance"}
+    with pytest.raises(ContractError):
+        gap_review.Evidence.from_dict({**proposals[0].evidence, "examples": ["x" * 301]})
 
 
 def test_b7_the_situation_has_no_demographic_field_and_rejects_one():
@@ -355,3 +359,123 @@ def test_b4_the_decline_reason_is_closed_and_absent_records_stay_byte_identical(
         record(3, decline="the member asked about my pension")
     with pytest.raises(ContractError, match="decline"):
         record(4, kind="explanation", strategy="S1", content=["C-001-v1.3"], decline="output_gate")
+
+
+def questions_for(count, text="Will my payment change after the move?"):
+    return {record(i).response_id: f"{text} ({i})" for i in range(count)}
+
+
+def content_gap_proposal(**options):
+    proposals, _ = run(unanswered(6, decline="output_gate"), questions=questions_for(6), **options)
+    return next(item for item in proposals if item.kind == "content_gap")
+
+
+def test_example_questions_are_distinct_newest_first_and_excluded_from_the_digest():
+    first = content_gap_proposal()
+    assert len(first.evidence["examples"]) == 5
+    proposals, _ = run(unanswered(6, decline="output_gate"), questions={
+        record(i).response_id: f"A different question {i}?" for i in range(6)})
+    assert next(item for item in proposals if item.kind == "content_gap").evidence_digest == first.evidence_digest
+
+
+def passages(*items):
+    return {"task": "new_passage", "language": "en", "topic": "payment_continuity", "topic_description": "d",
+            "member_questions": ["Will my payment change after the move?"],
+            "approved_passages": [{"id": doc_id, "title": "T", "body": body} for doc_id, body in items]}
+
+
+GOOD = {"title": "Payment after the transition", "answers": "Does the monthly payment change? When does it start?",
+        "body": "The payment is described in the official letter. The period ends on 1 January 2028.",
+        "sources": ["C-001-v1.3"], "gaps": []}
+
+
+def test_b2_a_suggestion_is_accepted_only_when_closed_grounded_and_free_of_new_figures():
+    request = passages(("C-001-v1.3", "The transition period ends on 1 January 2028."))
+    accepted = gap_review.accept_suggestion(GOOD, request, "gg-gap-review:3")
+    assert accepted["agent"] == "gg-gap-review:3" and accepted["sources"] == ["C-001-v1.3"]
+    bad = {
+        "a new figure": {**GOOD, "body": "The payment rises by 4.5 percent."},
+        "a placeholder": {**GOOD, "body": "Your amount is {{value:capital}}."},
+        "steering": {**GOOD, "body": "You should choose the new contract."},
+        "an uncited source": {**GOOD, "sources": ["C-999-v1.0"]},
+        "text without sources": {**GOOD, "sources": []},
+        "a copied question": {**GOOD, "answers": "Will my payment change after the move? (0)"},
+        "no gaps for empty text": {**GOOD, "body": "", "sources": [], "gaps": []},
+        "extra fields": {**GOOD, "member_ref": "M-1"},
+    }
+    for name, raw in bad.items():
+        with pytest.raises(ContractError):
+            gap_review.accept_suggestion(raw, request, "gg-gap-review:3")
+    owner_supplied = {**GOOD, "body": "", "sources": [], "gaps": ["The rule for the payment date, from the fund rules."]}
+    assert gap_review.accept_suggestion(owner_supplied, request, "gg-gap-review:3")["gaps"]
+
+
+def test_the_job_asks_the_agent_once_per_new_proposal_and_keeps_only_grounded_suggestions():
+    records = unanswered(8, decline="output_gate")
+    store, journeys, proposals = batch(records, {f"J-{index}.json": journey_blob(f"J-{index}") for index in range(8)})
+    kept = Container({f"questions/{item.response_id}.json": json.dumps({
+        "journey_id": item.journey_id, "response_id": item.response_id, "created_at": item.created_at,
+        "text": f"Will my payment change after the move? ({item.journey_id})", "watermark": "ILLUSTRATIVE - synthetic data"}).encode()
+        for item in records})
+    requests = []
+
+    def drafter(request):
+        requests.append(request)
+        return {**GOOD, "sources": [request["approved_passages"][0]["id"]],
+                "body": request["approved_passages"][0]["body"]} if request["approved_passages"] else {**GOOD, "body": "The rate is 9 percent."}
+
+    result = job(store, journeys, proposals, Container(), questions=kept, drafter=drafter, drafter_label="gg-gap-review:3", now=NOW)
+    assert result["questions_read"] == 8 and len(requests) == 1
+    (saved,), _ = improvement_store.read_proposals(proposals)
+    assert requests[0]["approved_passages"] and requests[0]["member_questions"]
+    assert saved.kind == "content_gap" and saved.draft["suggested"]["agent"] == "gg-gap-review:3"
+    assert result["suggestions_drafted"] == 1
+    again = job(store, journeys, proposals, Container(), questions=kept, drafter=drafter, drafter_label="gg-gap-review:3",
+                now=NOW + timedelta(hours=1))
+    assert len(requests) == 1 and again["new_revisions"] == 0
+
+
+def test_an_agent_failure_never_stops_the_batch_and_leaves_the_rules_draft():
+    records = unanswered(8, decline="output_gate")
+    store, journeys, proposals = batch(records, {f"J-{index}.json": journey_blob(f"J-{index}") for index in range(8)})
+    kept = Container({f"questions/{item.response_id}.json": json.dumps({
+        "journey_id": item.journey_id, "response_id": item.response_id, "created_at": item.created_at,
+        "text": "Will my payment change?", "watermark": "ILLUSTRATIVE - synthetic data"}).encode() for item in records})
+
+    def broken(request):
+        raise RuntimeError("synthetic model outage")
+
+    result = job(store, journeys, proposals, Container(), questions=kept, drafter=broken, drafter_label="gg-gap-review:3", now=NOW)
+    (saved,), _ = improvement_store.read_proposals(proposals)
+    assert result["proposals"] == 1 and result["suggestions_drafted"] == 0 and "suggested" not in saved.draft
+
+
+def test_a_kept_question_must_match_its_response_and_be_bounded():
+    from governedgraph.explainability.declined_questions import DeclinedQuestion
+
+    base = {"journey_id": "J-1", "response_id": "a" * 32, "created_at": "2026-11-22T06:00:00+00:00", "text": "Will it change?"}
+    assert DeclinedQuestion.from_dict(base).blob_name == f"questions/{'a' * 32}.json"
+    for bad in ({"text": " "}, {"text": "x" * 1001}, {"response_id": "short"}, {"journey_id": "../x"}):
+        with pytest.raises(ContractError):
+            DeclinedQuestion.from_dict({**base, **bad})
+    with pytest.raises(ContractError):
+        DeclinedQuestion.from_dict({**base, "member_ref": "M-1"})
+    other = Container({f"questions/{'b' * 32}.json": DeclinedQuestion.from_dict(base).encode()})
+    with pytest.raises(ValueError, match="match"):
+        gap_review_job.read_questions(other, {"b" * 32})
+
+
+def test_b3_b4_the_drafting_agent_is_pinned_tool_free_and_provisioned_as_its_own_role():
+    from governedgraph.agents import gap_drafter
+    from scripts import create_agents
+
+    plan = create_agents.provision(None, apply=False, role="gap-review")
+    assert plan["agent_name"] == "gg-gap-review" and plan["decision"] == "IMP-GAP-REVIEW-2" and "plan only" in plan["action"]
+    definition = gap_drafter.gap_review_definition("synthetic-model").as_dict()
+    assert not definition.get("tools") and definition["text"]["format"]["strict"] is True
+    assert set(definition["text"]["format"]["schema"]["properties"]) == gap_review.SUGGESTION_FIELDS - {"agent"}
+    for rule in ("Use ONLY facts", "never write a value placeholder", "no tools"):
+        assert rule.lower() in gap_drafter.GAP_REVIEW_INSTRUCTIONS.lower()
+    with pytest.raises(ValueError):
+        gap_drafter.GapDrafter(client=None, agent_version="latest")
+    assert gap_drafter.GapDrafter(client=None, agent_version="3").label == "gg-gap-review:3"

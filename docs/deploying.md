@@ -597,7 +597,9 @@ cannot declare tests, evaluation policy, learning proofs or operator recovery.
    independent fairness audit, cohort and signing permissions are unchanged.
    The pipeline reads learning aggregates through a container-scoped reader role.
    With the admin console, a dedicated gap-review identity and the daily `job-gg-gap-review`
-   write inert improvement proposals to `improvement-proposals`; owners decide in the console
+   write inert improvement proposals to `improvement-proposals`, with drafts from the pinned tool-free
+   `gg-gap-review` agent that bootstrap provisions (`create_agents --role gap-review`) and the job identity may call
+   alone; the runtime keeps declined member questions for 30 days; owners decide in the console
    and approved passages are published by `run_publisher_job --approved-proposals`.
    The synthetic values adapter has its own identity with registry pull only;
    it never inherits the orchestrator's key/storage/Foundry permissions.

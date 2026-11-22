@@ -4,7 +4,7 @@ The standard pension WTP reference composition deploys the following services. O
 
 | Resource | Consumer/purpose |
 | --- | --- |
-| Foundry account and project | Model and agent execution |
+| Foundry account and project | Model and agent execution; optional `gg-gap-review` drafting agent for the daily gap review |
 | gpt-counsellor | Primary approved writer |
 | gpt-compact | Compact writer, fairness operator and optional persona |
 | embedding | Approved-content search vectorization |
@@ -14,7 +14,7 @@ The standard pension WTP reference composition deploys the following services. O
 | APIM | Governed member/strategy/admin APIs and pinned Responses |
 | Container Apps environment | Orchestrator, strategy, member values, optional admin/contact-centre and voice; bootstrap, scheduled P2 and optional daily gap-review jobs |
 | Application ACR | Runtime, bootstrap, probe, P2 and fixture images |
-| Main storage | Explainability records, learning aggregates, optional immutable administration journal, and optional immutable improvement proposals and content approvals |
+| Main storage | Explainability records, learning aggregates, optional immutable administration journal, optional improvement proposals, kept declined questions (30-day expiry) and immutable content approvals |
 | Private content storage | Approved content, ranking state, journey state/inbox, learning audits, cohort zone, P2 artifacts/evidence and optional handovers |
 | Service Bus namespace | journey-events and escalations only |
 | Key Vault | Snapshot signing and verification, optional dev issuer key |

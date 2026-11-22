@@ -43,6 +43,7 @@ module graph '../../../infra/workloads.bicep' = {
     deployVoiceDemo: configuration.deployVoiceDemo
     deployVoicePersona: configuration.deployVoicePersona
     personaAgentVersion: configuration.personaAgentVersion
+    gapReviewAgentVersion: configuration.gapReviewAgentVersion
     traceSyntheticConversations: configuration.traceSyntheticConversations
     adminTraceLookup: configuration.adminTraceLookup
   }

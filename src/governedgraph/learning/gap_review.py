@@ -5,11 +5,14 @@ content and strategies, or point to approved content or a strategy that does not
 interactions by closed situation and drafts proposals for a human owner.
 
 Boundaries:
-- B4: the only input is the immutable response record (closed fields, no utterance, no draft, no member value). No
-  conversation text reaches a proposal, so nothing here can change a prompt, template, model or catalogue.
+- B4 (owner decision IMP-GAP-REVIEW-2): the inputs are the immutable response record (closed fields) and the member's
+  declined question, kept briefly by ``explainability.declined_questions``. A few questions appear as examples inside a
+  proposal and reach a drafting agent; nothing reaches a prompt, template, model or catalogue without an owner approving
+  a passage or style, and every drafted statement is grounded in approved passages or refused.
 - B7: the situation holds journey stage, topic, channel, accessibility mode and language only; no demographic field exists.
-- B3/B8: a proposal is inert. Strategy drafts reuse the approved pattern library through ``StyleChange``; content drafts
-  carry no body. Activation needs an owner decision (Tier 2) through the existing governed publication paths.
+- B3/B8: a proposal is inert. Strategy drafts reuse the approved pattern library through ``StyleChange``; a content
+  suggestion is a draft the owner edits. Activation needs an owner decision (Tier 2) through the existing paths.
+- B1/B2: a suggestion may not contain a figure that no source passage contains, and no value placeholder.
 - B1/B2: nothing is calculated or written as a member value; drafts contain no figures.
 """
 from __future__ import annotations
@@ -18,7 +21,7 @@ import hashlib
 import json
 import re
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 
 from governedgraph.common.contracts import (
@@ -42,6 +45,8 @@ MIN_DECLINED = 5
 MIN_JOURNEYS = 3
 MAJORITY = 0.5
 SAMPLE_JOURNEYS = 5
+SAMPLE_QUESTIONS = 5
+QUESTION_CHARS = 300
 TOP_CONTENT = 5
 NEW_CONTENT_PREFIX = "C-G"
 PROPOSAL_ID = re.compile(r"GP-[a-f0-9]{24}")
@@ -68,6 +73,8 @@ class Signal:
     review_issues: tuple[str, ...]
     content_versions: tuple[str, ...]
     decline_reason: str = ""
+    response_id: str = ""
+    question: str = ""
 
     @property
     def situation(self) -> tuple[str, str, str, str, str]:
@@ -93,12 +100,14 @@ def signal_for(record: ExplainabilityRecord) -> Signal | None:
     key = record.request_key
     return Signal(record.journey_id, record.created_at, key["journey_state"], intent["reason"], key["channel"],
                   key["accessibility_mode"], intent["response_language"], outcome, tuple(issues),
-                  tuple(sorted(set(record.content_versions))), record.decline_reason)
+                  tuple(sorted(set(record.content_versions))), record.decline_reason, record.response_id)
 
 
 def signals(records: list[ExplainabilityRecord], *, excluded_journeys: set[str] = frozenset(),
-            since: str = "") -> tuple[list[Signal], int]:
-    """Declined interactions of non-test journeys at or after ``since``; also the count of excluded test records."""
+            since: str = "", questions: dict[str, str] | None = None) -> tuple[list[Signal], int]:
+    """Declined interactions of non-test journeys at or after ``since``; also the count of excluded test records.
+
+    ``questions`` maps a response_id to the member's kept question text, attached when one was captured."""
     result, excluded = [], 0
     for record in records:
         if since and record.created_at < since:
@@ -109,7 +118,7 @@ def signals(records: list[ExplainabilityRecord], *, excluded_journeys: set[str] 
         if record.journey_id in excluded_journeys:
             excluded += 1
             continue
-        result.append(signal)
+        result.append(replace(signal, question=(questions or {}).get(signal.response_id, "")))
     return result, excluded
 
 
@@ -138,6 +147,7 @@ class Evidence:
     content_versions: dict
     eligible_styles: list
     sample_journey_ids: list
+    examples: list
 
     def __post_init__(self):
         counts = (self.declined, self.unanswered, self.review_flagged, self.no_style, self.escalated, self.journeys)
@@ -155,6 +165,9 @@ class Evidence:
                 or not isinstance(self.sample_journey_ids, list) or len(self.sample_journey_ids) > SAMPLE_JOURNEYS
                 or any(not isinstance(item, str) or not JOURNEY_ID.fullmatch(item) for item in self.sample_journey_ids)):
             raise ContractError("invalid evidence references")
+        if (not isinstance(self.examples, list) or len(self.examples) > SAMPLE_QUESTIONS
+                or any(not isinstance(item, str) or not item.strip() or len(item) > QUESTION_CHARS for item in self.examples)):
+            raise ContractError("invalid example questions")
 
     @classmethod
     def from_dict(cls, payload: dict) -> Evidence:
@@ -162,7 +175,7 @@ class Evidence:
 
     def digest_view(self) -> dict:
         view = asdict(self)
-        for volatile in ("window_start", "window_end", "sample_journey_ids"):
+        for volatile in ("window_start", "window_end", "sample_journey_ids", "examples"):
             view.pop(volatile)
         return view
 
@@ -193,8 +206,11 @@ def validate_draft(kind: str, draft) -> dict:
         "strategy_gap": {"action", "name", "pattern_id", "eligible_journey_states", "channels", "accessibility_modes"},
         "false_negative_review": {"action", "focus", "issues"},
     }
-    if set(draft) != shapes[kind]:
+    suggested = draft.get("suggested") if kind in {"content_gap", "content_revision"} else None
+    if set(draft) - {"suggested"} != shapes[kind] or ("suggested" in draft and suggested is None):
         raise ContractError("unexpected draft fields")
+    if suggested is not None:
+        validate_suggestion(suggested)
     if kind == "strategy_gap":
         StyleChange.from_dict(draft)
     elif kind == "false_negative_review":
@@ -213,6 +229,23 @@ def validate_draft(kind: str, draft) -> dict:
         if not isinstance(refs, list) or any(not isinstance(item, str) or not CONTENT_REF.fullmatch(item) for item in refs):
             raise ContractError("invalid content references")
     return draft
+
+
+SUGGESTION_FIELDS = {"title", "answers", "body", "sources", "gaps", "agent"}
+
+
+def validate_suggestion(value) -> dict:
+    if (not isinstance(value, dict) or set(value) != SUGGESTION_FIELDS or not isinstance(value["agent"], str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}:[0-9]{1,6}", value["agent"])):
+        raise ContractError("invalid drafted suggestion")
+    _text(value["title"], 200)
+    _text(value["answers"], 1000, allow_empty=True)
+    _text(value["body"], 8000, allow_empty=True)
+    for key in ("sources", "gaps"):
+        if (not isinstance(value[key], list) or len(value[key]) > 10
+                or any(not isinstance(item, str) or not item.strip() or len(item) > 300 for item in value[key])):
+            raise ContractError("invalid drafted suggestion lists")
+    return value
 
 
 @dataclass(frozen=True)
@@ -256,7 +289,8 @@ class Proposal:
 
 
 def digest_of(evidence: Evidence, draft: dict) -> str:
-    return hashlib.sha256(canonical_json({"evidence": evidence.digest_view(), "draft": draft})).hexdigest()
+    stable = {key: value for key, value in draft.items() if key != "suggested"}
+    return hashlib.sha256(canonical_json({"evidence": evidence.digest_view(), "draft": stable})).hexdigest()
 
 
 def proposal_id(kind: str, situation: dict) -> str:
@@ -344,9 +378,67 @@ def content_document(*, draft: dict, content: dict, corpus: list[ContentDocument
                     answers=_text(content["answers"], 1000, allow_empty=True).strip())
 
 
+# ----- drafting with an agent: closed request, grounded and bounded answer -----
+FIGURE = re.compile(r"\d+(?:[.,]\d+)*")
+
+
+def drafting_request(proposal: Proposal, corpus: list[ContentDocument], vocabulary: dict) -> dict | None:
+    """What the drafting agent may see: the situation, the kept example questions and approved passages. Nothing else."""
+    if proposal.kind not in {"content_gap", "content_revision"} or not proposal.evidence["examples"]:
+        return None
+    draft = proposal.draft
+    wanted = [draft["base_id"]] if proposal.kind == "content_revision" else draft["related_content_ids"]
+    passages = [{"id": doc.id, "title": doc.title, "body": doc.body} for doc in corpus
+                if doc.id in wanted and doc.status == "approved"]
+    topic = proposal.situation["topic"]
+    return {"task": "revise_passage" if proposal.kind == "content_revision" else "new_passage",
+            "language": draft["language"], "topic": topic,
+            "topic_description": vocabulary["decision_criteria"]["intent"].get(topic, humanize(topic)),
+            "member_questions": proposal.evidence["examples"], "approved_passages": passages}
+
+
+def _figures(*texts: str) -> set[str]:
+    return {token.replace(",", ".") for text in texts for token in FIGURE.findall(text)}
+
+
+def accept_suggestion(raw, request: dict, agent: str) -> dict:
+    """Admit a drafted suggestion only if it is closed, rule-abiding and grounded; otherwise raise ContractError."""
+    if not isinstance(raw, dict) or set(raw) != SUGGESTION_FIELDS - {"agent"}:
+        raise ContractError("the drafting agent returned an unexpected shape")
+    suggestion = validate_suggestion({**raw, "agent": agent})
+    passages = {item["id"]: item for item in request["approved_passages"]}
+    if not set(suggestion["sources"]) <= set(passages):
+        raise ContractError("the suggestion cites a passage it was not given")
+    for text in (suggestion["title"], suggestion["answers"], suggestion["body"]):
+        if "{{" in text or "}}" in text or response_steers_choice(text):
+            raise ContractError("a suggestion may not hold value placeholders or steer a choice")
+    given = _figures(*(item["body"] + " " + item["title"] for item in passages.values()))
+    if _figures(suggestion["title"], suggestion["answers"], suggestion["body"]) - given:
+        raise ContractError("a suggestion may not contain a figure that no source passage contains")
+    if suggestion["body"].strip() and not suggestion["sources"]:
+        raise ContractError("a suggested passage must cite the approved passages it is grounded in")
+    if not suggestion["body"].strip() and not suggestion["gaps"]:
+        raise ContractError("a suggestion without text must say what the owner has to supply")
+    lowered = (suggestion["answers"] + " " + suggestion["body"]).lower()
+    if any(len(" ".join(question.split())) >= 20 and " ".join(question.split()).lower() in lowered
+           for question in request["member_questions"]):
+        raise ContractError("a suggestion may not copy a member's question")
+    return suggestion
+
+
 # ----- the batch -----
 def _share(part: int, whole: int) -> float:
     return round(part / whole, 2) if whole else 0.0
+
+
+def examples(items: list[Signal]) -> list[str]:
+    """Up to five distinct kept questions, newest first, for the owner to read; never more than the first 300 characters."""
+    seen: dict[str, str] = {}
+    for item in sorted(items, key=lambda signal: (signal.created_at, signal.journey_id), reverse=True):
+        text = " ".join(item.question.split())[:QUESTION_CHARS]
+        if text and text.lower() not in seen:
+            seen[text.lower()] = text
+    return list(seen.values())[:SAMPLE_QUESTIONS]
 
 
 def _evidence(items: list[Signal], escalated: list[Signal], eligible: list[str], window: tuple[str, str]) -> Evidence:
@@ -365,7 +457,8 @@ def _evidence(items: list[Signal], escalated: list[Signal], eligible: list[str],
         content_retrieved_share=_share(sum(bool(item.content_versions) for item in items), declined),
         review_issues=dict(sorted(issues.items())), decline_reasons=dict(sorted(reasons.items())),
         content_versions=dict(sorted(versions.most_common(TOP_CONTENT), key=lambda row: (-row[1], row[0]))),
-        eligible_styles=eligible, sample_journey_ids=[row[0] for row in sample[:SAMPLE_JOURNEYS]])
+        eligible_styles=eligible, sample_journey_ids=[row[0] for row in sample[:SAMPLE_JOURNEYS]],
+        examples=examples(items))
 
 
 def _strategy_draft(catalogue: Catalogue, state: str, channel: str, mode: str) -> dict | None:
@@ -398,10 +491,11 @@ def _strategy_draft(catalogue: Catalogue, state: str, channel: str, mode: str) -
 
 def review(records: list[ExplainabilityRecord], *, catalogue: Catalogue, corpus: list[ContentDocument], vocabulary: dict,
            excluded_journeys: set[str] = frozenset(), since: str = "", now: datetime | None = None,
-           min_declined: int = MIN_DECLINED, min_journeys: int = MIN_JOURNEYS) -> tuple[list[Proposal], dict]:
+           min_declined: int = MIN_DECLINED, min_journeys: int = MIN_JOURNEYS,
+           questions: dict[str, str] | None = None) -> tuple[list[Proposal], dict]:
     """Propose improvements for every situation whose declined interactions reach the thresholds."""
     now = now or datetime.now(timezone.utc)
-    found, excluded = signals(records, excluded_journeys=excluded_journeys, since=since)
+    found, excluded = signals(records, excluded_journeys=excluded_journeys, since=since, questions=questions)
     clusters: dict[tuple, list[Signal]] = {}
     for signal in found:
         clusters.setdefault(signal.situation, []).append(signal)
@@ -468,5 +562,6 @@ def review(records: list[ExplainabilityRecord], *, catalogue: Catalogue, corpus:
                 {"action": "review", "focus": focus, "issues": issues})
     summary = {"batch_id": batch, "created_at": created, "rules_version": RULES_VERSION, "watermark": WATERMARK,
                "records_read": len(records), "declined_signals": len(found), "test_records_excluded": excluded,
-               "situations": len(clusters), "proposals": len(proposals), "window_start": window[0], "window_end": window[1]}
+               "situations": len(clusters), "proposals": len(proposals), "window_start": window[0], "window_end": window[1],
+               "questions_read": 0, "suggestions_drafted": 0}
     return proposals, summary

@@ -38,11 +38,12 @@ window.AdminImprovements = {
     add("Styles that can explain here", evidence.eligible_styles.length ? evidence.eligible_styles.join(", ") : "None");
     add("What the answer check said", Object.entries(evidence.review_issues).map(([key, count]) => `${words(key)}: ${count}`).join("\n"));
     add("Passages used", Object.entries(evidence.content_versions).map(([key, count]) => `${key}: ${count}`).join("\n"));
+    add("What members asked", (evidence.examples || []).map((item) => `“${item}”`).join("\n"));
     add("Example journeys", evidence.sample_journey_ids.join(", "));
     add("Period", `${evidence.window_start} to ${evidence.window_end}`);
     add("Reference", `${proposal.proposal_id} (review ${proposal.batch_id})`);
     body.append(facts);
-    body.append(make("p", "This idea is built from counts and labels only. It holds no member words. Open an example journey in Conversations to judge whether an answer was fine.", "cell-note"));
+    body.append(make("p", "Counts and labels come from the saved answer records. The questions above are what members actually asked, kept briefly for this review. Open an example journey in Conversations to judge whether an answer was fine.", "cell-note"));
 
     const decidable = ["open", "deferred", "uncertain"].includes(proposal.status.code);
     if (!decidable || !data.access.can_own) {
@@ -82,12 +83,25 @@ window.AdminImprovements = {
         ? "Write the passage from an approved source. It is published only after you approve it here, and it may not hold figures from a member's own record."
         : "Edit a copy of the approved passage. Approving queues a new version for the content publisher. The old version is retired when it publishes.", "notice"));
       if (extra.related?.length) form.append(make("p", `Similar approved passages: ${extra.related.map((item) => `${item.id} (${item.title})`).join(", ")}`, "cell-note"));
-      const title = field("Title", make("input")); title.maxLength = 200; title.value = extra.base?.title ?? draft.title;
+      const idea = draft.suggested;
+      if (idea) {
+        const note = make("div", undefined, "notice");
+        note.append(make("strong", `Drafted by an AI agent (${idea.agent}). Not checked by a person.`),
+          make("p", `It may use only these approved passages: ${idea.sources.join(", ") || "none"}. Read every statement and compare it with an approved source before you approve.`));
+        if (idea.gaps.length) note.append(make("p", `You need to supply: ${idea.gaps.join(" ")}`));
+        form.append(note);
+      }
+      if (extra.base) {
+        const current = make("details", undefined, "technical");
+        current.append(make("summary", `Current approved passage (${extra.base.id})`), make("pre", extra.base.body));
+        form.append(current);
+      }
+      const title = field("Title", make("input")); title.maxLength = 200; title.value = idea?.title || extra.base?.title || draft.title;
       const stages = checks("Journey stages", extra.stages, extra.base?.journey_states ?? draft.journey_states);
       const answers = field("Questions this passage answers", make("textarea")); answers.rows = 2; answers.maxLength = 1000;
-      answers.value = extra.base?.answers ?? draft.answers;
+      answers.value = idea?.answers || extra.base?.answers || draft.answers;
       const text = field("Passage", make("textarea")); text.rows = 8; text.maxLength = 8000;
-      text.value = extra.base?.body ?? "";
+      text.value = idea?.body || extra.base?.body || "";
       collect = () => {
         if (!title.value.trim() || !text.value.trim()) throw new Error("Give the passage a title and text before approving.");
         return { content: { title: title.value.trim(), journey_states: stages(), answers: answers.value.trim(), body: text.value.trim() } };

@@ -452,6 +452,7 @@ def delivery_flow(private_delivery, monkeypatch):
     monkeypatch.setattr(deploy, "image_artifacts", note("images", images))
     monkeypatch.setattr(bootstrap, "entra", note("entra", registrations))
     monkeypatch.setattr(bootstrap, "agents", note("agents", (pins, {})))
+    monkeypatch.setattr(bootstrap, "gap_review_agent", lambda *_, **__: "3")
     monkeypatch.setattr(bootstrap, "approve_search_link", note("search link"))
     monkeypatch.setattr(bootstrap, "initial_priors", note("initial priors", {"initialize": {"initialized": True}}))
     monkeypatch.setattr(bootstrap, "member_public_jwk", note("public key", {}))
@@ -1328,6 +1329,7 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
         assert subscription == inputs.subscription and endpoint == foundation["ai"]["projectEndpoint"]
         return "7"
     monkeypatch.setattr(bootstrap, "persona_agent", scoped_persona)
+    monkeypatch.setattr(bootstrap, "gap_review_agent", lambda endpoint, *, subscription: "3")
     monkeypatch.setattr(bootstrap, "approve_search_link", lambda *_: None)
     monkeypatch.setattr(bootstrap, "member_public_jwk", lambda *_: {"kty": "RSA", "n": "AQAB", "e": "AQAB"})
     def initialize_in_selected_order(*_, **kwargs):

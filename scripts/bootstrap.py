@@ -73,6 +73,18 @@ def persona_agent(endpoint: str, *, subscription: str) -> str:
     return version
 
 
+def gap_review_agent(endpoint: str, *, subscription: str) -> str:
+    """Provision the gap review's pinned, tool-free drafting agent; the job identity is granted that one agent only."""
+    from scripts.create_agents import project_client, provision as create
+
+    with project_client(endpoint, subscription=subscription) as project:
+        result = create(project, apply=True, role="gap-review")
+    version = result.get("agent_version", "")
+    if not re.fullmatch(r"[1-9][0-9]*", version):
+        raise DeliveryError("Foundry returned no immutable numeric pin for the gap-review agent")
+    return version
+
+
 def entra(inputs, foundation: dict) -> dict:
     if os.environ.get("AZURE_SUBSCRIPTION_ID") != inputs.subscription:
         raise DeliveryError("Entra bootstrap requires the selected delivery subscription in AZURE_SUBSCRIPTION_ID")

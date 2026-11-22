@@ -616,3 +616,24 @@ def test_a_content_proposal_asks_for_a_passage_only_when_approving_and_rejection
   assert.match(form.textContent, /Give the passage a title and text/);
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 """)
+
+
+def test_an_ai_suggestion_is_labelled_unchecked_and_prefills_the_owners_editor(admin_browser):
+    admin_browser(IDEA + r"""
+(async () => {
+  run(`data.access.can_own = true;`);
+  const row = run(`window.idea("content_gap", {action: "add", title: "Payment", language: "en", journey_states: ["first_contact"],
+    answers: "q", related_content_ids: [], suggested: {title: "Drafted title", answers: "Does it change?", body: "Drafted passage.",
+    sources: ["C-001-v1.3"], gaps: ["The payment date rule."], agent: "gg-gap-review:3"}})`);
+  row.evidence.examples = ["Will my payment change?"];
+  const target = document.createElement("div");
+  context.window.AdminImprovements.mount(target, {row, data: run("data"), extra: {stages: ["*", "first_contact"], related: []},
+    api: async () => ({}), saved: async () => {}});
+  assert.match(target.textContent, /Will my payment change\?/);
+  assert.match(target.textContent, /Drafted by an AI agent \(gg-gap-review:3\)\. Not checked by a person/);
+  assert.match(target.textContent, /The payment date rule/);
+  const form = target.children[0].children.find((child) => child.tag === "form");
+  assert.equal(form.querySelectorAll("input").find((input) => input.type !== "checkbox").value, "Drafted title");
+  assert.equal(form.querySelectorAll("textarea")[1].value, "Drafted passage.");
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+""")

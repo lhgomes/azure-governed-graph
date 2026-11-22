@@ -22,6 +22,8 @@ param deployDevIssuer bool = false
 param deployVoiceDemo bool = false
 param deployVoicePersona bool = false
 param personaAgentVersion string = ''
+@description('Exact version returned by scripts/create_agents.py --role gap-review; empty leaves the gap review rules-only.')
+param gapReviewAgentVersion string = ''
 param voiceDemoClientId string = ''
 param voiceDemoOperatorId string = ''
 @description('Immutable P2 image; native learning and fairness schedules are configured at the approved cadence.')
@@ -222,6 +224,7 @@ module compute 'modules/compute.bicep' = {
       AZURE_AI_VOICE_COMPACT_VERSION: voiceCompactAgentVersion
       AZURE_AI_DECISION_DEPLOYMENT: ai.outputs.decisionDeployment
       AZURE_AI_PERSONA_VERSION: personaAgentVersion
+      GOVERNEDGRAPH_CAPTURE_DECLINED_QUESTIONS: deployAdminConsole ? 'true' : 'false'
       GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS: traceSyntheticConversations && environmentName == 'gg-dev' && deployVoiceDemo ? 'true' : 'false'
       GOVERNEDGRAPH_LOG_LLM_CALLS: environmentName == 'gg-dev' ? 'true' : 'false'
       GOVERNEDGRAPH_VOICE_DRAFT_MODEL: voiceDraftModel
@@ -355,6 +358,17 @@ module p2ContainerMonitor 'modules/p2-container-monitor-rbac.bicep' = if (!empty
   dependsOn: [p2ContainerJobs]
 }
 
+// The drafting agent must already exist (created before this deployment); the grant is scoped to it alone.
+module gapReviewConsumer 'modules/gap-review-agent-consumer.bicep' = if (deployAdminConsole && !empty(gapReviewAgentVersion)) {
+  name: 'gap-review-agent-consumer'
+  scope: rg
+  params: {
+    gapReviewPrincipalId: security.outputs.gapReviewPrincipalId
+    aiServicesName: ai.outputs.aiServicesName
+    projectName: last(split(ai.outputs.projectEndpoint, '/'))
+  }
+}
+
 // Daily batch that reviews declined interactions and proposes missing content and styles to the administration console.
 module gapReview 'modules/gap-review-job.bicep' = if (deployAdminConsole) {
   name: 'gap-review-job'
@@ -371,6 +385,9 @@ module gapReview 'modules/gap-review-job.bicep' = if (deployAdminConsole) {
       EXPLAINABILITY_CONTAINER: 'explainability-records'
       GOVERNEDGRAPH_IMPROVEMENT_CONTAINER: 'improvement-proposals'
       GOVERNEDGRAPH_APPROVALS_CONTAINER: 'content-approvals'
+      GOVERNEDGRAPH_DECLINED_QUESTIONS_CONTAINER: 'declined-questions'
+      AZURE_AI_PROJECT_ENDPOINT: ai.outputs.projectEndpoint
+      AZURE_AI_GAP_REVIEW_VERSION: gapReviewAgentVersion
       JOURNEY_STORAGE_URL: data.outputs.contentBlobEndpoint
       STRATEGY_ADMIN_URL: '${gateway.outputs.gatewayUrl}/strategy-admin'
       STRATEGY_API_CLIENT_ID: strategyApiClientId
