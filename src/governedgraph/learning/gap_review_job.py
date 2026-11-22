@@ -96,7 +96,8 @@ def run(*, records, journeys, proposals, approvals, catalogue, vocabulary, seed,
     candidates, _ = gap_review.signals(observed, since=since.isoformat(timespec="seconds"))
     excluded = excluded_test_journeys(journeys, {signal.journey_id for signal in candidates})
     kept = read_questions(questions, {signal.response_id for signal in candidates
-                                      if signal.journey_id not in excluded and signal.decline_reason in CAPTURED_REASONS}
+                                      if signal.journey_id not in excluded
+                                      and (signal.decline_reason in CAPTURED_REASONS or signal.outcome == "review_flagged")}
                           ) if questions is not None else {}
     found, summary = gap_review.review(
         observed, catalogue=catalogue, corpus=corpus, vocabulary=vocabulary, excluded_journeys=excluded,

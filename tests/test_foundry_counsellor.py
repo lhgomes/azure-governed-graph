@@ -1804,3 +1804,16 @@ def test_selected_style_test_journeys_and_protective_exits_keep_no_question(coun
     counsellor._utterance = "A question that ended in a safety escalation"
     counsellor._escalate("content screening unavailable or blocked", "safety")
     assert counsellor.question_store.kept == []
+
+
+def test_b4_the_question_of_an_answer_that_was_delivered_after_a_review_flagged_it_is_also_kept(counsellor, monkeypatch):
+    counsellor.question_store = KeptQuestions()
+    draft = response(f"Your amount is {{{{value:current_monthly_pension}}}}.{ASK}")
+    client = FakeResponses(draft, reviews=[draft], judgments=[
+        review_response("revise", ["strategy"]), review_response("revise", ["strategy"])])
+    install_responses(monkeypatch, client)
+    result = counsellor.handle("Will the transition change what I receive?")
+    assert not result.escalated and result.composition_source == "foundry"
+    (kept,) = counsellor.question_store.kept
+    record = counsellor.tools.store.read_all()[-1]
+    assert record["response_kind"] == "explanation" and kept.response_id == record["response_id"]

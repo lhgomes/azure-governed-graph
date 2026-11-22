@@ -478,7 +478,7 @@ def test_b3_b4_the_drafting_agent_is_pinned_tool_free_and_provisioned_as_its_own
     assert plan["agent_name"] == "gg-gap-review" and plan["decision"] == "IMP-GAP-REVIEW-3" and "plan only" in plan["action"]
     definition = gap_drafter.gap_review_definition("synthetic-model").as_dict()
     assert not definition.get("tools") and definition["text"]["format"]["strict"] is True
-    assert set(definition["text"]["format"]["schema"]["properties"]) == gap_review.SUGGESTION_FIELDS - {"agent"}
+    assert set(definition["text"]["format"]["schema"]["properties"]) == gap_review.SUGGESTION_FIELDS - gap_review.CODE_SET
     for rule in ("Never write a value placeholder", "no tools", "figure a member typed", "EVERY factual statement"):
         assert rule.lower() in gap_drafter.GAP_REVIEW_INSTRUCTIONS.lower()
     with pytest.raises(ValueError):
@@ -505,7 +505,7 @@ def test_b8_a_decision_is_bound_to_everything_the_owner_saw_including_a_suggesti
     request = gap_review.drafting_request(proposal, CORPUS, VOCABULARY)
     assert request is not None
     suggested = gap_review.sealed({**asdict(proposal), "draft": {**proposal.draft, "suggested": gap_review.validate_suggestion(
-        {**GOOD, "agent": "gg-gap-review:3"})}})
+        {**GOOD, "agent": "gg-gap-review:3", "context": []})}})
     assert suggested.evidence_digest == proposal.evidence_digest and suggested.content_digest != proposal.content_digest
     with pytest.raises(ContractError, match="content digest"):
         gap_review.Proposal.from_dict({**asdict(suggested), "draft": proposal.draft})
@@ -518,3 +518,31 @@ def test_a_queued_audit_in_journey_state_carries_no_empty_decline_reason_for_ear
     ordinary, declined = record(1, kind="explanation", strategy="S1", content=["C-001-v1.3"]), record(2, decline="answer_review")
     stored = json.loads(JourneyRecord(Journey("J-1", "M-1"), pending_audits=[ordinary, declined]).encode())["pending_audits"]
     assert "decline_reason" not in stored[0] and stored[1]["decline_reason"] == "answer_review"
+
+
+def test_every_declined_answer_is_listed_once_per_journey_with_what_is_known_about_it():
+    flagged = [record(i, kind="explanation", strategy="S1", content=["C-001-v1.3"], issues=["grounding"]) for i in range(3)]
+    answered = [record(10 + i, decline="output_gate") for i in range(3)]
+    kept = {record(0).response_id: "Will it change?   \\n now"}
+    (proposal, *_), _ = run(flagged + answered, questions=kept)
+    cases = {case["journey_id"]: case for case in proposal.evidence["cases"]}
+    assert len(proposal.evidence["cases"]) == len(cases) and set(cases) <= {item.journey_id for item in flagged + answered}
+    gate = next(case for case in cases.values() if case["outcome"] == "unanswered")
+    assert gate["decline_reason"] == "output_gate" and gate["review_issues"] == [] and gate["passages"] == []
+    grounded = next(case for case in cases.values() if case["outcome"] == "review_flagged")
+    assert grounded["review_issues"] == ["grounding"] and grounded["passages"] == ["C-001-v1.3"]
+    assert all(len(case["question"]) <= gap_review.QUESTION_CHARS for case in cases.values())
+    with pytest.raises(ContractError):
+        gap_review.Evidence.from_dict({**proposal.evidence, "cases": [{**next(iter(cases.values())), "outcome": "invented"}]})
+
+
+def test_a_proposed_style_is_scoped_to_the_gap_and_uses_a_pattern_that_does_not_already_explain_there():
+    state = "objection_raised"
+    catalogue = Catalogue.load()
+    existing = [style.strategy_id for style in catalogue.rankable_for(gap_review.RequestKey(state, "x", "voice", "slower_pace"))]
+    proposal = next(item for item in run(unanswered(6, state=state, channel="voice", mode="slower_pace",
+                                                    content=["C-001-v1.3"]))[0] if item.kind == "strategy_gap")
+    draft = proposal.draft
+    assert draft["pattern_id"] not in existing
+    assert (draft["eligible_journey_states"], draft["channels"], draft["accessibility_modes"]) == (
+        [state], ["voice"], ["slower_pace"])

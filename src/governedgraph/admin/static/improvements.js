@@ -26,6 +26,16 @@ window.AdminImprovements = {
       false_negative_review: `Answers about ${topic} were refused, but they may have been fine.`,
     }[row.kind];
   },
+  outcomes: { unanswered: "Not answered", review_flagged: "Answered, but flagged", no_style: "No style could explain", escalated: "Handed to a person" },
+  reasons: {
+    output_gate: "A safety check blocked the draft answer.", answer_review: "The answer check refused the draft.",
+    no_safe_answer: "No safe answer or advisor offer was available.", no_eligible_style: "No explanation style was left to use.",
+  },
+  issues: {
+    grounding: "not based on the approved passage", relevance: "did not answer the question", strategy: "did not fit the style",
+    uncertainty: "was not careful about what is uncertain", advice: "drifted into advice", document_context: "mixed up the member's documents",
+    language: "was in the wrong language",
+  },
   next(row) {
     return {
       content_gap: "Write the missing passage, then approve it. It goes to the content publisher.",
@@ -37,6 +47,7 @@ window.AdminImprovements = {
 
   mount(target, options) {
     const { row, extra, data, api, saved } = options;
+    const openJourney = options.openJourney || (() => {});
     const make = (tag, text, className) => {
       const element = document.createElement(tag);
       if (text !== undefined && text !== null) element.textContent = text;
@@ -68,17 +79,44 @@ window.AdminImprovements = {
     grid.append(context, work);
     root.append(grid);
 
-    // Left: what members said and what the model noticed.
-    const asked = make("section"); asked.append(make("h3", "What members asked"));
-    const quotes = evidence.examples || [];
-    if (quotes.length) {
-      const list = make("ul", undefined, "quotes");
-      quotes.forEach((text) => list.append(make("li", text)));
+    // Left: which answers were declined, what the member asked, and what was available at the time.
+    const cases = evidence.cases || [];
+    const asked = make("section"); asked.append(make("h3", `Declined answers (${evidence.declined})`));
+    if (cases.length) {
+      const list = make("ul", undefined, "cases");
+      for (const item of cases) {
+        const entry = make("li");
+        const top = make("div", undefined, "case-top");
+        const open = make("button", item.journey_id, "row-link"); open.type = "button";
+        open.addEventListener("click", () => openJourney(item.journey_id));
+        top.append(open, make("span", this.outcomes[item.outcome] || words(item.outcome), "badge"));
+        entry.append(top);
+        entry.append(item.question ? make("p", item.question, "quote")
+          : make("p", owner ? "The question was not kept for this answer." : "Questions are shown to owners only.", "cell-note"));
+        const why = [this.reasons[item.decline_reason], item.review_issues.length
+          ? `The answer check said it ${item.review_issues.map((key) => this.issues[key] || words(key)).join(" and ")}.` : ""].filter(Boolean);
+        why.forEach((line) => entry.append(make("p", line, "case-why")));
+        entry.append(make("p", item.passages.length ? `Approved passages found: ${item.passages.join(", ")}` : "No approved passage was found.", "case-why"));
+        list.append(entry);
+      }
       asked.append(list);
+      if (evidence.declined > cases.length) asked.append(make("p", `Showing the ${cases.length} most recent of ${evidence.declined}. Open a journey to read its answer records.`, "cell-note"));
     } else {
-      asked.append(make("p", owner ? "No questions were kept for this idea." : "Member questions are shown to owners only.", "cell-note"));
+      asked.append(make("p", "No details were kept for these answers.", "cell-note"));
     }
     context.append(asked);
+
+    // What was available when these answers were declined: styles and approved passages.
+    const handled = make("section"); handled.append(make("h3", "What was available"));
+    const named = (id) => (data.strategies || []).find((item) => item.strategy_id === id)?.name || id;
+    const available = make("ul", undefined, "plain");
+    available.append(make("li", evidence.eligible_styles.length
+      ? `Styles that could explain here: ${evidence.eligible_styles.map(named).join("; ")}.` : "No explanation style could explain here."));
+    available.append(make("li", Object.keys(evidence.content_versions).length
+      ? `Approved passages used: ${Object.entries(evidence.content_versions).map(([key, count]) => `${key} (${count}x)`).join(", ")}.`
+      : "No approved passage matched these questions."));
+    available.append(make("li", "The saved record does not say which style was tried before a draft was refused."));
+    handled.append(available); context.append(handled);
     if (idea && (idea.themes.length || idea.coverage.length)) {
       const found = make("section"); found.append(make("h3", "What the AI noticed"));
       const list = make("ul", undefined, "plain");
@@ -108,7 +146,15 @@ window.AdminImprovements = {
       return;
     }
 
-    // Right: the thing the owner edits.
+    // Right: the thing the owner edits, and who proposed it.
+    const byAi = Boolean(idea);
+    const who = make("p", undefined, "proposed-by");
+    who.append(make("span", byAi ? "Proposed by AI" : "Proposed by rules, no AI", "badge " + (byAi ? "warn" : "good")),
+      make("span", byAi ? ` ${idea.agent} drafted this from the questions and the approved passages it was shown${(idea.context || []).length ? ` (${idea.context.join(", ")})` : ""}.`
+        : kind === "strategy_gap" ? " The nearest approved explanation pattern, widened to this situation."
+          : kind === "false_negative_review" ? " Counts from the saved records. Nothing is drafted."
+            : " No AI draft is available (the AI step was off, or its answer failed the checks). Write the passage yourself."));
+    work.append(who);
     const form = make("form", undefined, "idea-form");
     work.append(form);
     const field = (title, input, hint) => {
@@ -128,6 +174,11 @@ window.AdminImprovements = {
     };
     let collect = null;
     if (kind === "strategy_gap") {
+      const base = (data.style_patterns || []).find((item) => item.strategy_id === draft.pattern_id);
+      const summary = make("div", undefined, "notice soft");
+      summary.append(make("strong", `A new style based on "${base?.name || draft.pattern_id}"`),
+        make("span", ` ${base?.teach_back ? "It ends with a check-back question." : "It does not end with a check-back question."} It would be used at ${draft.eligible_journey_states.map(words).join(", ")}, over ${draft.channels.map(words).join(", ")}, for ${draft.accessibility_modes.map(words).join(", ")}. A style only changes how an answer is explained: the facts still come from approved passages and the member's official values.`));
+      form.append(summary);
       const name = field("Style name", make("input")); name.maxLength = 120; name.value = draft.name;
       const pattern = field("How it explains", make("select"));
       for (const item of data.style_patterns) { const option = make("option", item.name); option.value = item.strategy_id; pattern.append(option); }

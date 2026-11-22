@@ -46,6 +46,8 @@ MIN_JOURNEYS = 3
 MAJORITY = 0.5
 SAMPLE_JOURNEYS = 5
 SAMPLE_QUESTIONS = 5
+SAMPLE_CASES = 10
+CASE_FIELDS = {"journey_id", "created_at", "outcome", "decline_reason", "review_issues", "passages", "question"}
 QUESTION_CHARS = 300
 TOP_CONTENT = 5
 NEW_CONTENT_PREFIX = "C-G"
@@ -148,6 +150,7 @@ class Evidence:
     eligible_styles: list
     sample_journey_ids: list
     examples: list
+    cases: list
 
     def __post_init__(self):
         counts = (self.declined, self.unanswered, self.review_flagged, self.no_style, self.escalated, self.journeys)
@@ -168,6 +171,17 @@ class Evidence:
         if (not isinstance(self.examples, list) or len(self.examples) > SAMPLE_QUESTIONS
                 or any(not isinstance(item, str) or not item.strip() or len(item) > QUESTION_CHARS for item in self.examples)):
             raise ContractError("invalid example questions")
+        if not isinstance(self.cases, list) or len(self.cases) > SAMPLE_CASES:
+            raise ContractError("invalid example cases")
+        for case in self.cases:
+            if (not isinstance(case, dict) or set(case) != CASE_FIELDS or not JOURNEY_ID.fullmatch(str(case["journey_id"]))
+                    or case["outcome"] not in OUTCOMES or not isinstance(case["created_at"], str) or len(case["created_at"]) > 40
+                    or (case["decline_reason"] and case["decline_reason"] not in DECLINE_REASONS)
+                    or not isinstance(case["review_issues"], list) or not set(case["review_issues"]) <= set(REVIEW_ISSUES)
+                    or not isinstance(case["passages"], list) or len(case["passages"]) > TOP_CONTENT
+                    or any(not isinstance(item, str) or not CONTENT_REF.fullmatch(item) for item in case["passages"])
+                    or not isinstance(case["question"], str) or len(case["question"]) > QUESTION_CHARS):
+                raise ContractError("invalid example case")
 
     @classmethod
     def from_dict(cls, payload: dict) -> Evidence:
@@ -175,7 +189,7 @@ class Evidence:
 
     def digest_view(self) -> dict:
         view = asdict(self)
-        for volatile in ("window_start", "window_end", "sample_journey_ids", "examples"):
+        for volatile in ("window_start", "window_end", "sample_journey_ids", "examples", "cases"):
             view.pop(volatile)
         return view
 
@@ -233,7 +247,9 @@ def validate_draft(kind: str, draft) -> dict:
 
 # title/answers/body: the draft. sources: approved passages it stayed consistent with. claims: every factual statement, figure
 # and date the owner must verify. gaps: what the owner must supply. themes/coverage: the analysis of the member questions.
-SUGGESTION_FIELDS = {"title", "answers", "body", "sources", "claims", "gaps", "themes", "coverage", "agent"}
+SUGGESTION_FIELDS = {"title", "answers", "body", "sources", "claims", "gaps", "themes", "coverage", "agent", "context"}
+# Set by this code, never by the model: the approved passage ids the agent was shown.
+CODE_SET = {"agent", "context"}
 
 
 def validate_suggestion(value) -> dict:
@@ -243,7 +259,7 @@ def validate_suggestion(value) -> dict:
     _text(value["title"], 200)
     _text(value["answers"], 1000, allow_empty=True)
     _text(value["body"], 8000, allow_empty=True)
-    for key in ("sources", "claims", "gaps", "themes", "coverage"):
+    for key in ("sources", "claims", "gaps", "themes", "coverage", "context"):
         if (not isinstance(value[key], list) or len(value[key]) > (30 if key == "claims" else 10)
                 or any(not isinstance(item, str) or not item.strip() or len(item) > 300 for item in value[key])):
             raise ContractError("invalid drafted suggestion lists")
@@ -434,10 +450,10 @@ def _shingles(text: str, size: int = 5) -> set[tuple[str, ...]]:
 def accept_suggestion(raw, request: dict, agent: str) -> dict:
     """Admit a drafted suggestion only if it is closed, free of placeholders, steering and member carry-over, and lists
     its claims. Facts and figures are the owner's to verify against a recorded source; this does not vouch for them."""
-    if not isinstance(raw, dict) or set(raw) != SUGGESTION_FIELDS - {"agent"}:
+    if not isinstance(raw, dict) or set(raw) != SUGGESTION_FIELDS - CODE_SET:
         raise ContractError("the drafting agent returned an unexpected shape")
-    suggestion = validate_suggestion({**raw, "agent": agent})
     passages = {item["id"]: item for item in request["approved_passages"]}
+    suggestion = validate_suggestion({**raw, "agent": agent, "context": list(passages)})
     if not set(suggestion["sources"]) <= set(passages):
         raise ContractError("the suggestion cites a passage it was not given")
     written = (suggestion["title"], suggestion["answers"], suggestion["body"], *suggestion["claims"], *suggestion["gaps"])
@@ -464,6 +480,17 @@ def accept_suggestion(raw, request: dict, agent: str) -> dict:
 # ----- the batch -----
 def _share(part: int, whole: int) -> float:
     return round(part / whole, 2) if whole else 0.0
+
+
+def cases(items: list[Signal]) -> list[dict]:
+    """The newest declined interactions, one per journey, with what is known about each. The owner can open the journey."""
+    seen: dict[str, dict] = {}
+    for item in sorted(items, key=lambda signal: (signal.created_at, signal.journey_id), reverse=True):
+        seen.setdefault(item.journey_id, {
+            "journey_id": item.journey_id, "created_at": item.created_at, "outcome": item.outcome,
+            "decline_reason": item.decline_reason, "review_issues": list(item.review_issues),
+            "passages": list(item.content_versions)[:TOP_CONTENT], "question": " ".join(item.question.split())[:QUESTION_CHARS]})
+    return list(seen.values())[:SAMPLE_CASES]
 
 
 def examples(items: list[Signal]) -> list[str]:
@@ -493,13 +520,15 @@ def _evidence(items: list[Signal], escalated: list[Signal], eligible: list[str],
         review_issues=dict(sorted(issues.items())), decline_reasons=dict(sorted(reasons.items())),
         content_versions=dict(sorted(versions.most_common(TOP_CONTENT), key=lambda row: (-row[1], row[0]))),
         eligible_styles=eligible, sample_journey_ids=[row[0] for row in sample[:SAMPLE_JOURNEYS]],
-        examples=examples(items))
+        examples=examples(items), cases=cases(items))
 
 
-def _strategy_draft(catalogue: Catalogue, state: str, channel: str, mode: str) -> dict | None:
+def _strategy_draft(catalogue: Catalogue, state: str, channel: str, mode: str, eligible: list[str]) -> dict | None:
     if state not in stages():
         return None
     candidates = [style for style in patterns() if style.ranked_for_resolution and style.status == "active"]
+    # A different pattern from the styles that already explain here, so the new style adds a way to explain.
+    candidates = [style for style in candidates if style.strategy_id not in eligible] or candidates
     if not candidates:
         return None
 
@@ -509,13 +538,11 @@ def _strategy_draft(catalogue: Catalogue, state: str, channel: str, mode: str) -
         return -matches, style.strategy_id
 
     style = min(candidates, key=fit)
-    open_stages = [item for item in style.eligible_journey_states if item != "*"] or sorted(stages())
+    # Scoped to the situation that has the gap, not to everything the pattern could cover: the smallest change.
     draft = {
         "action": "add", "name": f"{style.name} ({humanize(state)}, {humanize(channel)}, {humanize(mode)})"[:120],
-        "pattern_id": style.strategy_id,
-        "eligible_journey_states": sorted({*open_stages, state}),
-        "channels": sorted({*style.channels, channel}),
-        "accessibility_modes": sorted({*style.accessibility_modes, mode}),
+        "pattern_id": style.strategy_id, "eligible_journey_states": [state], "channels": [channel],
+        "accessibility_modes": [mode],
     }
     try:
         StyleChange.from_dict(draft)
@@ -570,7 +597,7 @@ def review(records: list[ExplainabilityRecord], *, catalogue: Catalogue, corpus:
                  "related_content_ids": related_content(corpus, state, language, description)})
             continue
         if (len(eligible) <= 1 or evidence.no_style / len(declined) >= MAJORITY) and (
-                draft := _strategy_draft(catalogue, state, channel, mode)) is not None:
+                draft := _strategy_draft(catalogue, state, channel, mode, eligible)) is not None:
             reason = (f"In {evidence.no_style} no eligible style was left to explain." if evidence.no_style / len(declined) >= MAJORITY
                       else f"Only {len(eligible)} approved style can explain here, so one refused draft leaves no alternative.")
             add("strategy_gap", situation, evidence,

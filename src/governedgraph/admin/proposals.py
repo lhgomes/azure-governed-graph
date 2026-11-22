@@ -118,7 +118,8 @@ def status_of(proposal: Proposal, journal: list[dict], state: dict, published: s
 
 def redact(row: dict) -> dict:
     """Member questions and drafted text are for owners; readers see counts, labels and status only."""
-    evidence = {**row["evidence"], "examples": []}
+    evidence = {**row["evidence"], "examples": [],
+                "cases": [{**case, "question": ""} for case in row["evidence"]["cases"]]}
     draft = {key: value for key, value in row["draft"].items() if key != "suggested"}
     return {**row, "evidence": evidence, "draft": draft}
 

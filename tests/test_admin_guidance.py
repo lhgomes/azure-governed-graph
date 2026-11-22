@@ -552,7 +552,7 @@ window.idea = (kind, draft, status = "open") => ({
   situation: {topic: "payment_continuity", journey_state: "first_contact", channel: "chat"}, created_at: "2026-11-22T06:00:00+00:00",
   evidence: {declined: 6, journeys: 5, unanswered: 6, review_flagged: 0, escalated: 0, content_retrieved_share: 0,
     eligible_styles: ["S1"], review_issues: {}, content_versions: {}, sample_journey_ids: ["J-1"],
-    window_start: "a", window_end: "b"},
+    window_start: "a", window_end: "b", cases: []},
 });
 `);
 """
@@ -641,11 +641,25 @@ def test_an_ai_suggestion_is_labelled_unchecked_and_prefills_the_owners_editor(a
     answers: "q", related_content_ids: [], suggested: {title: "Drafted title", answers: "Does it change?", body: "Drafted passage.",
     sources: ["C-001-v1.3"], claims: ["Payments continue after the transition."], gaps: ["The payment date rule."],
     themes: ["Does the payment change"], coverage: ["First changed payment"], agent: "gg-gap-review:3"}})`);
-  row.evidence.examples = ["Will my payment change?"];
+  row.evidence.cases = [{journey_id: "J-1", created_at: "2026-11-22T06:00:00+00:00", outcome: "unanswered",
+    decline_reason: "output_gate", review_issues: [], passages: [], question: "Will my payment change?"},
+    {journey_id: "J-2", created_at: "2026-11-22T05:00:00+00:00", outcome: "review_flagged", decline_reason: "",
+    review_issues: ["grounding"], passages: ["C-001-v1.3"], question: ""}];
+  context.window.opened = [];
   const target = document.createElement("div");
   context.window.AdminImprovements.mount(target, {row, data: run("data"), extra: {stages: ["*", "first_contact"], related: []},
-    api: async () => ({}), saved: async () => {}});
+    api: async () => ({}), saved: async () => {}, openJourney: (id) => context.window.opened.push(id)});
   assert.match(target.textContent, /Will my payment change\?/);
+  assert.match(target.textContent, /Not answered/);
+  assert.match(target.textContent, /A safety check blocked the draft answer/);
+  assert.match(target.textContent, /No approved passage was found/);
+  assert.match(target.textContent, /Answered, but flagged/);
+  assert.match(target.textContent, /not based on the approved passage/);
+  assert.match(target.textContent, /Approved passages found: C-001-v1\.3/);
+  assert.match(target.textContent, /Proposed by AI/);
+  assert.match(target.textContent, /What was available/);
+  target.querySelectorAll("button").find((button) => button.textContent === "J-2").listeners.click();
+  assert.deepEqual(plain(context.window.opened), ["J-2"]);
   assert.match(target.textContent, /Drafted by AI\. Nobody has checked it yet/);
   assert.match(target.textContent, /The payment date rule/);
   assert.match(target.textContent, /Payments continue after the transition/);

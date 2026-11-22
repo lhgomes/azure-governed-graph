@@ -654,6 +654,7 @@ async function improvementDetail(row) {
   try {
     const extra = await api(`/api/proposals/${row.proposal_id}`);
     window.AdminImprovements.mount(target, { row: extra.proposal, extra, data, api,
+      openJourney: (journeyId) => { $("detail-dialog").classList.remove("idea-dialog"); journeyDetail({ journey_id: journeyId }); },
       saved: async (result, decision) => {
         $("detail-dialog").close();
         $("notification").textContent = decision === "approve"

@@ -253,3 +253,10 @@ details.technical > summary { cursor: pointer; color: var(--muted); font-size: 1
   .idea-context { border-right: 0; border-bottom: 1px solid var(--line); }
 }
 .idea-loading { padding: 20px 26px; margin: 0; }
+.cases { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.cases li { padding: 10px 12px; background: var(--white); border: 1px solid var(--line); border-radius: 8px; }
+.case-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.case-top .row-link { padding: 0; border: 0; background: none; color: var(--blue); font-weight: 650; }
+.quote { margin: 6px 0 4px; font-style: italic; border-left: 4px solid #68c7b5; padding-left: 10px; overflow-wrap: anywhere; }
+.case-why { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
+.proposed-by { margin: 0 0 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: 13.5px; }

@@ -421,6 +421,8 @@ class Counsellor:
         self.journey.strategies_tried.append(strategy.strategy_id)
         with t.trace.measure("audit_commit"):
             t.write_explainability_record(strategy.strategy_id, numeric_fidelity_passed=fid.passed)
+        if any(item.role == "answer-review" and item.decision["verdict"] != "pass" for item in t.trace.decision_evidence):
+            self._keep_declined_question(flagged=True)
         # A task-specific fallback is not a reviewed teach-back.
         fallback_goal = t.trace.composition_source == "template_fallback" and bool(_task_template(t, strategy))
         teach_back_skipped = t.trace.composition_source == "foundry" and last_explanation is None
@@ -577,10 +579,12 @@ class Counsellor:
             self.tools.trace.note("output_gate", "no_approved_fallback")
         return "", numeric_fidelity.FidelityResult(False, [], ["<blocked>"]), failure_reason
 
-    def _keep_declined_question(self) -> None:
-        """Best effort, after the audit record: a storage problem here never changes what the member receives."""
+    def _keep_declined_question(self, flagged: bool = False) -> None:
+        """Best effort, after the audit record: a storage problem here never changes what the member receives.
+
+        ``flagged`` keeps the question of an answer that was delivered after the answer review raised an issue."""
         if (self.question_store is None or self.journey.test_strategy_id or not self._utterance.strip()
-                or self.tools.trace.decline_reason not in CAPTURED_REASONS):
+                or not (flagged or self.tools.trace.decline_reason in CAPTURED_REASONS)):
             return
         try:
             self.question_store.append(DeclinedQuestion(
