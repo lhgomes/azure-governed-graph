@@ -30,6 +30,10 @@ The sample's Transition Calculation, Event Processing and Adoption Guide agents
 are [design-depth contracts](../examples/pension_wtp/docs/agents-design-depth.md),
 not deployed administrator integrations.
 
+Deeper design pages: [conversation continuity](architecture-conversation-continuity.md),
+[catalogue versions and source upgrades](architecture-catalogue-operations.md) and
+[gap review](architecture-gap-review.md).
+
 ## Components
 
 | Component | Role and hosting |
@@ -178,71 +182,12 @@ must not be described as completed until its durable effect is confirmed.
 
 ### Customer-scoped conversation continuity
 
-The authenticated, step-up-verified
-`MemberIdentity.member_ref`, namespaced by the configured trusted issuer and
-Foundry project, owns a durable Foundry conversation across turns,
-new contacts, channels and orchestrator restarts. A closed contact selector is
-not a memory reset. A new customer or absent earlier exchange gets no invented
-recollection. Each administrator test journey has a separate conversation;
-it neither reads nor updates ordinary customer history.
-
-Session start recovers the verified customer's conversation before releasing
-the audited greeting, using the same customer-before-journey lock order as a
-turn. Retained dialogue selects an approved returning greeting regardless of
-the contact selector. `second_contact` without retained dialogue selects an
-approved follow-up greeting that explicitly states the earlier conversation
-is unavailable; it does not create fictional history. New customers retain
-the existing first-contact greeting. Every variant includes the AI disclosure
-and human-help offer, and the disclosure version is recorded in the audit.
-The [closed channel start contract](../src/governedgraph/voice/voice_live_bridge.py)
-accepts only these approved greetings, not arbitrary text containing an AI label.
-Greetings neither replay historical text or figures nor append a customer turn.
-Recovery failures prevent greeting release; a busy customer produces the
-retryable conflict rather than an uncontextualized first-contact greeting.
-
-The [continuity adapter](../src/governedgraph/orchestrator/continuity.py) keeps
-only an opaque owner key, Foundry conversation ID and pending commit references
-under `customer-context/` in the existing `journey-state` container. Ordinary
-journey enumeration excludes that prefix. Customer leases serialize concurrent
-contacts; customer locks precede journey locks. A busy customer returns the
-existing retryable conflict, not a second concurrent model turn. Channel bodies
-and model tools cannot select customer or Foundry conversation identifiers.
-Non-step-up identities receive no persisted personal context.
-
-Only screened customer text paired with the final checked, audited answer
-committed for release is appended, never rejected drafts, internal decisions,
-tool outputs or withheld/escalated turns. A reference-only prepare journal is
-saved before the Foundry append. Recovery checks the durable journey request
-commit and flushes its existing audit/delivery outbox before accepting the pair;
-uncommitted appended items are removed before any later model invocation.
-Ambiguous appends are not blindly retried. Retention is the most recent **20
-completed turns**, not a time-based retention promise. Older Foundry context
-items are pruned on successful commit/recovery; cleanup failure prevents reuse
-and surfaces an error for retry. Immutable audit/event history is not deleted.
-A released reply is not proof of receipt, voice playback or comprehension.
-
-Prior dialogue is re-screened through Prompt Shields in provider-bounded batches.
-Historical numbers are masked before role-labelled dialogue is supplied as untrusted
-reference data to the Decision model (intent, understanding and answer review)
-and the writer. Current authorization, authoritative value reads, approved retrieval,
-signed ranking and all output gates still run. History never authorizes tools,
-restores an old journey state or becomes approved factual evidence. Demographic
-self-descriptions are not profile features and must not affect treatment.
-The [context contract](../src/governedgraph/agents/conversation_context.py) is
-closed; no demographic attribute or caller-selected identity is added.
-
-Inference remains behind APIM, with `store=false`; intra-answer tool rounds
-carry their inputs/outputs only in process memory. Accepted dialogue is retained
-through Foundry Conversations CRUD at the existing private project endpoint,
-using the existing runtime identity and permissions. This avoids automatically
-appending an unchecked model response to durable customer history.
-There is no new resource, grant, deployment mode, migration, bootstrap step or
-deployment-dependent repository check.
-
-Operational memory is not model training or modification of prompts, templates,
-models or catalogue: B4 continues to prohibit those transcript-driven changes. The one exception is the owner-approved gap review below, which proposes to people only.
-P2 still reads closed aggregates only, never Foundry conversation content.
-See [focused regression evidence and limits](evaluation.md#customer-scoped-conversation-continuity).
+The authenticated, step-up-verified customer owns a durable conversation across turns, new contacts, channels and
+restarts. Only screened customer text paired with the final checked, audited answer is retained, and the most recent
+20 completed turns are kept. History is re-screened, has numbers masked and is supplied as untrusted reference data.
+It never authorizes a tool, restores a journey state, becomes approved evidence or feeds learning. Session start
+recovers the context before the audited greeting. See
+[conversation continuity](architecture-conversation-continuity.md) for the full design.
 
 ## Durable state, audit and handover
 
@@ -292,52 +237,10 @@ The sample starts with six approved strategies:
 | S5 | Step-by-step explanation with teach-back |
 | S6 | Offer a human advisor; always available and never ranked |
 
-The source catalogue's S1-S5 version 1.1 adds `second_contact` eligibility without
-changing first-contact eligibility or template versions. Version 1.0 definitions
-remain available for historical evidence and verified predecessor selection
-during rolling delivery, not selection after upgrade. Separate
-second-contact expert priors emphasize focused teach-back and clarification;
-they never borrow first-contact outcomes. S6 remains unchanged and always
-available. The catalogue, expert baseline and revised counsellor instructions
-are a material change requiring reviewed Tier 2 delivery and newly verified
-signed snapshots before live activation (B3, B5, B8, B10). Updating source alone
-does not activate them or certify conversation quality.
-
-Delivery's shared Foundry project client uses a certificate-verified P-256
-transport, because hybrid key-share offers from some OpenSSL builds can be
-closed before HTTP. Certificate checks are never disabled and TLS is never
-downgraded. Selected-tenant credentials and approved immutable writer pins are
-unchanged. Request/response transport failures become explicit delivery errors
-so both delivery entrypoints finalize failed-stage evidence rather than leave a
-running receipt. No identity, grant, network path or runtime fallback is added.
-
-Sample catalogue and priors explicitly cover every catalogue-eligible combination
-of explanation intent, journey stage, channel and accessibility mode. New
-contexts use the approved default order, except second-contact contexts use the
-focused second-contact order; eligibility filters apply before signing. The
-signed snapshots, not an unsigned runtime default, authorize treatment. The same
-complete priors seed P2 and the control arm, and regression coverage checks all
-supported contexts. An upgrade that adds coverage archives prior state and resets
-live ordering to the approved baseline; protective suspensions and pauses remain
-effective.
-
-Source-pack upgrades use an explicit reviewed predecessor pack and exact target
-hashes in [source_upgrade_v1.json](../examples/pension_wtp/data/catalogue/source_upgrade_v1.json).
-They are a separate existing-target operation through
-[`scripts.upgrade_catalogue`](../scripts/upgrade_catalogue.py), not part of normal
-deployment. Normal deployment initializes expert priors before workloads and
-does not load or sign upgrade metadata. Empty state and snapshots matching the
-running catalogue do not depend on old upgrade files, even for future fresh
-catalogue versions. The exceptional upgrade alone rolls out compatible workloads
-before state activation. The existing P2 signing
-identity signs the human-approved plan and target expert baseline; the separate
-Strategy Service initializer verifies both and archives the entire old signed
-state before an ETag-conditional manifest update. New versions use their approved
-expert priors, never old-version learned ordering. Suspensions and owner pauses
-survive unchanged. Frozen state, pending or widening owner decisions and
-owner-managed catalogues block this source-pack upgrade. Immutable history is
-retained; no permission, schema-field, unfreeze or reinstatement bypass is added.
-See [explicit upgrades](deploying.md#explicit-source-catalogue-upgrade).
+Catalogue versions, complete expert priors for every eligible context and reviewed source-pack upgrades are
+described in [catalogue versions and source upgrades](architecture-catalogue-operations.md). Updating the source
+catalogue alone never activates it: activation is a reviewed Tier 2 delivery with newly verified signed snapshots
+(B3, B5, B8, B10).
 
 The Strategy Service verifies signatures and active catalogue versions on read,
 startup and rollback. Immutable current, last-good and static snapshots are
@@ -441,94 +344,14 @@ Each retrieval replaces prior passage context so later turns do not reuse retire
 cached material. Accessibility selects approved retrieval language and presentation,
 not a demographic inference or automatic translation permission.
 
-## Gap review: declined interactions to owner-reviewed proposals
+## Gap review
 
-Some answers are declined although they were legitimate, and some questions have no approved content or
-style yet. The scheduled `job-gg-gap-review` (`governedgraph.learning.gap_review_job`, daily) reviews every
-declined interaction of the last 30 days and writes **proposals** for the administration console. It reads only
-the immutable response records, the **member questions kept for declined answers** and, to leave
-selected-style test journeys out of its counts, the journey state. It runs under its own identity
-`id-gg-gap-review-*`: reader on `explainability-records`, `declined-questions`, `journey-state` and `content-approvals`,
-contributor on `improvement-proposals`, and endpoint use on its own drafting agent; it cannot write an approval, sign,
-publish content, change the catalogue or start a job.
-
-**Closed decline reason.** Each acknowledgment or escalation record carries an optional closed `decline_reason`
-(`output_gate`, `answer_review`, `no_safe_answer`, `no_eligible_style`, `teach_back_failed`, `content_safety`, and so on),
-set at the runtime's decline points. Records without one are stored byte-identically. "No eligible style" escalations
-count as declined answers and can propose a new style; protective and member-requested exits stay context only.
-
-**Kept member questions (IMP-GAP-REVIEW-2, owner decision).** When an answer ends as `output_gate`, `answer_review`,
-`no_safe_answer` or `no_eligible_style`, the runtime writes the member's question as written to the quarantined
-`declined-questions` container (best effort, after the audit record, never logged, skipped for selected-style test
-journeys). The question is also kept when an answer was delivered after the answer review raised a finding, so those gaps
-show real member wording. The container is not immutable, so an erasure request can be honoured, and a lifecycle rule expires blobs after
-30 days. Up to five distinct questions per proposal appear to owners as examples, and the same questions go to the
-drafting agent. Proposal blobs, which hold those examples, expire after 30 days too, and both lifecycle rules remove noncurrent versions. This text never feeds learning, ranking, prompts, templates, models
-or the catalogue; it reaches behaviour only through an owner approving a passage or style (B4 as amended by that decision).
-
-**Drafting agent (IMP-GAP-REVIEW-3, owner decision).** `gg-gap-review` is a pinned, tool-free Foundry agent
-(`agents/gap_drafter.py`), called once for each new content proposal. It receives the situation, the example questions and
-the related approved passages, and does two things. It **analyses**: the themes in the questions and what the approved
-passages do not cover. It **drafts** a passage from its own knowledge, consistent with the existing passages, including
-general facts, figures and dates, and returns a closed JSON suggestion with the title, questions answered, passage text,
-the passages it stayed consistent with, **every claim it makes**, and what it was unsure of. This deliberately drops the
-earlier rule that every fact had to come from an approved passage: the passages cannot supply content that is missing.
-
-The job admits a suggestion only if it passes `gap_review.accept_suggestion`: closed shape, only passage ids it was given,
-no placeholder, no steering, no figure typed by a member (a member's own amounts are theirs, not content), no copied part of
-a member's question, a claim list whenever there is text, and every figure in the text appearing in a listed claim.
-The job does **not** vouch for the facts. An owner must verify each claim against an authoritative source and **record that
-source** before the console accepts an approval (the source goes into the immutable journal, and the publisher refuses an
-approval whose journal entry has no source). The suggestion is shown as not checked by a person, and nothing publishes
-without the owner's approval. A failed or rejected content suggestion is dropped and the idea stays without a draft.
-
-**Style gaps use the agent too (IMP-GAP-REVIEW-4, owner decision).** Counting finds the gap (a situation where no style, or only one, can explain). The agent
-then reads the kept member questions, why answers were declined, the styles that can already explain there and every
-approved pattern. It returns the themes, why the current styles do not suit these questions, and a decision: `existing`
-(add a new style on this approved pattern, with a name) or `new` (no approved pattern fits; a described idea for people to
-build). `gap_review.accept_style_suggestion` admits it only if it names an approved pattern and holds no placeholder,
-steering, figure or copied question from a member. The scope (stage, channel, mode) always stays the gap situation, and the
-owner can edit it. An `existing` recommendation is approved through the same signed catalogue release as any style (B3, B8).
-A `new` idea can only be acknowledged, deferred or rejected, because the runtime can only use approved patterns. Without an
-agent answer a style idea is not offered at all; the nearest-pattern rule remains only as the scope scaffold the agent's
-choice is applied to.
-
-Each proposal also carries up to ten **cases**, one per journey (journey id, outcome, closed decline reason, review
-findings, approved passages found and the kept question). Cases sit outside the evidence digest, and readers never see
-their question text. The console links each case to its journey in Conversations and lists the styles and passages that
-were available. The record does not say which style was tried before a draft was refused, and the screen says so.
-
-A declined interaction is an explanation question that ended in an advisor offer, or whose answer an answer
-review flagged. Interactions are grouped by closed situation (journey stage, topic, channel, accessibility mode,
-language) and a proposal needs at least five declined answers from three journeys:
-
-| Proposal | Trigger | Draft |
-|---|---|---|
-| Missing approved content | Most declined answers retrieved no approved passage | Title, stage, language, questions answered, related passages, and an agent-drafted passage grounded in them when possible |
-| Approved content to revise | Most declined answers were flagged as not grounded in the retrieved passage | The retrieved passage as a base for a new version, with a grounded revision from the agent when possible |
-| Missing explanation style | At most one approved style can explain, or most declined answers had no eligible style | An AI recommendation (IMP-GAP-REVIEW-4): the themes, why current styles do not fit, and either a `StyleChange` on an approved pattern scoped to the situation, or a described new style that can only be acknowledged. Not offered without the AI answer |
-| Answers refused that may have been fine | Content and styles exist, and the refusals came from quality-only review findings or output gates | None; an owner looks at examples, no check is changed |
-
-Proposals are immutable, content-addressed blobs (`proposals/<id>/<evidence-digest>.json`); an unchanged
-situation adds nothing on the next run. The console lists them under **Improvement ideas**. An owner approves,
-rejects, defers or acknowledges each one; the decision is written to the immutable action journal before it
-takes effect and implemented only through an existing governed path:
-
-- **Style**: the owner catalogue path (`/api/catalogue`), which queues an exact catalogue release that the isolated P2
-  job signs and activates. Nothing changes until then.
-- **Content**: the owner writes the passage (a revision starts from the approved text). The console validates it
-  as an approved `ContentDocument` carrying the owner's `GB-` decision reference and writes it to
-  `approved/` in the separate `content-approvals` container, after journalling the decision. The content publisher
-  (`--from-approvals`, started through `run_publisher_job --approved-proposals`) first checks each approval against the
-  immutable journal (reader on `admin-actions`; an approval without a matching journalled owner decision publishes nothing),
-  then publishes it under its normal lease, retirement and verification rules and writes a `published/` marker.
-  The console never writes to Search or the approved-content container, and the gap review cannot write an approval.
-  Both improvement containers carry a 30-day immutability policy, so blobs are create-only by enforcement.
-
-B4 changed by owner decision (IMP-GAP-REVIEW-2): member words are now an input, but only to owner-reviewed proposals.
-They are kept briefly, never feed learning, and reach behaviour only when an owner approves a passage or style.
-B7: the situation has no demographic field. B3/B8: drafts reuse approved patterns, are inert, and activation is an owner
-(Tier 2) decision. B1/B2: a suggestion cannot carry a figure that its source passages do not contain.
+A daily job reviews declined interactions and proposes missing approved content and explanation styles to the
+administration console. A pinned, tool-free drafting agent analyses the kept questions and drafts a passage or
+recommends a style. Every output is checked in code, and an owner decides in the console. Approved styles go
+through the signed catalogue release and approved passages through the content publisher. Nothing it proposes
+goes live by itself. This is the one governed exception to B4, because kept member questions inform proposals for
+people only. See [gap review](architecture-gap-review.md).
 
 ## Governed speech channel
 

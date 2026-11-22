@@ -28,7 +28,7 @@ can continue across contacts using their own screened, accepted Foundry dialogue
 Only the most recent 20 completed turns are retained as conversation context;
 historical figures never replace fresh authoritative reads. Administrator test
 journeys are isolated from customer history. See
-[customer continuity](architecture.md#customer-scoped-conversation-continuity).
+[customer continuity](architecture-conversation-continuity.md).
 
 ## Roles
 

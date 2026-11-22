@@ -121,7 +121,7 @@ A scheduled review (`job-gg-gap-review`, daily) looks at every explanation quest
 in an advisor offer, or the answer review flagged it. Some of these answers were legitimate. The review groups them by
 journey stage, topic, channel, accessibility mode and language, and proposes a fix when a situation has at least five
 declined answers from three journeys. **Improvement ideas** lists the proposals; see
-[Architecture](architecture.md#gap-review-declined-interactions-to-owner-reviewed-proposals) for the rules.
+[Gap review](architecture-gap-review.md) for the rules.
 
 | Idea | What an owner decides |
 |---|---|
