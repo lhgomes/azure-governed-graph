@@ -126,7 +126,7 @@ def test_runtime_identity_synthesizes_but_profiles_and_member_tokens_never_leave
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original(transport=host.transport, **kwargs))
     for key, value in {
         "GOVERNEDGRAPH_ENABLE_VOICE_PROOF": "true", "AZURE_CLIENT_ID": "runtime-client",
-        "AZURE_VOICE_LIVE_ENDPOINT": "https://existing.services.ai.azure.com",
+        "AZURE_VOICE_LIVE_ENDPOINT": "https://existing-synthetic.services.ai.azure.com",
         "GOVERNEDGRAPH_ORCHESTRATOR_URL": "https://channel",
     }.items():
         monkeypatch.setenv(key, value)
