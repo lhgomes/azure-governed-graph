@@ -327,7 +327,7 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
             if proposal.content_digest != decision.content_digest:
                 raise HTTPException(409, "the proposal changed; refresh and review it again")
             status = proposal_review.status_of(proposal, source.proposal_decisions(), source.state(), improvement["published"],
-                                               improvement["approved"])
+                                               improvement["approved"], improvement["refused"])
             if status["code"] in proposal_review.CLOSED:
                 raise HTTPException(409, "this proposal already has a decision")
             if decision.decision not in proposal_review.decisions_for(proposal):
@@ -361,8 +361,10 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
                                                 approval_ref=reference)
                 except ContractError as error:
                     raise HTTPException(400, str(error)) from error
-                approval = ContentApproval.for_document(document, reference, proposal.proposal_id)
-                record.update(content_name=approval.name, document_id=document.id, source=decision.source.strip())
+                base_id = proposal.draft.get("base_id", "")
+                approval = ContentApproval.for_document(document, reference, proposal.proposal_id, base_id)
+                record.update(content_name=approval.name, document_id=document.id, source=decision.source.strip(),
+                              base_id=base_id)
             source.journal({**record, "status": "requested"})
             try:
                 if approval is not None:

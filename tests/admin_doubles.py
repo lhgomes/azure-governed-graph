@@ -103,7 +103,8 @@ class LocalSources:
         found, truncated = improvement_store.read_proposals(self.proposals)
         return {"proposals": found, "truncated": truncated, "batches": improvement_store.read_batches(self.proposals),
                 "approved": {item.name for item in improvement_store.read_approvals(self.approvals)},
-                "published": improvement_store.published_names(self.approvals)}
+                "published": improvement_store.published_names(self.approvals),
+                "refused": improvement_store.refused_names(self.approvals)}
 
     def content_corpus(self):
         from governedgraph.common.config import DATA_DIR
@@ -112,7 +113,9 @@ class LocalSources:
         from governedgraph.search.corpus import load_corpus
 
         seed = load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text())
-        return effective_corpus(seed, [item.content for item in improvement_store.read_approvals(self.approvals)])
+        refused = improvement_store.refused_names(self.approvals)
+        return effective_corpus(seed, [item.content for item in improvement_store.read_approvals(self.approvals)
+                                       if item.name not in refused])
 
     def proposal_decisions(self) -> list[dict]:
         return [row for row in self.actions() if isinstance(row.get("proposal"), dict)]

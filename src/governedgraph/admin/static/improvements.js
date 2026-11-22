@@ -9,7 +9,7 @@ window.AdminImprovements = {
     false_negative_review: "Answers refused that may have been fine",
   },
   tones: { open: "warn", deferred: "", uncertain: "bad", rejected: "", acknowledged: "good", superseded: "",
-    queued: "warn", queued_publication: "warn", published: "good" },
+    queued: "warn", queued_publication: "warn", published: "good", refused: "bad" },
   words(value) { return String(value).replaceAll("_", " "); },
   label(row) {
     const place = row.situation;

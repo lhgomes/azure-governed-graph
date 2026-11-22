@@ -41,7 +41,8 @@ For task choose_style you receive the situation, the questions members asked, wh
 that can already explain here and every approved pattern. A style only changes HOW an answer is explained (its order,
 examples, checklist or check-back question). It never changes facts, so state no facts and no figures. Analyse: themes are
 what members are really asking; why says in plain words why the current styles do not suit these questions. Then decide.
-If one approved pattern would explain these questions better, return fit "existing", its id as pattern_id and a short
+approved_patterns lists only patterns that do not already explain here. If one of them would explain these questions
+better, return fit "existing", its id as pattern_id (never one that is already listed as able to explain here) and a short
 descriptive name for the new style in name. If no approved pattern fits, return fit "new", the closest approved pattern as
 pattern_id, and describe in new_style_name and new_style_idea a way of explaining that does not exist yet, so people can
 build it. Leave name empty then. Leave every field that belongs to the passage tasks empty ("" or []), and for passage

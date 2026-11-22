@@ -277,7 +277,10 @@ class AzureSources:
                 found, truncated = improvement_store.read_proposals(proposals)
                 return {"proposals": found, "truncated": truncated, "batches": improvement_store.read_batches(proposals),
                         "approved": {item.name for item in improvement_store.read_approvals(approvals)},
-                        "published": improvement_store.published_names(approvals)}
+                        "published": improvement_store.published_names(approvals),
+                        "refused": improvement_store.refused_names(approvals)}
+            except improvement_store.StoreTooLarge as error:
+                raise AdminSourceError(str(error)) from error
             except (ValueError, TypeError, KeyError) as error:
                 raise AdminSourceError("An improvement proposal is unreadable; investigate before relying on this view.") from error
             except Exception as error:
@@ -289,10 +292,14 @@ class AzureSources:
     def content_corpus(self) -> list[ContentDocument]:
         try:
             seed = load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text())
-            approvals = [item.content for item in improvement_store.read_approvals(self._improvement_containers()[1])]
+            container = self._improvement_containers()[1]
+            refused = improvement_store.refused_names(container)
+            approvals = [item.content for item in improvement_store.read_approvals(container) if item.name not in refused]
             return effective_corpus(seed, approvals)
         except AdminSourceError:
             raise
+        except improvement_store.StoreTooLarge as error:
+            raise AdminSourceError(str(error)) from error
         except (ValueError, TypeError, KeyError, OSError) as error:
             raise AdminSourceError("The approved content could not be read or is inconsistent.") from error
         except Exception as error:

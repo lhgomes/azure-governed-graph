@@ -421,7 +421,8 @@ class Counsellor:
         self.journey.strategies_tried.append(strategy.strategy_id)
         with t.trace.measure("audit_commit"):
             t.write_explainability_record(strategy.strategy_id, numeric_fidelity_passed=fid.passed)
-        if any(item.role == "answer-review" and item.decision["verdict"] != "pass" for item in t.trace.decision_evidence):
+        reviews = [item for item in t.trace.decision_evidence if item.role == "answer-review"]
+        if reviews and reviews[-1].decision["verdict"] != "pass":
             self._keep_declined_question(flagged=True)
         # A task-specific fallback is not a reviewed teach-back.
         fallback_goal = t.trace.composition_source == "template_fallback" and bool(_task_template(t, strategy))

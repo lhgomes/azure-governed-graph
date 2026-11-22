@@ -1817,3 +1817,12 @@ def test_b4_the_question_of_an_answer_that_was_delivered_after_a_review_flagged_
     (kept,) = counsellor.question_store.kept
     record = counsellor.tools.store.read_all()[-1]
     assert record["response_kind"] == "explanation" and kept.response_id == record["response_id"]
+
+
+def test_b4_a_repaired_answer_that_then_passed_review_keeps_no_question(counsellor, monkeypatch):
+    counsellor.question_store = KeptQuestions()
+    draft = response(f"Your amount is {{{{value:current_monthly_pension}}}}.{ASK}")
+    client = FakeResponses(draft, reviews=[draft], judgments=[review_response("revise", ["strategy"]), review_response("pass", [])])
+    install_responses(monkeypatch, client)
+    result = counsellor.handle("Will the transition change what I receive?")
+    assert not result.escalated and counsellor.question_store.kept == []

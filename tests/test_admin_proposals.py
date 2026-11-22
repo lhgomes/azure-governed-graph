@@ -217,6 +217,24 @@ def test_b3_an_ai_recommended_style_is_approved_through_the_catalogue_path_and_a
     assert owner.post("/api/proposals/decision", json=decision(new, "acknowledge")).status_code == 200
 
 
+def test_b8_a_revision_approval_records_its_base_passage_and_a_refused_approval_is_closed_and_leaves_the_corpus(desk):
+    _, as_owner, _, source, proposals, directory = desk
+    grounded = [record(i, kind="explanation", strategy="S1", content=["C-001-v1.3"], issues=["grounding"]) for i in range(6)]
+    proposal = publish(proposals, grounded)["content_revision"]
+    owner = as_owner()
+    detail = owner.get(f"/api/proposals/{proposal.proposal_id}").json()
+    content = {"title": detail["base"]["title"], "journey_states": detail["base"]["journey_states"],
+               "answers": detail["base"]["answers"], "body": detail["base"]["body"] + " More detail."}
+    assert owner.post("/api/proposals/decision", json=decision(proposal, "approve", content=content, source=SOURCE)).status_code == 200
+    (approval,) = improvement_store.read_approvals(source.approvals)
+    assert approval.base_id == "C-001-v1.3" and journal(directory)[0]["base_id"] == "C-001-v1.3"
+    improvement_store.mark_refused(source.approvals, approval, "the live passage is no longer C-001-v1.3", "job-1")
+    source._cache = {}
+    row = owner.get("/api/proposals").json()["proposals"][0]
+    assert row["status"]["code"] == "refused" and "Decide again" in row["status"]["label"]
+    assert all(doc.id != approval.content.id for doc in source.content_corpus())
+
+
 def test_an_answer_review_idea_can_be_acknowledged_but_never_approved(desk):
     _, as_owner, _, _, proposals, directory = desk
     flagged = [record(i, kind="explanation", strategy="S1", content=["C-001-v1.3"], issues=["relevance"]) for i in range(6)]

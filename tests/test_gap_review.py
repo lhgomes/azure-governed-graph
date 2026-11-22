@@ -254,7 +254,8 @@ def journal_of(*approvals):
     return Container({f"{item.decision_ref}/requested.json": json.dumps({
         "action_id": item.decision_ref, "action": "proposal_content_approve", "document_id": item.content.id,
         "content_name": item.name, "proposal": {"proposal_id": item.proposal_id, "evidence_digest": "0" * 64},
-        "source": "Fund regulations, article 12", "status": "requested"}).encode() for item in approvals})
+        "base_id": item.base_id, "source": "Fund regulations, article 12", "status": "requested"}).encode()
+        for item in approvals})
 
 
 def two_approvals():
@@ -266,7 +267,22 @@ def two_approvals():
     second = gap_review.content_document(
         draft={"action": "revise", "base_id": first.id, "language": "en"}, content={**content, "body": base.body + " More still."},
         corpus=gap_review.effective_corpus(CORPUS, [first]), approval_ref="GB-" + "2" * 32)
-    return [improvement_store.ContentApproval.for_document(item, item.approval_ref, "GP-" + "1" * 24) for item in (second, first)]
+    return [improvement_store.ContentApproval.for_document(second, second.approval_ref, "GP-" + "1" * 24, first.id),
+            improvement_store.ContentApproval.for_document(first, first.approval_ref, "GP-" + "1" * 24, base.id)]
+
+
+class Feed:
+    """The live content feed as the publisher sees it under its lease."""
+
+    def __init__(self, docs):
+        self.docs, self.runs = list(docs), 0
+
+    def publish_owner_approved(self, seed, approvals):
+        from governedgraph.search.corpus import apply_owner_approvals
+
+        self.docs, applied, refused = apply_owner_approvals(self.docs, approvals)
+        self.runs += bool(applied)
+        return [doc.id for doc in applied], refused
 
 
 def test_b8_the_publisher_publishes_only_owner_approved_passages_once_in_version_order():
@@ -275,12 +291,67 @@ def test_b8_the_publisher_publishes_only_owner_approved_passages_once_in_version
     store, approvals = Container(), two_approvals()
     for approval in approvals:
         improvement_store.write_approval(store, approval)
-    published = []
-    publisher = SimpleNamespace(publish=lambda seed, candidates: published.append([doc.id for doc in candidates]))
-    journal = journal_of(*approvals)
-    assert reindex_on_approval.publish_approvals(store, journal, CORPUS, publisher, "job-1") == 2
-    assert published == [["C-001-v1.4", "C-001-v1.5"]]
-    assert reindex_on_approval.publish_approvals(store, journal, CORPUS, publisher, "job-2") == 0 and len(published) == 1
+    feed, journal = Feed(CORPUS), journal_of(*approvals)
+    assert reindex_on_approval.publish_approvals(store, journal, CORPUS, feed, "job-1") == 2
+    assert [doc.id for doc in feed.docs if doc.content_id == "C-001" and doc.status == "approved"] == ["C-001-v1.5"]
+    assert reindex_on_approval.publish_approvals(store, journal, CORPUS, feed, "job-2") == 0 and feed.runs == 1
+
+
+def test_b8_an_approval_whose_base_passage_is_no_longer_live_is_refused_and_never_retires_newer_content():
+    from governedgraph.search import reindex_on_approval
+    from governedgraph.search.corpus import approve_version
+
+    store, approvals = Container(), two_approvals()
+    for approval in approvals:
+        improvement_store.write_approval(store, approval)
+    other = gap_review.content_document(
+        draft={"action": "revise", "base_id": "C-001-v1.3", "language": "en"}, corpus=CORPUS, approval_ref="GB-" + "9" * 32,
+        content={"title": "Other route", "journey_states": ["*"], "answers": "", "body": "A newer passage from another route."})
+    moved = approve_version(approve_version(CORPUS, other), replace_version(other, "1.5"))
+    feed = Feed(moved)
+    assert reindex_on_approval.publish_approvals(store, journal_of(*approvals), CORPUS, feed, "job-1") == 0
+    assert improvement_store.refused_names(store) == {item.name for item in approvals}
+    assert improvement_store.published_names(store) == set() and feed.runs == 0
+    live = [doc.id for doc in feed.docs if doc.content_id == "C-001" and doc.status == "approved"]
+    assert live == ["C-001-v1.5"]
+    assert reindex_on_approval.pending_approvals(store) == []
+
+
+def replace_version(document, version):
+    from dataclasses import replace
+
+    return replace(document, version=version, id=f"{document.content_id}-v{version}")
+
+
+def test_b8_an_interrupted_batch_resumes_without_reinstating_retired_versions():
+    from governedgraph.search import reindex_on_approval
+
+    store, approvals = Container(), two_approvals()
+    for approval in approvals:
+        improvement_store.write_approval(store, approval)
+    feed = Feed(CORPUS)
+    feed.publish_owner_approved(CORPUS, [(item.content, item.base_id) for item in approvals])
+    assert feed.runs == 1 and improvement_store.published_names(store) == set()
+    # The feed was written but no marker was: the retry recognises both versions as applied and only writes the markers.
+    assert reindex_on_approval.publish_approvals(store, journal_of(*approvals), CORPUS, feed, "job-2") == 2
+    assert improvement_store.published_names(store) == {item.name for item in approvals}
+    assert [doc.id for doc in feed.docs if doc.content_id == "C-001" and doc.status == "approved"] == ["C-001-v1.5"]
+
+
+def test_a_listing_that_hits_its_cap_fails_closed_instead_of_acting_on_part_of_the_history(monkeypatch):
+    store = Container()
+    for approval in two_approvals():
+        improvement_store.write_approval(store, approval)
+        improvement_store.mark_published(store, approval, "job-1")
+        improvement_store.mark_refused(store, approval, "moved on", "job-1")
+    for count in (5, 6):
+        proposal = run(unanswered(count))[0][0]
+        improvement_store.create_once(store, proposal.blob_name, proposal.encode())
+    monkeypatch.setattr(improvement_store, "MAX_BLOBS", 1)
+    for read in (improvement_store.read_approvals, improvement_store.published_names, improvement_store.refused_names,
+                 improvement_store.read_proposals):
+        with pytest.raises(improvement_store.StoreTooLarge):
+            read(store)
 
 
 def test_b8_an_approval_without_a_matching_journalled_owner_decision_is_never_published():
@@ -288,7 +359,7 @@ def test_b8_an_approval_without_a_matching_journalled_owner_decision_is_never_pu
 
     approvals = two_approvals()
     published = []
-    publisher = SimpleNamespace(publish=lambda seed, candidates: published.append(candidates))
+    publisher = SimpleNamespace(publish_owner_approved=lambda seed, items: published.append(items))
     for journal in (journal_of(approvals[0]), journal_of(),
                     Container({f"{approvals[0].decision_ref}/requested.json": json.dumps({"action": "other"}).encode(),
                                **journal_of(approvals[1]).blobs})):
@@ -615,3 +686,51 @@ def test_a_style_idea_is_stored_only_when_the_agent_answers_and_a_new_style_cann
         **gap_review.accept_style_suggestion(idea, gap_review.drafting_request(saved, [], {"decision_criteria": {"intent": {}}}),
                                               "gg-gap-review:4")}}})
     assert review.decisions_for(new) == {"acknowledge", "reject", "defer"}
+
+
+def test_a_revision_of_a_newer_base_passage_is_a_different_proposal_from_one_already_decided():
+    situation = {"journey_state": "first_contact", "topic": REASON, "channel": "chat", "accessibility_mode": "standard",
+                 "language": "en"}
+    first = gap_review.proposal_id("content_revision", situation, "C-001-v1.3")
+    assert first != gap_review.proposal_id("content_revision", situation, "C-001-v1.4")
+    assert gap_review.proposal_id("content_gap", situation) == gap_review.proposal_id("content_gap", situation, "")
+
+
+def test_a_digest_that_comes_back_is_shown_again_from_the_newest_batch_not_the_newest_blob():
+    store = Container()
+    five, six = run(unanswered(5))[0][0], run(unanswered(6))[0][0]
+    assert five.proposal_id == six.proposal_id and five.evidence_digest != six.evidence_digest
+    for proposal, hour in ((five, 1), (six, 2), (five, 3)):
+        improvement_store.create_once(store, proposal.blob_name, proposal.encode())
+        summary = gap_review.review(unanswered(len(proposal.evidence["cases"])), catalogue=Catalogue.load(), corpus=CORPUS,
+                                    vocabulary=VOCABULARY, now=NOW + timedelta(hours=hour))[1]
+        improvement_store.create_once(store, f"batches/{summary['batch_id']}.json", json.dumps(
+            {**summary, "current": {proposal.proposal_id: proposal.evidence_digest}}).encode())
+    (shown,), _ = improvement_store.read_proposals(store)
+    assert shown.evidence_digest == five.evidence_digest
+
+
+def test_a_delivered_answer_counts_by_its_final_review_so_a_repaired_draft_is_not_a_decline():
+    repaired = record(1, kind="explanation", strategy="S1", content=["C-001-v1.3"], issues=["grounding"])
+    repaired.decision_evidence.append(DecisionEvidence("answer-review", "offline-fixture-answer-review", "fixture-1", asdict(
+        AnswerReview("pass", [], [], []))))
+    assert gap_review.signal_for(repaired) is None
+    unrepaired = record(2, kind="explanation", strategy="S1", content=["C-001-v1.3"], issues=["grounding"])
+    assert gap_review.signal_for(unrepaired).outcome == "review_flagged"
+    refused_draft = record(3, issues=["grounding"])
+    refused_draft.decision_evidence.append(DecisionEvidence("answer-review", "offline-fixture-answer-review", "fixture-1", asdict(
+        AnswerReview("pass", [], [], []))))
+    assert gap_review.signal_for(refused_draft).outcome == "unanswered"
+    assert gap_review.signal_for(refused_draft).review_issues == ("grounding",)
+
+
+def test_b3_a_style_that_reuses_a_pattern_already_explaining_here_is_not_offered_or_accepted():
+    proposal = with_questions(style_proposal(), ["Will my payment change after the move?"])
+    request = gap_review.drafting_request(proposal, [], {"decision_criteria": {"intent": {}}})
+    here = {item["id"] for item in request["styles_that_can_explain_here"]}
+    assert here and not here & {item["id"] for item in request["approved_patterns"]}
+    duplicate = {**STYLE_REPLY, "pattern_id": next(iter(here))}
+    with pytest.raises(ContractError, match="alternative"):
+        gap_review.accept_style_suggestion(duplicate, request, "gg-gap-review:4")
+    as_new = {**duplicate, "fit": "new", "name": "", "new_style_name": "Side by side view", "new_style_idea": "Two timelines."}
+    assert gap_review.accept_style_suggestion(as_new, request, "gg-gap-review:4")["fit"] == "new"

@@ -30,7 +30,7 @@ from governedgraph.common.contracts import (
 )
 from governedgraph.common.io import canonical_json
 from governedgraph.guardrails.advice_intent import response_steers_choice
-from governedgraph.search.corpus import ContentDocument, approve_version
+from governedgraph.search.corpus import ContentDocument, approve_version, version_key
 from governedgraph.strategy_service.catalogue import ESCALATION_STRATEGY, Catalogue
 from governedgraph.strategy_service.catalogue_release import StyleChange, patterns, stages
 
@@ -89,7 +89,9 @@ def signal_for(record: ExplainabilityRecord) -> Signal | None:
     if intent is None or intent["route"] != "explanation":
         return None
     reviews = [item.decision for item in record.decision_evidence if item.role == "answer-review"]
-    issues = sorted({issue for review in reviews if review["verdict"] != "pass" for issue in review["issues"]})
+    # A delivered answer counts only by its final review; findings on a draft that was repaired and then passed do not.
+    judged = reviews[-1:] if record.response_kind == "explanation" else reviews
+    issues = sorted({issue for review in judged if review["verdict"] != "pass" for issue in review["issues"]})
     if record.response_kind == "acknowledgment" and record.strategy_id == ESCALATION_STRATEGY:
         outcome = "unanswered"
     elif record.response_kind == "escalation":
@@ -349,9 +351,9 @@ def digest_of(evidence: Evidence, draft: dict) -> str:
     return hashlib.sha256(canonical_json({"evidence": evidence.digest_view(), "draft": stable})).hexdigest()
 
 
-def proposal_id(kind: str, situation: dict) -> str:
+def proposal_id(kind: str, situation: dict, base_id: str = "") -> str:
     identity = "|".join((RULES_VERSION, kind, *(situation[key] for key in (
-        "journey_state", "topic", "channel", "accessibility_mode", "language"))))
+        "journey_state", "topic", "channel", "accessibility_mode", "language")), *([base_id] if base_id else [])))
     return "GP-" + hashlib.sha256(identity.encode()).hexdigest()[:24]
 
 
@@ -375,12 +377,6 @@ def effective_corpus(seed: list[ContentDocument], approvals: list[ContentDocumen
     for candidate in sorted(approvals, key=lambda doc: (doc.content_id, version_key(doc.version), doc.language)):
         docs = approve_version(docs, candidate)
     return docs
-
-
-def version_key(version: str) -> tuple[int, ...]:
-    if not re.fullmatch(r"\d{1,4}(\.\d{1,4}){1,2}", version):
-        raise ContractError("content versions are numeric, such as 1.4")
-    return tuple(int(part) for part in version.split("."))
 
 
 def next_version(version: str) -> str:
@@ -476,7 +472,8 @@ def style_request(proposal: Proposal, vocabulary: dict) -> dict:
             "accessibility_mode": situation["accessibility_mode"], "member_questions": evidence["examples"],
             "decline_reasons": evidence["decline_reasons"], "review_issues": evidence["review_issues"],
             "styles_that_can_explain_here": [describe(catalogue[key]) for key in evidence["eligible_styles"] if key in catalogue],
-            "approved_patterns": [describe(style) for style in patterns() if style.status == "active"]}
+            "approved_patterns": [describe(style) for style in patterns()
+                                  if style.status == "active" and style.strategy_id not in evidence["eligible_styles"]]}
 
 
 def _own_fields(raw, own: set, other: set) -> dict:
@@ -494,6 +491,8 @@ def accept_style_suggestion(raw, request: dict, agent: str) -> dict:
     fields = _own_fields(raw, STYLE_SUGGESTION_FIELDS - CODE_SET, CONTENT_ONLY_FIELDS)
     context = [item["id"] for item in request["styles_that_can_explain_here"]]
     suggestion = validate_style_suggestion({**fields, "agent": agent, "context": context})
+    if suggestion["fit"] == "existing" and suggestion["pattern_id"] not in {item["id"] for item in request["approved_patterns"]}:
+        raise ContractError("a style on a pattern that already explains here adds no alternative")
     written = (suggestion["name"], suggestion["why"], suggestion["new_style_name"], suggestion["new_style_idea"],
                *suggestion["themes"])
     for text in written:
@@ -643,7 +642,7 @@ def review(records: list[ExplainabilityRecord], *, catalogue: Catalogue, corpus:
 
     def add(kind: str, situation: dict, evidence: Evidence, rationale: str, draft: dict) -> None:
         proposals.append(sealed({
-            "proposal_id": proposal_id(kind, situation), "kind": kind, "batch_id": batch, "created_at": created,
+            "proposal_id": proposal_id(kind, situation, draft.get("base_id", "")), "kind": kind, "batch_id": batch, "created_at": created,
             "rules_version": RULES_VERSION, "situation": situation, "evidence": asdict(evidence), "rationale": rationale,
             "draft": draft, "evidence_digest": digest_of(evidence, draft), "watermark": WATERMARK}))
 
@@ -702,5 +701,6 @@ def review(records: list[ExplainabilityRecord], *, catalogue: Catalogue, corpus:
     summary = {"batch_id": batch, "created_at": created, "rules_version": RULES_VERSION, "watermark": WATERMARK,
                "records_read": len(records), "declined_signals": len(found), "test_records_excluded": excluded,
                "situations": len(clusters), "proposals": len(proposals), "window_start": window[0], "window_end": window[1],
-               "questions_read": 0, "suggestions_drafted": 0}
+               "questions_read": 0, "suggestions_drafted": 0,
+               "current": {item.proposal_id: item.evidence_digest for item in proposals}}
     return proposals, summary

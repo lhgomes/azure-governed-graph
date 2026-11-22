@@ -14,8 +14,8 @@ state. It runs under its own identity. That identity can read response records, 
 content approvals, write proposals, and call its own drafting agent. It cannot write an approval, sign, publish
 content, change the catalogue or start a job.
 
-A declined interaction is an explanation question that ended in an advisor offer, or whose answer the answer review
-flagged. Interactions are grouped by closed situation (journey stage, topic, channel, accessibility mode, language).
+A declined interaction is an explanation question that ended in an advisor offer, or whose delivered answer the final
+answer review flagged. Findings on a draft that was repaired and then passed review do not count. Interactions are grouped by closed situation (journey stage, topic, channel, accessibility mode, language).
 A proposal needs at least five declined answers from three journeys.
 
 ## Inputs
@@ -47,7 +47,9 @@ path from conversations to behaviour.
 | Answers refused that may have been fine | Content and styles exist, and the refusals came from quality-only review findings or output gates | None. An owner looks at examples; no check is changed |
 
 Proposals are immutable, content-addressed blobs (`proposals/<id>/<evidence-digest>.json`). An unchanged situation
-adds nothing on the next run. Each proposal also carries up to ten **cases**, one per journey: journey id, outcome,
+adds nothing on the next run. Each batch summary names the digest it currently observes for every proposal, and the
+console shows that revision, so evidence that returns to an earlier state shows that state again. A proposal to revise a
+newer base passage has a different identity from one already decided for an older base. Each proposal also carries up to ten **cases**, one per journey: journey id, outcome,
 closed decline reason, review findings, approved passages found and the kept question. Cases sit outside the evidence
 digest and readers never see their question text. The record does not say which style was tried before a draft was
 refused, and the console says so.
@@ -80,7 +82,8 @@ returns the themes, why the current styles do not suit these questions, and a de
 this approved pattern, with a name) or `new` (no approved pattern fits, with a described idea for people to build).
 `gap_review.accept_style_suggestion` admits it only if it names an approved pattern and holds no placeholder,
 steering, figure or copied question from a member. The scope (stage, channel, mode) stays the gap situation and the
-owner can edit it. Without an agent answer a style idea is not offered, and the nearest-pattern rule is only the
+owner can edit it. The agent is offered only patterns that do not already explain in that situation, because a second
+style on the same pattern adds no alternative. Without an agent answer a style idea is not offered, and the nearest-pattern rule is only the
 scope scaffold that the agent's choice is applied to.
 
 ## Decisions and implementation
@@ -97,8 +100,15 @@ existing governed path:
   separate `content-approvals` container, after journalling the decision. The content publisher
   (`--from-approvals`, started through `run_publisher_job --approved-proposals`) first checks each approval against
   the immutable journal, so an approval without a matching journalled owner decision publishes nothing. It then
-  publishes under its normal lease, retirement and verification rules and writes a `published/` marker. The console
-  never writes to Search or the approved-content container, and the gap review cannot write an approval.
+  publishes under its normal lease, retirement and verification rules and writes a `published/` marker. Each approval
+  records the approved passage it was based on, and the publisher applies it only if that passage is still the live
+  version. Otherwise it writes a `refused/` marker and applies nothing over the newer content, and the other approvals
+  still publish. An interrupted batch resumes without reinstating anything: a version already in the feed with identical
+  content counts as applied. The console never writes to Search or the approved-content container, and the gap review
+  cannot write an approval.
+
+Every listing the console, the job and the publisher rely on fails closed when it hits its cap (5,000 blobs), instead
+of acting on part of the history.
 
 Both improvement containers carry a 30-day immutability policy, so blobs are create-only by enforcement.
 

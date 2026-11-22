@@ -30,7 +30,7 @@ def decisions_for(proposal: Proposal) -> set[str]:
 # Journal action recorded for each decision; approvals use the owner decision reference (GB-).
 ACTIONS = {"reject": "proposal_reject", "defer": "proposal_defer", "acknowledge": "proposal_acknowledge",
            "approve_content": "proposal_content_approve"}
-CLOSED = {"rejected", "acknowledged", "published", "queued", "queued_publication"}
+CLOSED = {"rejected", "acknowledged", "published", "queued", "queued_publication", "refused"}
 RANK = {"requested": 0, "failed": 1, "uncertain": 1, "applied": 2, "pending_signature": 2, "pending_publication": 2}
 UNRESOLVED = {"requested", "uncertain"}
 
@@ -90,7 +90,7 @@ def _landed(row: dict, state: dict, approved: set[str]) -> bool:
 
 
 def status_of(proposal: Proposal, journal: list[dict], state: dict, published: set[str],
-              approved: frozenset[str] | set[str] = frozenset()) -> dict:
+              approved: frozenset[str] | set[str] = frozenset(), refused: frozenset[str] | set[str] = frozenset()) -> dict:
     """Where a proposal stands, derived from the journal and live state; ``open`` until a human decides.
 
     A decision whose journal never completed counts only if its effect exists (the approved passage or the queued
@@ -113,6 +113,9 @@ def status_of(proposal: Proposal, journal: list[dict], state: dict, published: s
     if action == ACTIONS["acknowledge"]:
         return {"code": "acknowledged", "label": "Acknowledged for follow-up", "decision_ref": ref}
     if action == ACTIONS["approve_content"]:
+        if row.get("content_name", "") in refused:
+            return {"code": "refused", "label": "Not published: the passage changed after you approved it. Decide again on the new idea",
+                    "decision_ref": ref}
         if row.get("content_name", "") in published:
             return {"code": "published", "label": "Published to approved content", "decision_ref": ref}
         return {"code": "queued_publication", "label": "Approved: waiting for the content publisher", "decision_ref": ref}
@@ -138,6 +141,6 @@ def view(improvement: dict, journal: list[dict], state: dict, *, owner: bool = F
     rows = []
     for proposal in improvement["proposals"]:
         rows.append({**(asdict(proposal) if owner else redact(asdict(proposal))), "status": status_of(proposal, journal, state, improvement["published"],
-                                            improvement.get("approved", set())),
+                                            improvement.get("approved", set()), improvement.get("refused", set())),
                      "allowed_decisions": sorted(decisions_for(proposal))})
     return {"proposals": rows, "batches": improvement["batches"], "truncated": improvement["truncated"]}

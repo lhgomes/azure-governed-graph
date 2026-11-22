@@ -6,6 +6,7 @@
 ``content-approvals`` (the console and the content publisher write; the gap-review job can only read):
     approved/<document-id>-<language>.json    written once by the console when an owner approves a passage
     published/<document-id>-<language>.json   written once by the content publisher after indexing
+    refused/<document-id>-<language>.json     written once by the content publisher when the live passage moved on
 
 Both containers are immutable stores, and every blob is written create-only. Owner decisions live in the console's
 immutable action journal; the publisher refuses an approval that has no matching journalled owner decision.
@@ -23,10 +24,16 @@ from governedgraph.search.corpus import ContentDocument
 
 APPROVED = "approved/"
 PUBLISHED = "published/"
+REFUSED = "refused/"
 MAX_PROPOSALS = 500
+MAX_BLOBS = 5000
 BATCH_FIELDS = {"batch_id", "created_at", "rules_version", "watermark", "records_read", "declined_signals",
                 "test_records_excluded", "situations", "proposals", "window_start", "window_end", "questions_read",
-                "suggestions_drafted"}
+                "suggestions_drafted", "current"}
+
+
+class StoreTooLarge(ValueError):
+    """A listing hit its cap. Deciding from part of the history could hide a decision or reuse an identity."""
 
 
 @dataclass(frozen=True)
@@ -34,10 +41,12 @@ class ContentApproval:
     decision_ref: str
     proposal_id: str
     document: dict
+    base_id: str = ""
 
     def __post_init__(self):
         if (not isinstance(self.decision_ref, str) or not re.fullmatch(r"GB-[a-f0-9]{32}", self.decision_ref)
-                or not isinstance(self.proposal_id, str) or not PROPOSAL_ID.fullmatch(self.proposal_id)):
+                or not isinstance(self.proposal_id, str) or not PROPOSAL_ID.fullmatch(self.proposal_id)
+                or not isinstance(self.base_id, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{0,100}", self.base_id)):
             raise ContractError("an owner decision reference and proposal are required")
         document = ContentDocument.from_dict(self.document)
         if document.status != "approved" or document.approval_ref != self.decision_ref:
@@ -56,8 +65,9 @@ class ContentApproval:
         return approval_name(self.content)
 
     @classmethod
-    def for_document(cls, document: ContentDocument, decision_ref: str, proposal: str) -> ContentApproval:
-        return cls(decision_ref, proposal, asdict(document))
+    def for_document(cls, document: ContentDocument, decision_ref: str, proposal: str,
+                     base_id: str = "") -> ContentApproval:
+        return cls(decision_ref, proposal, asdict(document), base_id)
 
 
 def approval_name(document: ContentDocument) -> str:
@@ -82,36 +92,62 @@ def _load(container, name: str) -> dict:
     return payload
 
 
+def _all(container, prefix: str):
+    items, truncated = _blobs(container, prefix, MAX_BLOBS)
+    if truncated:
+        raise StoreTooLarge(f"more than {MAX_BLOBS} records under {prefix}; ask a technical operator to review the store")
+    return items
+
+
+def observed(container) -> dict[str, str]:
+    """The evidence digest each proposal has in the newest batch that saw it, so a digest that comes back is shown again."""
+    items, _ = _blobs(container, "batches/", 400)
+    current: dict[str, str] = {}
+    for item in sorted(items, key=lambda blob: blob.name, reverse=True):
+        for proposal, digest in _batch(container, item.name)["current"].items():
+            current.setdefault(proposal, digest)
+    return current
+
+
 def read_proposals(container, limit: int = MAX_PROPOSALS) -> tuple[list[Proposal], bool]:
-    """The newest revision of every proposal; an unreadable record is an error, never a silent omission."""
-    items, truncated = _blobs(container, "proposals/", limit * 4)
+    """The revision of every proposal that the newest batch observed; an unreadable record is an error, never an omission."""
+    items = {item.name: item for item in _all(container, "proposals/")}
+    chosen: dict[str, object] = {}
+    for proposal, digest in observed(container).items():
+        item = items.get(f"proposals/{proposal}/{digest}.json")
+        if item is not None:
+            chosen[proposal] = item
+    # A proposal no batch summary names (an interrupted run) falls back to its newest revision.
     newest: dict[str, object] = {}
-    for item in items:
+    for item in items.values():
         identity = item.name.split("/")[1]
         held = newest.get(identity)
-        if held is None or (item.last_modified, item.name) > (held.last_modified, held.name):
+        if identity not in chosen and (held is None or (item.last_modified, item.name) > (held.last_modified, held.name)):
             newest[identity] = item
-    chosen = sorted(newest.values(), key=lambda item: (item.last_modified, item.name), reverse=True)
-    truncated = truncated or len(chosen) > limit
-    proposals = [Proposal.from_dict(_load(container, item.name)) for item in chosen[:limit]]
-    if any(item.blob_name != blob.name for item, blob in zip(proposals, chosen[:limit], strict=True)):
+    chosen.update(newest)
+    ordered = sorted(chosen.values(), key=lambda item: (item.last_modified, item.name), reverse=True)
+    proposals = [Proposal.from_dict(_load(container, item.name)) for item in ordered[:limit]]
+    if any(item.blob_name != blob.name for item, blob in zip(proposals, ordered[:limit], strict=True)):
         raise ValueError("proposal storage path does not match its content")
-    return proposals, truncated
+    return proposals, len(ordered) > limit
+
+
+def _batch(container, name: str) -> dict:
+    row = _load(container, name)
+    if (set(row) != BATCH_FIELDS or row["watermark"] != WATERMARK or not isinstance(row["current"], dict)
+            or any(not PROPOSAL_ID.fullmatch(str(key)) or not re.fullmatch(r"[a-f0-9]{64}", str(value))
+                   for key, value in row["current"].items())):
+        raise ValueError("unexpected batch summary")
+    return row
 
 
 def read_batches(container, limit: int = 10) -> list[dict]:
     items, _ = _blobs(container, "batches/", 1000)
-    rows = []
-    for item in sorted(items, key=lambda blob: blob.name, reverse=True)[:limit]:
-        row = _load(container, item.name)
-        if set(row) != BATCH_FIELDS or row["watermark"] != WATERMARK:
-            raise ValueError("unexpected batch summary")
-        rows.append(row)
-    return rows
+    return [_batch(container, item.name) for item in sorted(items, key=lambda blob: blob.name, reverse=True)[:limit]]
 
 
 def read_approvals(container) -> list[ContentApproval]:
-    items, _ = _blobs(container, APPROVED, 5000)
+    items = _all(container, APPROVED)
     approvals = [ContentApproval.from_dict(_load(container, item.name)) for item in items]
     if any(APPROVED + approval.name != item.name for approval, item in zip(approvals, items, strict=True)):
         raise ValueError("approved content storage path does not match its content")
@@ -119,8 +155,11 @@ def read_approvals(container) -> list[ContentApproval]:
 
 
 def published_names(container) -> set[str]:
-    items, _ = _blobs(container, PUBLISHED, 5000)
-    return {item.name.removeprefix(PUBLISHED) for item in items}
+    return {item.name.removeprefix(PUBLISHED) for item in _all(container, PUBLISHED)}
+
+
+def refused_names(container) -> set[str]:
+    return {item.name.removeprefix(REFUSED) for item in _all(container, REFUSED)}
 
 
 def verify_decision(journal, approval: ContentApproval) -> None:
@@ -134,6 +173,7 @@ def verify_decision(journal, approval: ContentApproval) -> None:
     proposal = row.get("proposal")
     if (row.get("action_id") != approval.decision_ref or row.get("action") != "proposal_content_approve"
             or row.get("document_id") != approval.content.id or row.get("content_name") != approval.name
+            or row.get("base_id", "") != approval.base_id
             or not isinstance(row.get("source"), str) or len(row["source"].strip()) < 8
             or not isinstance(proposal, dict) or proposal.get("proposal_id") != approval.proposal_id):
         raise PermissionError(f"approval {approval.decision_ref} does not match its journalled owner decision")
@@ -170,3 +210,12 @@ def mark_published(container, approval: ContentApproval, execution: str) -> None
         "decision_ref": approval.decision_ref, "document_id": approval.content.id, "execution": execution,
         "published_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "watermark": WATERMARK,
     }, sort_keys=True).encode())
+
+
+def mark_refused(container, approval: ContentApproval, reason: str, execution: str) -> None:
+    """The publisher declined an approval because the live passage moved on. The owner decides again on a new idea."""
+    create_once(container, REFUSED + approval.name, json.dumps({
+        "decision_ref": approval.decision_ref, "document_id": approval.content.id, "reason": reason[:300],
+        "execution": execution, "refused_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "watermark": WATERMARK}, sort_keys=True).encode())
+

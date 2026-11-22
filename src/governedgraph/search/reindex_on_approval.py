@@ -23,23 +23,29 @@ def parse_candidates(payload) -> list[ContentDocument]:
 
 
 def pending_approvals(container) -> list[improvement_store.ContentApproval]:
-    """Owner-approved passages without a publication marker, in the order their versions must be applied."""
-    published = improvement_store.published_names(container)
-    pending = [item for item in improvement_store.read_approvals(container) if item.name not in published]
+    """Owner-approved passages with no publication or refusal marker, in the order their versions must be applied."""
+    done = improvement_store.published_names(container) | improvement_store.refused_names(container)
+    pending = [item for item in improvement_store.read_approvals(container) if item.name not in done]
     return sorted(pending, key=lambda item: (item.content.content_id, version_key(item.content.version), item.content.language))
 
 
 def publish_approvals(container, journal, seed, publisher, execution: str) -> int:
-    """Publish owner-approved passages. Every approval must match a journalled owner decision, or nothing is published."""
+    """Publish owner-approved passages. Every approval must match a journalled owner decision, or nothing is published.
+
+    The publisher checks each approval against the live feed under its lease: an approval whose base passage is no
+    longer live is refused and marked, never applied over newer content, and it does not block the others."""
     pending = pending_approvals(container)
     if not pending:
         return 0
     for item in pending:
         improvement_store.verify_decision(journal, item)
-    publisher.publish(seed, [item.content for item in pending])
+    applied, refused = publisher.publish_owner_approved(seed, [(item.content, item.base_id) for item in pending])
     for item in pending:
-        improvement_store.mark_published(container, item, execution)
-    return len(pending)
+        if item.content.id in applied:
+            improvement_store.mark_published(container, item, execution)
+        elif item.content.id in refused:
+            improvement_store.mark_refused(container, item, refused[item.content.id], execution)
+    return len(applied)
 
 
 def main() -> None:

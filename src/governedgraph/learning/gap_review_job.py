@@ -92,7 +92,8 @@ def run(*, records, journeys, proposals, approvals, catalogue, vocabulary, seed,
         drafter_label: str = "", now: datetime | None = None, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> dict:
     now = now or datetime.now(timezone.utc)
     since = now - timedelta(days=lookback_days)
-    approved = [approval.content for approval in improvement_store.read_approvals(approvals)]
+    refused = improvement_store.refused_names(approvals)
+    approved = [approval.content for approval in improvement_store.read_approvals(approvals) if approval.name not in refused]
     corpus = gap_review.effective_corpus(seed, approved)
     observed = read_records(records, since)
     candidates, _ = gap_review.signals(observed, since=since.isoformat(timespec="seconds"))
@@ -105,8 +106,10 @@ def run(*, records, journeys, proposals, approvals, catalogue, vocabulary, seed,
         observed, catalogue=catalogue, corpus=corpus, vocabulary=vocabulary, excluded_journeys=excluded,
         since=since.isoformat(timespec="seconds"), now=now, questions=kept)
     written = drafted = 0
+    current: dict[str, str] = {}
     for proposal in found:
         if improvement_store.exists(proposals, proposal.blob_name):
+            current[proposal.proposal_id] = proposal.evidence_digest
             continue
         if drafter is not None:
             proposal, attached = suggest(proposal, drafter, drafter_label, corpus, vocabulary)
@@ -114,7 +117,9 @@ def run(*, records, journeys, proposals, approvals, catalogue, vocabulary, seed,
         if proposal.kind == "strategy_gap" and "suggested" not in proposal.draft:
             continue  # a style idea is only offered with the AI's reasoning; the next batch asks again
         written += improvement_store.create_once(proposals, proposal.blob_name, proposal.encode())
-    summary = {**summary, "proposals": len(found), "questions_read": len(kept), "suggestions_drafted": drafted}
+        current[proposal.proposal_id] = proposal.evidence_digest
+    summary = {**summary, "proposals": len(found), "questions_read": len(kept), "suggestions_drafted": drafted,
+               "current": current}
     if not improvement_store.create_once(proposals, f"batches/{summary['batch_id']}.json",
                                          json.dumps(summary, sort_keys=True).encode()):
         raise FileExistsError("this review batch is already recorded")

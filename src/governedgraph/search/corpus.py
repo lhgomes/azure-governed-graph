@@ -107,3 +107,40 @@ def approve_version(docs: list[ContentDocument], candidate: ContentDocument) -> 
     ]
     updated.append(candidate)
     return load_corpus("\n".join(json.dumps(asdict(d)) for d in updated))
+
+
+def version_key(version: str) -> tuple[int, ...]:
+    if not re.fullmatch(r"\d{1,4}(\.\d{1,4}){1,2}", version):
+        raise ContractError("content versions are numeric, such as 1.4")
+    return tuple(int(part) for part in version.split("."))
+
+
+def apply_owner_approvals(docs: list[ContentDocument], approvals: list[tuple[ContentDocument, str]]
+                          ) -> tuple[list[ContentDocument], list[ContentDocument], dict[str, str]]:
+    """Apply owner-approved passages to the live feed in version order, without reinstating or overtaking live content.
+
+    Each approval carries the approved passage it was based on (``base_id``, empty for new content). It applies only if
+    that passage is still the live version, so a version published through another route is never silently retired.
+    A passage already in the feed with identical content counts as applied, which lets an interrupted batch resume.
+    Returns the new feed, the applied passages and the refused ones with their reason."""
+    applied: list[ContentDocument] = []
+    refused: dict[str, str] = {}
+    for candidate, base_id in sorted(approvals, key=lambda item: (item[0].content_id, version_key(item[0].version),
+                                                                  item[0].language)):
+        held = next((doc for doc in docs if doc.id == candidate.id), None)
+        if held is not None:
+            if replace(held, status="approved") == candidate:
+                applied.append(candidate)
+            else:
+                refused[candidate.id] = "this version id already holds different content"
+            continue
+        live = [doc for doc in docs if (doc.content_id, doc.language) == (candidate.content_id, candidate.language)]
+        current = next((doc for doc in live if doc.status == "approved"), None)
+        if base_id and (current is None or current.id != base_id):
+            refused[candidate.id] = f"the live passage is no longer {base_id}"
+        elif not base_id and live:
+            refused[candidate.id] = "this content id is already in use"
+        else:
+            docs = approve_version(docs, candidate)
+            applied.append(candidate)
+    return docs, applied, refused

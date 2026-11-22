@@ -136,7 +136,8 @@ every other owner decision. **Approve** never makes a change live by itself:
 
 - a style joins the single pending catalogue publication, which P2 signs and activates (see above);
 - a passage is queued for the content publisher. Its status reads *Approved: waiting for the content publisher* until
-  the publisher has indexed it, then *Published to approved content*. An operator starts the publisher with
+  the publisher has indexed it, then *Published to approved content*. If the live passage changed after you approved,
+  the publisher refuses it and the status reads *Not published*; decide again on the new idea that follows. An operator starts the publisher with
   `python -m governedgraph.search.run_publisher_job --approved-proposals`.
 
 An idea lists up to ten declined answers, one per journey, each with a link to its journey in **Conversations**, the outcome,
