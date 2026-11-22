@@ -997,7 +997,7 @@ def test_every_foundry_role_requires_a_published_version(monkeypatch, role):
         return results[role]
     monkeypatch.setattr(create_agents, "provision", create)
     with pytest.raises(delivery.DeliveryError, match="missing agent version"):
-        bootstrap.agents("https://approved.services.ai.azure.com/api/projects/test",
+        bootstrap.agents("https://approved-synthetic.services.ai.azure.com/api/projects/test",
                          subscription="selected-subscription")
 
 
@@ -1045,7 +1045,7 @@ def test_b8_bootstrap_rejects_an_unexpected_agent_identity(monkeypatch):
     monkeypatch.setattr(create_agents, "project_client", lambda *_, **kw: nullcontext(object()))
     monkeypatch.setattr(create_agents, "provision", lambda _project, **kw: results[kw["role"]])
     with pytest.raises(delivery.DeliveryError, match="different deployment agent name"):
-        bootstrap.agents("https://approved.services.ai.azure.com/api/projects/test",
+        bootstrap.agents("https://approved-synthetic.services.ai.azure.com/api/projects/test",
                          subscription="selected-subscription")
 
 
@@ -1058,7 +1058,7 @@ def test_foundry_tokens_and_refreshes_stay_in_the_selected_tenant(monkeypatch, f
     from scripts import create_agents
 
     tenant = "00000000-0000-0000-0000-000000000004"
-    endpoint = "https://approved.services.ai.azure.com/api/projects/test"
+    endpoint = "https://approved-synthetic.services.ai.azure.com/api/projects/test"
     token = AccessToken("ILLUSTRATIVE - synthetic token", 123)
     calls, requests, closed = [], [], []
     credentials = []
@@ -1113,13 +1113,13 @@ def test_foundry_transport_preserves_verified_tls_and_explicit_trust(verify, cer
     from requests import Request
     from scripts import create_agents
 
-    url = "https://approved.services.ai.azure.com/api/projects/test"
+    url = "https://approved-synthetic.services.ai.azure.com/api/projects/test"
     request = Request("GET", url).prepare()
     with create_agents._project_transport() as transport:
         adapter = transport.session.get_adapter(url)
         host, pool = adapter.build_connection_pool_key_attributes(request, verify, cert)
         context = pool["ssl_context"]
-        assert host["host"] == "approved.services.ai.azure.com"
+        assert host["host"] == "approved-synthetic.services.ai.azure.com"
         assert context.check_hostname and context.verify_mode == ssl.CERT_REQUIRED
         assert context.minimum_version >= ssl.TLSVersion.TLSv1_2
         assert context.maximum_version == ssl.TLSVersion.MAXIMUM_SUPPORTED
@@ -1144,7 +1144,7 @@ def test_foundry_transport_failure_finishes_delivery_evidence(private_delivery, 
     path, raw = private_delivery
     path.write_text(json.dumps(raw))
     entrypoint = upgrade_catalogue if upgrade else deploy
-    endpoint = "https://approved.services.ai.azure.com/api/projects/test"
+    endpoint = "https://approved-synthetic.services.ai.azure.com/api/projects/test"
     error = getattr(azure.core.exceptions, failure)("ILLUSTRATIVE - synthetic TLS failure")
     monkeypatch.setattr(entrypoint, "ROOT", delivery.ROOT)
     monkeypatch.setattr(delivery.Composition, "load", lambda _: COMPOSITION)
@@ -1187,7 +1187,7 @@ def test_missing_or_invalid_foundry_scope_fails_before_sdk_authentication(monkey
     monkeypatch.setattr(azure.identity, "DefaultAzureCredential",
                         lambda **_: pytest.fail("must not authenticate without selected tenant"))
     with pytest.raises(delivery.DeliveryError, match="selected|invalid Foundry tenant"):
-        with create_agents.project_client("https://approved.services.ai.azure.com/api/projects/test",
+        with create_agents.project_client("https://approved-synthetic.services.ai.azure.com/api/projects/test",
                                           subscription=subscription):
             pytest.fail("must not open an unscoped project")
     assert len(calls) == int(bool(subscription))
@@ -1203,7 +1203,7 @@ def test_failed_foundry_tenant_lookup_never_falls_back_to_cli_default(monkeypatc
     monkeypatch.setattr(azure.identity, "DefaultAzureCredential",
                         lambda **_: pytest.fail("must not authenticate after a failed scope lookup"))
     with pytest.raises(delivery.CommandError, match="account unavailable"):
-        with create_agents.project_client("https://approved.services.ai.azure.com/api/projects/test",
+        with create_agents.project_client("https://approved-synthetic.services.ai.azure.com/api/projects/test",
                                           subscription="selected-subscription"):
             pytest.fail("must not open a project after failed scope lookup")
 
@@ -1277,7 +1277,7 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
         create_agents.settings, agent_name="legacy-synthetic-counsellor", fairness_agent_name="legacy-synthetic-fairness"))
     calls = []
     foundation = {"compute": {"registryName": "synthetic"},
-                  "ai": {"projectEndpoint": "https://approved.services.ai.azure.com/api/projects/test"}}
+                  "ai": {"projectEndpoint": "https://approved-synthetic.services.ai.azure.com/api/projects/test"}}
     results = writer_plans()
     images = {target: {"image": f"crsynthetic.azurecr.io/{target}@sha256:" + "a" * 64}
               for target in ("runtime", "p2", "fixtures", "probe")}
