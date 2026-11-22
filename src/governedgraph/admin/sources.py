@@ -70,11 +70,13 @@ class AzureSources:
     profile = "azure"
 
     def __init__(self, *, http, containers: Containers, strategy_client_factory: Callable[[], AdminStrategyClient],
-                 context: Context | None = None, max_audit_blobs: int = 1000, cache_seconds: float = 30.0):
+                 context: Context | None = None, max_audit_blobs: int = 1000, cache_seconds: float = 30.0,
+                 max_journal_blobs: int = 5000):
         self.http, self.containers = http, containers
         self._client_factory = strategy_client_factory
         self._client: AdminStrategyClient | None = None
         self._context, self.max_audit_blobs, self.cache_seconds = context, max_audit_blobs, cache_seconds
+        self.max_journal_blobs = max_journal_blobs
         self._cache: dict[str, tuple[float, object]] = {}
         self._cache_lock = Lock()
 
@@ -307,6 +309,23 @@ class AzureSources:
         finally:
             with self._cache_lock:
                 self._cache.pop("improvement", None)
+
+    def proposal_decisions(self) -> list[dict]:
+        """Every journalled step that belongs to an improvement idea. A truncated journal could hide an approval, so it is an error."""
+        try:
+            names, truncated = self._names(self.containers.actions, "", self.max_journal_blobs, (".json",))
+            if truncated:
+                raise AdminSourceError("The admin journal is too large to derive the status of improvement ideas safely; "
+                                       "ask a technical operator to raise the journal read limit.")
+            rows = [json.loads(raw) for raw in self._download(self.containers.actions, names)]
+        except AdminSourceError:
+            raise
+        except (ValueError, TypeError) as error:
+            raise AdminSourceError("The admin journal contains an unreadable record.") from error
+        except Exception as error:
+            log.error("admin_source_failed", extra={"source": "journal", "error_type": type(error).__name__})
+            raise AdminSourceError("The admin journal is unavailable; check the identity's access.") from error
+        return [row for row in rows if isinstance(row, dict) and isinstance(row.get("proposal"), dict)]
 
     def overview(self) -> dict:
         state = self.state()

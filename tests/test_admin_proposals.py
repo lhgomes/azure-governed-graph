@@ -232,3 +232,17 @@ def test_the_azure_source_reads_proposals_and_explains_unreadable_or_missing_sto
                                 strategy_client_factory=lambda: None)
     with pytest.raises(AdminSourceError, match="not configured"):
         unconfigured.improvement()
+
+
+def test_a_truncated_journal_is_an_error_because_it_could_hide_an_approval():
+    from types import SimpleNamespace
+
+    from governedgraph.admin.sources import AzureSources, Containers
+
+    actions, empty = MemoryContainer({f"GB-{index}/requested.json": json.dumps({"proposal": {}}).encode() for index in range(3)}), SimpleNamespace()
+    source = AzureSources(http=empty, containers=Containers(empty, empty, empty, actions), strategy_client_factory=lambda: None,
+                          max_journal_blobs=2)
+    with pytest.raises(AdminSourceError, match="too large"):
+        source.proposal_decisions()
+    source.max_journal_blobs = 3
+    assert len(source.proposal_decisions()) == 3

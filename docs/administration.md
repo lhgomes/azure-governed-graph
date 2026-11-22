@@ -143,7 +143,8 @@ An idea holds counts and labels only, never what a member said. It lists up to f
 **Conversations** to judge an answer. A deferred idea returns to *Open* when its evidence changes; a rejected or
 acknowledged idea stays closed. A decision whose journal was never completed counts only if its effect exists: an approval that
 did land is shown as queued and cannot be rejected, and one that did not land leaves the idea open. Investigate any
-*Requested* entry in **Activity**.
+*Requested* entry in **Activity**. Idea status is derived from the whole action journal (up to 5,000 blobs); a larger
+journal fails closed with an explicit error instead of hiding a decision.
 
 ## Protective controls
 

@@ -284,7 +284,7 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
     @application.get("/api/proposals")
     def proposal_list(identity: Identity = Depends(require_read)):  # noqa: B008
         source = backend()
-        return {**proposal_review.view(source.improvement(), source.actions(), source.state()),
+        return {**proposal_review.view(source.improvement(), source.proposal_decisions(), source.state()),
                 "stages": sorted(stages() | {"*"}), "can_own": identity.can_own}
 
     @application.get("/api/proposals/{proposal_id}")
@@ -297,7 +297,7 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
         if proposal is None:
             raise HTTPException(404, "no such proposal")
         row = next(item for item in proposal_review.view({**improvement, "proposals": [proposal]},
-                                                         source.actions(), source.state())["proposals"])
+                                                         source.proposal_decisions(), source.state())["proposals"])
         corpus = {doc.id: doc for doc in source.content_corpus()} if proposal.kind.startswith("content") else {}
         base = corpus.get(proposal.draft.get("base_id", ""))
         related = [{"id": doc_id, "title": corpus[doc_id].title} for doc_id in proposal.draft.get("related_content_ids", [])
@@ -324,7 +324,7 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
                 raise HTTPException(404, "no such proposal")
             if proposal.evidence_digest != decision.evidence_digest:
                 raise HTTPException(409, "the proposal changed; refresh and review it again")
-            status = proposal_review.status_of(proposal, source.actions(), source.state(), improvement["published"],
+            status = proposal_review.status_of(proposal, source.proposal_decisions(), source.state(), improvement["published"],
                                                improvement["approved"])
             if status["code"] in proposal_review.CLOSED:
                 raise HTTPException(409, "this proposal already has a decision")

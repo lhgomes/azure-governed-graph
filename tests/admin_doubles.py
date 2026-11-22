@@ -114,6 +114,9 @@ class LocalSources:
         seed = load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text())
         return effective_corpus(seed, [item.content for item in improvement_store.read_approvals(self.approvals)])
 
+    def proposal_decisions(self) -> list[dict]:
+        return [row for row in self.actions() if isinstance(row.get("proposal"), dict)]
+
     def approve_content(self, approval) -> None:
         from governedgraph.learning import improvement_store
 
