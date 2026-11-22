@@ -330,7 +330,7 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
                                                improvement["approved"])
             if status["code"] in proposal_review.CLOSED:
                 raise HTTPException(409, "this proposal already has a decision")
-            if decision.decision not in proposal_review.DECISIONS[proposal.kind]:
+            if decision.decision not in proposal_review.decisions_for(proposal):
                 raise HTTPException(400, "this decision is not available for this proposal")
             marker = {"proposal_id": proposal.proposal_id, "evidence_digest": proposal.evidence_digest,
                       "content_digest": proposal.content_digest}
@@ -339,10 +339,11 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
                     raise HTTPException(400, "a style approval needs the revision shown and no content")
                 allowed = {"name", "pattern_id", "eligible_journey_states", "channels", "accessibility_modes"}
                 edits = decision.style or {}
+                scaffold = {key: value for key, value in proposal.draft.items() if key != "suggested"}
                 if set(edits) - allowed:
                     raise HTTPException(400, "only the style name, pattern and eligibility can be edited")
                 return submit_owner_action({"expected_revision": decision.expected_revision, "reason": decision.reason,
-                                            "confirmed": True, "change": {**proposal.draft, **edits}},
+                                            "confirmed": True, "change": {**scaffold, **edits}},
                                            request, identity, CatalogueDecision, proposal=marker)
             if decision.style is not None or (decision.decision == "approve") == (decision.content is None):
                 raise HTTPException(400, "settings do not match the decision")

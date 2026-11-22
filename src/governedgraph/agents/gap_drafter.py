@@ -1,4 +1,5 @@
-"""Gap-review drafting agent: a pinned, tool-free Foundry agent that analyses declined questions and drafts a passage.
+"""Gap-review drafting agent: a pinned, tool-free Foundry agent that analyses declined questions, drafts a passage and
+recommends an explanation style.
 
 It sees the situation, a few kept member questions and related approved passages, as data. It has no tools, records, member
 values or service access. It may draw on its own knowledge, so its answer must list every claim and pass
@@ -36,6 +37,15 @@ sure of a fact, leave it out and list it in gaps instead of guessing.
 For task revise_passage: return the full revised passage, keeping every fact of the original that is still correct.
 Title: a short neutral title. Answers: two to four general questions this passage answers, in your own words, as one
 string. Do not copy a member's question or include personal details.
+For task choose_style you receive the situation, the questions members asked, why answers were declined, the styles
+that can already explain here and every approved pattern. A style only changes HOW an answer is explained (its order,
+examples, checklist or check-back question). It never changes facts, so state no facts and no figures. Analyse: themes are
+what members are really asking; why says in plain words why the current styles do not suit these questions. Then decide.
+If one approved pattern would explain these questions better, return fit "existing", its id as pattern_id and a short
+descriptive name for the new style in name. If no approved pattern fits, return fit "new", the closest approved pattern as
+pattern_id, and describe in new_style_name and new_style_idea a way of explaining that does not exist yet, so people can
+build it. Leave name empty then. Leave every field that belongs to the passage tasks empty ("" or []), and for passage
+tasks leave fit, name, why, new_style_name and new_style_idea empty and pattern_id "".
 Return only the closed JSON contract."""
 GAP_REVIEW_TEXT = {"format": {"type": "json_schema", "name": "gap_review_suggestion", "strict": True, "schema": {
     "type": "object",
@@ -44,8 +54,12 @@ GAP_REVIEW_TEXT = {"format": {"type": "json_schema", "name": "gap_review_suggest
                    "claims": {"type": "array", "items": {"type": "string"}},
                    "gaps": {"type": "array", "items": {"type": "string"}},
                    "themes": {"type": "array", "items": {"type": "string"}},
-                   "coverage": {"type": "array", "items": {"type": "string"}}},
-    "required": ["title", "answers", "body", "sources", "claims", "gaps", "themes", "coverage"],
+                   "coverage": {"type": "array", "items": {"type": "string"}},
+                   "fit": {"type": "string", "enum": ["", "existing", "new"]}, "pattern_id": {"type": "string"},
+                   "name": {"type": "string"}, "why": {"type": "string"}, "new_style_name": {"type": "string"},
+                   "new_style_idea": {"type": "string"}},
+    "required": ["title", "answers", "body", "sources", "claims", "gaps", "themes", "coverage", "fit", "pattern_id",
+                 "name", "why", "new_style_name", "new_style_idea"],
     "additionalProperties": False}}}
 GAP_REVIEW_TEMPERATURE = 0.2
 
@@ -85,7 +99,7 @@ class GapDrafter:
 
 
 def connect_gap_drafter(credential) -> GapDrafter | None:
-    """The job's own identity holds endpoint use on this one agent. Unset configuration means rules-only drafting."""
+    """The job's own identity holds endpoint use on this one agent. Unset configuration means no AI drafts: content ideas stay undrafted and style ideas are not offered."""
     from azure.ai.projects import AIProjectClient
 
     version = os.getenv("AZURE_AI_GAP_REVIEW_VERSION", "")

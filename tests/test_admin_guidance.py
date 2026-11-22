@@ -568,8 +568,10 @@ def test_an_owner_approves_a_proposed_style_from_its_details_and_a_reader_sees_n
     data.style_accessibility_modes = ["standard"];
     window.posts = []; window.saved = [];
   `);
-  const row = run(`window.idea("strategy_gap", {action: "add", name: "Proposed style", pattern_id: "S3",
-    eligible_journey_states: ["first_contact"], channels: ["chat"], accessibility_modes: ["standard"]})`);
+  const row = run(`window.idea("strategy_gap", {action: "add", name: "Rules scaffold", pattern_id: "S1",
+    eligible_journey_states: ["first_contact"], channels: ["chat"], accessibility_modes: ["standard"],
+    suggested: {fit: "existing", pattern_id: "S3", name: "Proposed style", why: "Members want a picture of the timeline.",
+      themes: ["When the change starts"], new_style_name: "", new_style_idea: "", agent: "gg-gap-review:3", context: ["S1"]}})`);
   const target = document.createElement("div");
   context.window.AdminImprovements.mount(target, {row, extra: {}, data: run("data"),
     api: async (path, payload) => { context.window.posts.push({path, payload}); return {decision_ref: "GB-1", status: "pending_signature"}; },
@@ -577,6 +579,8 @@ def test_an_owner_approves_a_proposed_style_from_its_details_and_a_reader_sees_n
   const form = target.querySelectorAll("form")[0];
   const buttons = form.querySelectorAll("button");
   assert.deepEqual(buttons.map((button) => button.textContent), ["Approve style", "Defer", "Reject"]);
+  assert.match(target.textContent, /Proposed by AI/);
+  assert.match(form.textContent, /Members want a picture of the timeline/);
   assert.equal(form.querySelectorAll("input").filter((input) => input.type === "checkbox" && input.required).length, 0,
     "clicking Approve is the approval; there is no separate confirmation box");
   await buttons[0].listeners.click();
@@ -589,6 +593,17 @@ def test_an_owner_approves_a_proposed_style_from_its_details_and_a_reader_sees_n
   assert.deepEqual(posted.payload.style, {name: "Proposed style", pattern_id: "S3",
     eligible_journey_states: ["first_contact"], channels: ["chat"], accessibility_modes: ["standard"]});
   assert.deepEqual(plain(context.window.saved), ["approve"]);
+  const idea = run(`window.idea("strategy_gap", {action: "add", name: "Rules scaffold", pattern_id: "S1",
+    eligible_journey_states: ["first_contact"], channels: ["chat"], accessibility_modes: ["standard"],
+    suggested: {fit: "new", pattern_id: "S1", name: "", why: "No pattern shows both options side by side.",
+      themes: ["Comparing the timelines"], new_style_name: "Side by side view", new_style_idea: "Shows two timelines together.",
+      agent: "gg-gap-review:3", context: ["S1"]}})`);
+  idea.allowed_decisions = ["acknowledge", "defer", "reject"];
+  const gap = document.createElement("div");
+  context.window.AdminImprovements.mount(gap, {row: idea, extra: {}, data: run("data"), api() {}, saved() {}});
+  assert.deepEqual(gap.querySelectorAll("button").map((button) => button.textContent), ["Acknowledge", "Defer", "Reject"]);
+  assert.match(gap.textContent, /Side by side view/);
+  assert.match(gap.textContent, /cannot be approved here/);
   run("data.access.can_own = false");
   const readOnly = document.createElement("div");
   context.window.AdminImprovements.mount(readOnly, {row, extra: {}, data: run("data"), api() {}, saved() {}});

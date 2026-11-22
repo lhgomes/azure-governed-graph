@@ -220,13 +220,13 @@ def validate_draft(kind: str, draft) -> dict:
         "strategy_gap": {"action", "name", "pattern_id", "eligible_journey_states", "channels", "accessibility_modes"},
         "false_negative_review": {"action", "focus", "issues"},
     }
-    suggested = draft.get("suggested") if kind in {"content_gap", "content_revision"} else None
+    suggested = draft.get("suggested") if kind in {"content_gap", "content_revision", "strategy_gap"} else None
     if set(draft) - {"suggested"} != shapes[kind] or ("suggested" in draft and suggested is None):
         raise ContractError("unexpected draft fields")
     if suggested is not None:
-        validate_suggestion(suggested)
+        (validate_style_suggestion if kind == "strategy_gap" else validate_suggestion)(suggested)
     if kind == "strategy_gap":
-        StyleChange.from_dict(draft)
+        StyleChange.from_dict({key: value for key, value in draft.items() if key != "suggested"})
     elif kind == "false_negative_review":
         if (draft["action"] != "review" or draft["focus"] not in {"output_gate", "answer_review"}
                 or not isinstance(draft["issues"], list) or not set(draft["issues"]) <= set(REVIEW_ISSUES)):
@@ -263,6 +263,31 @@ def validate_suggestion(value) -> dict:
         if (not isinstance(value[key], list) or len(value[key]) > (30 if key == "claims" else 10)
                 or any(not isinstance(item, str) or not item.strip() or len(item) > 300 for item in value[key])):
             raise ContractError("invalid drafted suggestion lists")
+    return value
+
+
+# What the drafting agent returns for a style gap. fit "existing": pattern_id is the approved pattern to add as a new style
+# called name. fit "new": no approved pattern fits; pattern_id is only the closest one and new_style_* describe a way of
+# explaining that does not exist yet, for people to build. Never applied by itself. context: the style ids the agent saw.
+STYLE_FIELDS = {"fit", "pattern_id", "name", "why", "new_style_name", "new_style_idea"}
+STYLE_SUGGESTION_FIELDS = STYLE_FIELDS | {"themes", "agent", "context"}
+CONTENT_ONLY_FIELDS = {"title", "answers", "body", "sources", "claims", "gaps", "coverage"}
+
+
+def validate_style_suggestion(value) -> dict:
+    if (not isinstance(value, dict) or set(value) != STYLE_SUGGESTION_FIELDS or not isinstance(value["agent"], str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}:[0-9]{1,6}", value["agent"])
+            or value["fit"] not in {"existing", "new"}
+            or value["pattern_id"] not in {style.strategy_id for style in patterns()}):
+        raise ContractError("invalid drafted style suggestion")
+    _text(value["name"], 120, allow_empty=value["fit"] == "new")
+    _text(value["why"], 1000)
+    _text(value["new_style_name"], 120, allow_empty=value["fit"] == "existing")
+    _text(value["new_style_idea"], 1000, allow_empty=value["fit"] == "existing")
+    for key in ("themes", "context"):
+        if (not isinstance(value[key], list) or len(value[key]) > 10
+                or any(not isinstance(item, str) or not item.strip() or len(item) > 300 for item in value[key])):
+            raise ContractError("invalid drafted style suggestion lists")
     return value
 
 
@@ -421,9 +446,11 @@ STEERING_EXTRA = re.compile(
 
 def drafting_request(proposal: Proposal, corpus: list[ContentDocument], vocabulary: dict) -> dict | None:
     """What the drafting agent may see: the situation, the kept example questions and approved passages. Nothing else."""
-    if proposal.kind not in {"content_gap", "content_revision"} or not proposal.evidence["examples"]:
+    if proposal.kind not in {"content_gap", "content_revision", "strategy_gap"} or not proposal.evidence["examples"]:
         return None
     draft = proposal.draft
+    if proposal.kind == "strategy_gap":
+        return style_request(proposal, vocabulary)
     wanted = [draft["base_id"]] if proposal.kind == "content_revision" else draft["related_content_ids"]
     passages = [{"id": doc.id, "title": doc.title, "body": doc.body} for doc in corpus
                 if doc.id in wanted and doc.status == "approved"]
@@ -432,6 +459,52 @@ def drafting_request(proposal: Proposal, corpus: list[ContentDocument], vocabula
             "language": draft["language"], "topic": topic,
             "topic_description": vocabulary["decision_criteria"]["intent"].get(topic, humanize(topic)),
             "member_questions": proposal.evidence["examples"], "approved_passages": passages}
+
+
+def style_request(proposal: Proposal, vocabulary: dict) -> dict:
+    """For a style gap the agent sees the situation, the kept questions, why answers were declined, the styles that can
+    explain here and every approved pattern it may choose from. Styles change how an answer is explained, never its facts."""
+    situation, evidence = proposal.situation, proposal.evidence
+    catalogue = {style.strategy_id: style for style in Catalogue.load().all()}
+
+    def describe(style) -> dict:
+        return {"id": style.strategy_id, "name": style.name, "ends_with_check_back_question": style.teach_back}
+    topic = situation["topic"]
+    return {"task": "choose_style", "language": situation["language"], "topic": topic,
+            "topic_description": vocabulary["decision_criteria"]["intent"].get(topic, humanize(topic)),
+            "journey_stage": situation["journey_state"], "channel": situation["channel"],
+            "accessibility_mode": situation["accessibility_mode"], "member_questions": evidence["examples"],
+            "decline_reasons": evidence["decline_reasons"], "review_issues": evidence["review_issues"],
+            "styles_that_can_explain_here": [describe(catalogue[key]) for key in evidence["eligible_styles"] if key in catalogue],
+            "approved_patterns": [describe(style) for style in patterns() if style.status == "active"]}
+
+
+def _own_fields(raw, own: set, other: set) -> dict:
+    """The agent returns one closed shape for every task; fields of the other task must be empty and are dropped."""
+    if not isinstance(raw, dict) or not own <= set(raw) <= own | other:
+        raise ContractError("the drafting agent returned an unexpected shape")
+    if any(raw[key] not in ("", [], None) for key in set(raw) & other):
+        raise ContractError("the drafting agent filled fields that belong to another task")
+    return {key: raw[key] for key in own}
+
+
+def accept_style_suggestion(raw, request: dict, agent: str) -> dict:
+    """Admit a style suggestion only if it is closed, names an approved pattern, holds no placeholder, steering, member
+    figure or copied question. It stays a proposal: an owner decides, and only an approved pattern can be released."""
+    fields = _own_fields(raw, STYLE_SUGGESTION_FIELDS - CODE_SET, CONTENT_ONLY_FIELDS)
+    context = [item["id"] for item in request["styles_that_can_explain_here"]]
+    suggestion = validate_style_suggestion({**fields, "agent": agent, "context": context})
+    written = (suggestion["name"], suggestion["why"], suggestion["new_style_name"], suggestion["new_style_idea"],
+               *suggestion["themes"])
+    for text in written:
+        if "{{" in text or "}}" in text or response_steers_choice(text) or STEERING_EXTRA.search(text):
+            raise ContractError("a suggestion may not hold value placeholders or steer a choice")
+    if _figures(*request["member_questions"]) & _figures(*written):
+        raise ContractError("a suggestion may not carry a figure from a member's question")
+    copied = set().union(*(_shingles(text) for text in written))
+    if any(_shingles(question) & copied for question in request["member_questions"]):
+        raise ContractError("a suggestion may not copy a member's question")
+    return suggestion
 
 
 def _figures(*texts: str) -> set[str]:
@@ -450,7 +523,9 @@ def _shingles(text: str, size: int = 5) -> set[tuple[str, ...]]:
 def accept_suggestion(raw, request: dict, agent: str) -> dict:
     """Admit a drafted suggestion only if it is closed, free of placeholders, steering and member carry-over, and lists
     its claims. Facts and figures are the owner's to verify against a recorded source; this does not vouch for them."""
-    if not isinstance(raw, dict) or set(raw) != SUGGESTION_FIELDS - CODE_SET:
+    if isinstance(raw, dict) and "fit" in raw:
+        raw = _own_fields(raw, SUGGESTION_FIELDS - CODE_SET, STYLE_FIELDS)
+    elif not isinstance(raw, dict) or set(raw) != SUGGESTION_FIELDS - CODE_SET:
         raise ContractError("the drafting agent returned an unexpected shape")
     passages = {item["id"]: item for item in request["approved_passages"]}
     suggestion = validate_suggestion({**raw, "agent": agent, "context": list(passages)})

@@ -18,6 +18,15 @@ DECISIONS = {
     "strategy_gap": {"approve", "reject", "defer"},
     "false_negative_review": {"acknowledge", "reject", "defer"},
 }
+
+
+def decisions_for(proposal: Proposal) -> set[str]:
+    """A style the AI says does not exist yet cannot be released, so an owner can only record or set it aside."""
+    if proposal.kind == "strategy_gap" and (proposal.draft.get("suggested") or {}).get("fit") == "new":
+        return {"acknowledge", "reject", "defer"}
+    return DECISIONS[proposal.kind]
+
+
 # Journal action recorded for each decision; approvals use the owner decision reference (GB-).
 ACTIONS = {"reject": "proposal_reject", "defer": "proposal_defer", "acknowledge": "proposal_acknowledge",
            "approve_content": "proposal_content_approve"}
@@ -130,5 +139,5 @@ def view(improvement: dict, journal: list[dict], state: dict, *, owner: bool = F
     for proposal in improvement["proposals"]:
         rows.append({**(asdict(proposal) if owner else redact(asdict(proposal))), "status": status_of(proposal, journal, state, improvement["published"],
                                             improvement.get("approved", set())),
-                     "allowed_decisions": sorted(DECISIONS[proposal.kind])})
+                     "allowed_decisions": sorted(decisions_for(proposal))})
     return {"proposals": rows, "batches": improvement["batches"], "truncated": improvement["truncated"]}

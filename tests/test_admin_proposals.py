@@ -191,6 +191,32 @@ def test_b3_b8_approving_a_style_uses_the_owner_catalogue_path_with_the_displaye
     assert row["status"]["code"] in {"queued", "superseded"}
 
 
+def test_b3_an_ai_recommended_style_is_approved_through_the_catalogue_path_and_a_new_style_idea_never_is(desk):
+    from dataclasses import asdict
+
+    from governedgraph.learning import gap_review
+
+    _, as_owner, _, source, proposals, directory = desk
+    base = run(unanswered(6, **THIN))[0]
+    base = next(item for item in base if item.kind == "strategy_gap")
+    reply = {"fit": "existing", "pattern_id": "S3", "name": "Timeline for objections", "why": "Members want the order of events.",
+             "themes": ["When it starts"], "new_style_name": "", "new_style_idea": "", "agent": "gg-gap-review:4", "context": ["S1"]}
+    idea = gap_review.sealed({**asdict(base), "draft": {**base.draft, "suggested": reply}})
+    improvement_store.create_once(proposals, idea.blob_name, idea.encode())
+    owner = as_owner()
+    revision = owner.get("/api/overview").json()["revision"]
+    chosen = decision(idea, "approve", expected_revision=revision,
+                      style={"name": reply["name"], "pattern_id": reply["pattern_id"]})
+    assert owner.post("/api/proposals/decision", json=chosen).status_code == 200
+    ((queued, _),) = source.owner_calls
+    assert queued.change.pattern_id == "S3" and queued.change.name == "Timeline for objections"
+    new = gap_review.sealed({**asdict(base), "proposal_id": "GP-" + "1" * 24, "draft": {**base.draft, "suggested": {
+        **reply, "fit": "new", "name": "", "new_style_name": "Side by side view", "new_style_idea": "Two timelines together."}}})
+    improvement_store.create_once(proposals, new.blob_name, new.encode())
+    assert owner.post("/api/proposals/decision", json=decision(new, "approve", expected_revision=revision)).status_code == 400
+    assert owner.post("/api/proposals/decision", json=decision(new, "acknowledge")).status_code == 200
+
+
 def test_an_answer_review_idea_can_be_acknowledged_but_never_approved(desk):
     _, as_owner, _, _, proposals, directory = desk
     flagged = [record(i, kind="explanation", strategy="S1", content=["C-001-v1.3"], issues=["relevance"]) for i in range(6)]

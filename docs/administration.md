@@ -144,7 +144,10 @@ open the journeys in **Conversations** to judge an answer. For missing or revisa
 (what members are asking, what the approved passages do not cover) and a draft passage written from the model's own
 knowledge, labelled *Not checked by a person*. The draft can be wrong or out of date. The editor lists every claim it makes.
 Verify each one against an authoritative source, edit the passage, and record that **source** (required) before approving.
-Facts the model was unsure of are listed for you to supply. A deferred idea returns to *Open* when its evidence changes; a rejected or
+Facts the model was unsure of are listed for you to supply. For a missing style, the AI reads the same questions and says
+why the current styles do not suit them. It then either recommends an approved explanation pattern, which you can edit and
+approve into the next signed release, or describes a new way of explaining that does not exist yet. You can only acknowledge,
+defer or reject that second kind, because it has to be built. Without an AI answer no style idea is shown. A deferred idea returns to *Open* when its evidence changes; a rejected or
 acknowledged idea stays closed. A decision whose journal was never completed counts only if its effect exists: an approval that
 did land is shown as queued and cannot be rejected, and one that did not land leaves the idea open. Investigate any
 *Requested* entry in **Activity**. Idea status is derived from the whole action journal (up to 5,000 blobs); a larger

@@ -22,7 +22,7 @@ param deployDevIssuer bool = false
 param deployVoiceDemo bool = false
 param deployVoicePersona bool = false
 param personaAgentVersion string = ''
-@description('Exact version returned by scripts/create_agents.py --role gap-review; empty leaves the gap review rules-only.')
+@description('Exact version returned by scripts/create_agents.py --role gap-review; empty means no AI drafts: no style ideas are offered and content ideas have no draft.')
 param gapReviewAgentVersion string = ''
 param voiceDemoClientId string = ''
 param voiceDemoOperatorId string = ''

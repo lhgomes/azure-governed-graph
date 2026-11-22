@@ -478,7 +478,8 @@ def test_b3_b4_the_drafting_agent_is_pinned_tool_free_and_provisioned_as_its_own
     assert plan["agent_name"] == "gg-gap-review" and plan["decision"] == "IMP-GAP-REVIEW-3" and "plan only" in plan["action"]
     definition = gap_drafter.gap_review_definition("synthetic-model").as_dict()
     assert not definition.get("tools") and definition["text"]["format"]["strict"] is True
-    assert set(definition["text"]["format"]["schema"]["properties"]) == gap_review.SUGGESTION_FIELDS - gap_review.CODE_SET
+    assert set(definition["text"]["format"]["schema"]["properties"]) == (
+        (gap_review.SUGGESTION_FIELDS - gap_review.CODE_SET) | gap_review.STYLE_FIELDS)
     for rule in ("Never write a value placeholder", "no tools", "figure a member typed", "EVERY factual statement"):
         assert rule.lower() in gap_drafter.GAP_REVIEW_INSTRUCTIONS.lower()
     with pytest.raises(ValueError):
@@ -546,3 +547,71 @@ def test_a_proposed_style_is_scoped_to_the_gap_and_uses_a_pattern_that_does_not_
     assert draft["pattern_id"] not in existing
     assert (draft["eligible_journey_states"], draft["channels"], draft["accessibility_modes"]) == (
         [state], ["voice"], ["slower_pace"])
+
+
+STYLE_REPLY = {"title": "", "answers": "", "body": "", "sources": [], "claims": [], "gaps": [], "coverage": [],
+               "themes": ["When the new payment starts"], "fit": "existing", "pattern_id": "S3",
+               "name": "Timeline for objections by voice", "why": "Members want to see the order of events, not a list.",
+               "new_style_name": "", "new_style_idea": ""}
+
+
+def style_proposal():
+    state = "objection_raised"
+    found = run(unanswered(6, state=state, channel="voice", mode="slower_pace", content=["C-001-v1.3"]))[0]
+    return next(item for item in found if item.kind == "strategy_gap")
+
+
+def with_questions(proposal, questions):
+    return gap_review.sealed({**asdict(proposal), "evidence": {**proposal.evidence, "examples": questions}})
+
+
+def test_a_style_gap_is_sent_to_the_agent_with_the_questions_and_every_approved_pattern():
+    request = gap_review.drafting_request(with_questions(style_proposal(), ["Will my payment change?"]), [],
+                                          {"decision_criteria": {"intent": {}}})
+    assert request["task"] == "choose_style" and request["member_questions"] == ["Will my payment change?"]
+    assert {item["id"] for item in request["approved_patterns"]} >= {"S1", "S2", "S3"}
+    assert gap_review.drafting_request(style_proposal(), [], {"decision_criteria": {"intent": {}}}) is None
+
+
+def test_b3_a_style_suggestion_must_name_an_approved_pattern_and_may_not_steer_or_copy_a_member():
+    request = gap_review.drafting_request(with_questions(style_proposal(), ["Will my payment change after the move?"]), [],
+                                          {"decision_criteria": {"intent": {}}})
+    accepted = gap_review.accept_style_suggestion(STYLE_REPLY, request, "gg-gap-review:4")
+    assert accepted["pattern_id"] == "S3" and accepted["agent"] == "gg-gap-review:4"
+    idea = {**STYLE_REPLY, "fit": "new", "name": "", "new_style_name": "Side by side view",
+            "new_style_idea": "Shows two timelines together."}
+    assert gap_review.accept_style_suggestion(idea, request, "gg-gap-review:4")["fit"] == "new"
+    bad = {
+        "an unknown pattern": {**STYLE_REPLY, "pattern_id": "S99"},
+        "a name for an existing fit missing": {**STYLE_REPLY, "name": ""},
+        "steering": {**STYLE_REPLY, "why": "You should choose the new contract."},
+        "a copied question": {**STYLE_REPLY, "why": "Will my payment change after the move? Members ask this."},
+        "passage fields filled": {**STYLE_REPLY, "body": "A passage."},
+        "extra fields": {**STYLE_REPLY, "member_ref": "M-1"},
+    }
+    for name, raw in bad.items():
+        with pytest.raises(ContractError):
+            gap_review.accept_style_suggestion(raw, request, "gg-gap-review:4")
+
+
+def test_a_style_idea_is_stored_only_when_the_agent_answers_and_a_new_style_cannot_be_approved():
+    from governedgraph.admin import proposals as review
+
+    records = unanswered(8, state="objection_raised", channel="voice", mode="slower_pace", content=["C-001-v1.3"], decline="output_gate")
+    store, journeys, proposals = batch(records, {f"J-{index}.json": journey_blob(f"J-{index}") for index in range(8)})
+    kept = Container({f"questions/{item.response_id}.json": json.dumps({
+        "journey_id": item.journey_id, "response_id": item.response_id, "created_at": item.created_at,
+        "text": "Will my payment change?", "watermark": "ILLUSTRATIVE - synthetic data"}).encode() for item in records})
+    result = job(store, journeys, proposals, Container(), questions=kept, now=NOW)
+    assert result["new_revisions"] == len(improvement_store.read_proposals(proposals)[0])
+    assert not [item for item in improvement_store.read_proposals(proposals)[0] if item.kind == "strategy_gap"], "no agent, no style idea"
+    result = job(store, journeys, proposals, Container(), questions=kept, drafter=lambda request: STYLE_REPLY,
+                 drafter_label="gg-gap-review:4", now=NOW + timedelta(hours=1))
+    saved = next(item for item in improvement_store.read_proposals(proposals)[0] if item.kind == "strategy_gap")
+    assert saved.draft["suggested"]["pattern_id"] == "S3" and result["suggestions_drafted"] >= 1
+    assert "approve" in review.decisions_for(saved)
+    idea = {**STYLE_REPLY, "fit": "new", "name": "", "new_style_name": "Side by side view", "new_style_idea": "Shows two timelines."}
+    new = gap_review.sealed({**asdict(saved), "draft": {**saved.draft, "suggested": {
+        **gap_review.accept_style_suggestion(idea, gap_review.drafting_request(saved, [], {"decision_criteria": {"intent": {}}}),
+                                              "gg-gap-review:4")}}})
+    assert review.decisions_for(new) == {"acknowledge", "reject", "defer"}

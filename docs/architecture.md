@@ -479,7 +479,18 @@ a member's question, a claim list whenever there is text, and every figure in th
 The job does **not** vouch for the facts. An owner must verify each claim against an authoritative source and **record that
 source** before the console accepts an approval (the source goes into the immutable journal, and the publisher refuses an
 approval whose journal entry has no source). The suggestion is shown as not checked by a person, and nothing publishes
-without the owner's approval. A failed or rejected suggestion is dropped and the rules-only draft remains.
+without the owner's approval. A failed or rejected content suggestion is dropped and the idea stays without a draft.
+
+**Style gaps use the agent too.** Counting finds the gap (a situation where no style, or only one, can explain). The agent
+then reads the kept member questions, why answers were declined, the styles that can already explain there and every
+approved pattern. It returns the themes, why the current styles do not suit these questions, and a decision: `existing`
+(add a new style on this approved pattern, with a name) or `new` (no approved pattern fits; a described idea for people to
+build). `gap_review.accept_style_suggestion` admits it only if it names an approved pattern and holds no placeholder,
+steering, figure or copied question from a member. The scope (stage, channel, mode) always stays the gap situation, and the
+owner can edit it. An `existing` recommendation is approved through the same signed catalogue release as any style (B3, B8).
+A `new` idea can only be acknowledged, deferred or rejected, because the runtime can only use approved patterns. Without an
+agent answer a style idea is not offered at all; the nearest-pattern rule remains only as the scope scaffold the agent's
+choice is applied to.
 
 A declined interaction is an explanation question that ended in an advisor offer, or whose answer an answer
 review flagged. Interactions are grouped by closed situation (journey stage, topic, channel, accessibility mode,

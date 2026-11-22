@@ -2,8 +2,9 @@
 
 Runs under its own identity with read access to response records, journey state, kept declined questions and
 owner-approved passages, and write access to the proposal container only. It cannot sign, publish, change a catalogue or
-write an approval (B3, B4, B8). When a pinned drafting agent is configured, it also asks that agent for a grounded passage
-suggestion for each new content proposal; a failed or ungrounded suggestion is dropped and the rules-only draft remains.
+write an approval (B3, B4, B8). When a pinned drafting agent is configured, it also asks that agent for a passage
+suggestion for each new content proposal and for a reasoned style recommendation for each style gap. A failed suggestion
+is dropped: the content idea stays without a draft, and a style idea is not offered until the agent answers.
 
     python -m governedgraph.learning.gap_review_job
 """
@@ -77,8 +78,9 @@ def suggest(proposal, drafter, label: str, corpus, vocabulary):
     request = gap_review.drafting_request(proposal, corpus, vocabulary)
     if request is None:
         return proposal, False
+    accept = gap_review.accept_style_suggestion if proposal.kind == "strategy_gap" else gap_review.accept_suggestion
     try:
-        suggestion = gap_review.accept_suggestion(drafter(request), request, label)
+        suggestion = accept(drafter(request), request, label)
     except Exception as error:
         log.warning("gap_review_suggestion_dropped", extra={"proposal_id": proposal.proposal_id,
                                                            "error_type": type(error).__name__})
@@ -109,6 +111,8 @@ def run(*, records, journeys, proposals, approvals, catalogue, vocabulary, seed,
         if drafter is not None:
             proposal, attached = suggest(proposal, drafter, drafter_label, corpus, vocabulary)
             drafted += attached
+        if proposal.kind == "strategy_gap" and "suggested" not in proposal.draft:
+            continue  # a style idea is only offered with the AI's reasoning; the next batch asks again
         written += improvement_store.create_once(proposals, proposal.blob_name, proposal.encode())
     summary = {**summary, "proposals": len(found), "questions_read": len(kept), "suggestions_drafted": drafted}
     if not improvement_store.create_once(proposals, f"batches/{summary['batch_id']}.json",

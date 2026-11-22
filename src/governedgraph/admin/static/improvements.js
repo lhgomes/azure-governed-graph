@@ -40,7 +40,9 @@ window.AdminImprovements = {
     return {
       content_gap: "Write the missing passage, then approve it. It goes to the content publisher.",
       content_revision: "Edit the passage, then approve it. The new version replaces the old one when published.",
-      strategy_gap: "Check the proposed style, then approve it. It joins the next signed release.",
+      strategy_gap: row.draft.suggested?.fit === "new"
+        ? "No approved way of explaining fits. Acknowledge to record the idea for your team to build, or defer or reject it."
+        : "Check the proposed style, then approve it. It joins the next signed release.",
       false_negative_review: "Open an example journey in Conversations to judge the answers. Then acknowledge, defer or reject.",
     }[row.kind];
   },
@@ -117,7 +119,7 @@ window.AdminImprovements = {
       : "No approved passage matched these questions."));
     available.append(make("li", "The saved record does not say which style was tried before a draft was refused."));
     handled.append(available); context.append(handled);
-    if (idea && (idea.themes.length || idea.coverage.length)) {
+    if (idea && kind !== "strategy_gap" && (idea.themes.length || idea.coverage.length)) {
       const found = make("section"); found.append(make("h3", "What the AI noticed"));
       const list = make("ul", undefined, "plain");
       idea.themes.forEach((item) => list.append(make("li", `Members ask: ${item}`)));
@@ -149,11 +151,10 @@ window.AdminImprovements = {
     // Right: the thing the owner edits, and who proposed it.
     const byAi = Boolean(idea);
     const who = make("p", undefined, "proposed-by");
-    who.append(make("span", byAi ? "Proposed by AI" : "Proposed by rules, no AI", "badge " + (byAi ? "warn" : "good")),
-      make("span", byAi ? ` ${idea.agent} drafted this from the questions and the approved passages it was shown${(idea.context || []).length ? ` (${idea.context.join(", ")})` : ""}.`
-        : kind === "strategy_gap" ? " The nearest approved explanation pattern, widened to this situation."
-          : kind === "false_negative_review" ? " Counts from the saved records. Nothing is drafted."
-            : " No AI draft is available (the AI step was off, or its answer failed the checks). Write the passage yourself."));
+    who.append(make("span", byAi ? "Proposed by AI" : kind === "false_negative_review" ? "Found by counting" : "No AI draft", "badge " + (byAi ? "warn" : "good")),
+      make("span", byAi ? ` ${idea.agent} read the members' questions${kind === "strategy_gap" ? ", the styles that could explain and every approved pattern" : " and the approved passages it was shown"}${(idea.context || []).length ? ` (${idea.context.join(", ")})` : ""}.`
+        : kind === "false_negative_review" ? " Counts from the saved records. Nothing is drafted."
+          : " The AI step was off or its answer failed the checks. Write the passage yourself."));
     work.append(who);
     const form = make("form", undefined, "idea-form");
     work.append(form);
@@ -173,16 +174,30 @@ window.AdminImprovements = {
       parent.append(group); return () => inputs.filter((input) => input.checked).map((input) => input.value);
     };
     let collect = null;
-    if (kind === "strategy_gap") {
-      const base = (data.style_patterns || []).find((item) => item.strategy_id === draft.pattern_id);
+    if (kind === "strategy_gap" && idea) {
+      const reading = make("section", undefined, "claims");
+      reading.append(make("h3", "What the AI found"));
+      if (idea.themes.length) reading.append(make("p", `Members are asking about: ${idea.themes.join("; ")}.`));
+      reading.append(make("p", idea.why));
+      form.append(reading);
+      if (idea.fit === "new") {
+        const gap = make("div", undefined, "notice soft");
+        gap.append(make("strong", `No approved way of explaining fits. Idea: "${idea.new_style_name}"`), make("span", ` ${idea.new_style_idea}`),
+          make("span", " Building it needs a new explanation pattern, so it cannot be approved here. Acknowledge it to record it for your team."));
+        form.append(gap);
+      }
+    }
+    if (kind === "strategy_gap" && idea?.fit === "existing") {
+      const chosen = idea.pattern_id;
+      const base = (data.style_patterns || []).find((item) => item.strategy_id === chosen);
       const summary = make("div", undefined, "notice soft");
-      summary.append(make("strong", `A new style based on "${base?.name || draft.pattern_id}"`),
+      summary.append(make("strong", `Add a style based on "${base?.name || chosen}"`),
         make("span", ` ${base?.teach_back ? "It ends with a check-back question." : "It does not end with a check-back question."} It would be used at ${draft.eligible_journey_states.map(words).join(", ")}, over ${draft.channels.map(words).join(", ")}, for ${draft.accessibility_modes.map(words).join(", ")}. A style only changes how an answer is explained: the facts still come from approved passages and the member's official values.`));
       form.append(summary);
-      const name = field("Style name", make("input")); name.maxLength = 120; name.value = draft.name;
+      const name = field("Style name", make("input")); name.maxLength = 120; name.value = idea.name;
       const pattern = field("How it explains", make("select"));
       for (const item of data.style_patterns) { const option = make("option", item.name); option.value = item.strategy_id; pattern.append(option); }
-      pattern.value = draft.pattern_id;
+      pattern.value = chosen;
       const where = make("details", undefined, "technical"); where.append(make("summary", "Where it can be used"));
       form.append(where);
       const stages = chips("Journey stages", data.style_stages, draft.eligible_journey_states, where);
