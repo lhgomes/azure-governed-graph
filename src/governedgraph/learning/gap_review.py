@@ -8,7 +8,8 @@ Boundaries:
 - B4 (owner decision IMP-GAP-REVIEW-2): the inputs are the immutable response record (closed fields) and the member's
   declined question, kept briefly by ``explainability.declined_questions``. A few questions appear as examples inside a
   proposal and reach a drafting agent; nothing reaches a prompt, template, model or catalogue without an owner approving
-  a passage or style, and every drafted statement is grounded in approved passages or refused.
+  a passage or style. Drafted passages may add general facts, which require recorded owner source verification
+  before publication.
 - B7: the situation holds journey stage, topic, channel, accessibility mode and language only; no demographic field exists.
 - B3/B8: a proposal is inert. Strategy drafts reuse the approved pattern library through ``StyleChange``; a content
   suggestion is a draft the owner edits. Activation needs an owner decision (Tier 2) through the existing paths.

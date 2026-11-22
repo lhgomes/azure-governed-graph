@@ -8,8 +8,10 @@
     published/<document-id>-<language>.json   written once by the content publisher after indexing
     refused/<document-id>-<language>.json     written once by the content publisher when the live passage moved on
 
-Both containers are immutable stores, and every blob is written create-only. Owner decisions live in the console's
-immutable action journal; the publisher refuses an approval that has no matching journalled owner decision.
+Only `content-approvals` has storage-enforced WORM retention. `improvement-proposals` is lifecycle-expired and
+its records are created once per evidence revision but may be overwritten solely to redact expired member wording.
+Owner decisions live in the immutable console action journal; the publisher rejects approvals without a
+matching journalled owner decision.
 """
 from __future__ import annotations
 
