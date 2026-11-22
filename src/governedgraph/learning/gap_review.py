@@ -231,7 +231,9 @@ def validate_draft(kind: str, draft) -> dict:
     return draft
 
 
-SUGGESTION_FIELDS = {"title", "answers", "body", "sources", "gaps", "agent"}
+# title/answers/body: the draft. sources: approved passages it stayed consistent with. claims: every factual statement, figure
+# and date the owner must verify. gaps: what the owner must supply. themes/coverage: the analysis of the member questions.
+SUGGESTION_FIELDS = {"title", "answers", "body", "sources", "claims", "gaps", "themes", "coverage", "agent"}
 
 
 def validate_suggestion(value) -> dict:
@@ -241,8 +243,8 @@ def validate_suggestion(value) -> dict:
     _text(value["title"], 200)
     _text(value["answers"], 1000, allow_empty=True)
     _text(value["body"], 8000, allow_empty=True)
-    for key in ("sources", "gaps"):
-        if (not isinstance(value[key], list) or len(value[key]) > 10
+    for key in ("sources", "claims", "gaps", "themes", "coverage"):
+        if (not isinstance(value[key], list) or len(value[key]) > (30 if key == "claims" else 10)
                 or any(not isinstance(item, str) or not item.strip() or len(item) > 300 for item in value[key])):
             raise ContractError("invalid drafted suggestion lists")
     return value
@@ -393,12 +395,6 @@ def content_document(*, draft: dict, content: dict, corpus: list[ContentDocument
 
 # ----- drafting with an agent: closed request, grounded and bounded answer -----
 FIGURE = re.compile(r"\d+(?:[.,]\d+)*")
-# Numbers written as words are figures too. "one" and "een" are left out: they are ordinary articles.
-NUMBER_WORDS = frozenset(
-    "two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen "
-    "twenty thirty forty fifty sixty seventy eighty ninety hundred thousand million percent half double triple "
-    "twee drie vier vijf zes zeven acht negen tien elf twaalf dertien veertien vijftien zestien zeventien achttien negentien "
-    "twintig dertig veertig vijftig zestig zeventig tachtig negentig honderd duizend miljoen procent helft dubbel".split())
 # The shared steering check is narrow and covers one language; suggestions also get this wider two-language screen.
 STEERING_EXTRA = re.compile(
     r"\byou (?:should|ought to|must|need to|had better)\b|\bi (?:would )?(?:suggest|recommend|advise)\b|"
@@ -423,12 +419,7 @@ def drafting_request(proposal: Proposal, corpus: list[ContentDocument], vocabula
 
 
 def _figures(*texts: str) -> set[str]:
-    found = {token.replace(",", ".") for text in texts for token in FIGURE.findall(text)}
-    return found | {word for text in texts for word in re.findall(r"[a-zà-ÿ]+", text.lower()) if word in NUMBER_WORDS}
-
-
-def _sentences(text: str) -> list[str]:
-    return [item.strip() for item in re.split(r"(?<=[.!?;])\s+|\n+", text) if item.strip()]
+    return {token.replace(",", ".") for text in texts for token in FIGURE.findall(text)}
 
 
 def _words(text: str) -> set[str]:
@@ -440,39 +431,29 @@ def _shingles(text: str, size: int = 5) -> set[tuple[str, ...]]:
     return {tuple(words[index:index + size]) for index in range(len(words) - size + 1)}
 
 
-def _sentence_grounded(sentence: str, sources: list[str]) -> bool:
-    """A sentence holding a figure must be close to one source sentence that holds the same figures, not just any text."""
-    figures = _figures(sentence)
-    if not figures:
-        return True
-    mine = _words(sentence)
-    for source in sources:
-        for candidate in _sentences(source):
-            if figures <= _figures(candidate) and len(mine & _words(candidate)) >= 0.6 * len(mine):
-                return True
-    return False
-
-
 def accept_suggestion(raw, request: dict, agent: str) -> dict:
-    """Admit a drafted suggestion only if it is closed, rule-abiding and grounded; otherwise raise ContractError."""
+    """Admit a drafted suggestion only if it is closed, free of placeholders, steering and member carry-over, and lists
+    its claims. Facts and figures are the owner's to verify against a recorded source; this does not vouch for them."""
     if not isinstance(raw, dict) or set(raw) != SUGGESTION_FIELDS - {"agent"}:
         raise ContractError("the drafting agent returned an unexpected shape")
     suggestion = validate_suggestion({**raw, "agent": agent})
     passages = {item["id"]: item for item in request["approved_passages"]}
     if not set(suggestion["sources"]) <= set(passages):
         raise ContractError("the suggestion cites a passage it was not given")
-    written = (suggestion["title"], suggestion["answers"], suggestion["body"], *suggestion["gaps"])
+    written = (suggestion["title"], suggestion["answers"], suggestion["body"], *suggestion["claims"], *suggestion["gaps"])
     for text in written:
         if "{{" in text or "}}" in text or response_steers_choice(text) or STEERING_EXTRA.search(text):
             raise ContractError("a suggestion may not hold value placeholders or steer a choice")
-    texts = [item["body"] + " " + item["title"] for item in passages.values()]
-    if _figures(*written) - _figures(*texts):
-        raise ContractError("a suggestion may not contain a figure that no source passage contains")
-    if any(not _sentence_grounded(sentence, texts) for text in written for sentence in _sentences(text)):
-        raise ContractError("a sentence with a figure must stay close to a source sentence with the same figures")
-    if suggestion["body"].strip() and not suggestion["sources"]:
-        raise ContractError("a suggested passage must cite the approved passages it is grounded in")
-    if not suggestion["body"].strip() and not suggestion["gaps"]:
+    # A figure a member typed is that member's own value (B1/B2): it may not travel into content unless a passage has it.
+    carried = _figures(*request["member_questions"]) - _figures(*(item["body"] for item in passages.values()))
+    if carried & _figures(*written):
+        raise ContractError("a suggestion may not carry a figure from a member's question")
+    body = suggestion["body"].strip()
+    if body and not suggestion["claims"]:
+        raise ContractError("a drafted passage must list the claims the owner has to verify")
+    if _figures(body) - _figures(*suggestion["claims"]):
+        raise ContractError("every figure in a drafted passage must appear in a listed claim")
+    if not body and not suggestion["gaps"]:
         raise ContractError("a suggestion without text must say what the owner has to supply")
     copied = set().union(*(_shingles(text) for text in written))
     if any(_shingles(question) & copied for question in request["member_questions"]):

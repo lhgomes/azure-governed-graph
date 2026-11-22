@@ -254,7 +254,7 @@ def journal_of(*approvals):
     return Container({f"{item.decision_ref}/requested.json": json.dumps({
         "action_id": item.decision_ref, "action": "proposal_content_approve", "document_id": item.content.id,
         "content_name": item.name, "proposal": {"proposal_id": item.proposal_id, "evidence_digest": "0" * 64},
-        "status": "requested"}).encode() for item in approvals})
+        "source": "Fund regulations, article 12", "status": "requested"}).encode() for item in approvals})
 
 
 def two_approvals():
@@ -385,49 +385,54 @@ def passages(*items):
 
 
 GOOD = {"title": "Payment after the transition", "answers": "Does the monthly payment change? When does it start?",
-        "body": "The payment is described in the official letter. The period ends on 1 January 2028.",
-        "sources": ["C-001-v1.3"], "gaps": []}
+        "body": "The transition period ends on 1 January 2028. Payments continue as described in the official letter.",
+        "sources": ["C-001-v1.3"], "claims": ["The transition period ends on 1 January 2028."], "gaps": [],
+        "themes": ["Whether the payment changes"], "coverage": ["When the first changed payment arrives"]}
 
 
-def test_b2_a_suggestion_is_accepted_only_when_closed_grounded_and_free_of_new_figures():
+def test_b2_a_knowledge_based_draft_may_state_figures_but_must_list_them_and_never_carry_member_values():
     request = passages(("C-001-v1.3", "The transition period ends on 1 January 2028."))
     accepted = gap_review.accept_suggestion(GOOD, request, "gg-gap-review:3")
-    assert accepted["agent"] == "gg-gap-review:3" and accepted["sources"] == ["C-001-v1.3"]
+    assert accepted["agent"] == "gg-gap-review:3" and accepted["claims"]
+    new_figure = {**GOOD, "body": "The legal minimum is 5 years.", "claims": ["The legal minimum is 5 years."]}
+    assert gap_review.accept_suggestion(new_figure, request, "gg-gap-review:3")["body"]
     bad = {
-        "a new figure": {**GOOD, "body": "The payment rises by 4.5 percent."},
-        "a placeholder": {**GOOD, "body": "Your amount is {{value:capital}}."},
+        "a figure missing from the claims": {**GOOD, "body": "The legal minimum is 5 years.", "claims": ["Some other claim."]},
+        "text without claims": {**GOOD, "claims": []},
+        "a placeholder": {**GOOD, "body": "Your amount is {{value:capital}}.", "claims": ["Your amount is {{value:capital}}."]},
         "steering": {**GOOD, "body": "You should choose the new contract."},
-        "an uncited source": {**GOOD, "sources": ["C-999-v1.0"]},
-        "text without sources": {**GOOD, "sources": []},
+        "an unknown source": {**GOOD, "sources": ["C-999-v1.0"]},
         "a copied question": {**GOOD, "answers": "Will my payment change after the move? (0)"},
-        "no gaps for empty text": {**GOOD, "body": "", "sources": [], "gaps": []},
+        "no gaps for empty text": {**GOOD, "body": "", "claims": [], "gaps": []},
         "extra fields": {**GOOD, "member_ref": "M-1"},
     }
     for name, raw in bad.items():
         with pytest.raises(ContractError):
             gap_review.accept_suggestion(raw, request, "gg-gap-review:3")
-    owner_supplied = {**GOOD, "body": "", "sources": [], "gaps": ["The rule for the payment date, from the fund rules."]}
+    request["member_questions"] = ["My pension is 1,250 euros a month, will it change?"]
+    carried = {**GOOD, "body": "A pension of 1,250 euros stays the same.", "claims": ["A pension of 1,250 euros stays the same."]}
+    with pytest.raises(ContractError, match="member"):
+        gap_review.accept_suggestion(carried, request, "gg-gap-review:3")
+    owner_supplied = {**GOOD, "body": "", "claims": [], "gaps": ["The rule for the payment date."]}
     assert gap_review.accept_suggestion(owner_supplied, request, "gg-gap-review:3")["gaps"]
 
 
-def test_the_job_asks_the_agent_once_per_new_proposal_and_keeps_only_grounded_suggestions():
+def test_the_job_asks_the_agent_once_per_new_proposal_and_keeps_only_accepted_suggestions():
     records = unanswered(8, decline="output_gate")
     store, journeys, proposals = batch(records, {f"J-{index}.json": journey_blob(f"J-{index}") for index in range(8)})
     kept = Container({f"questions/{item.response_id}.json": json.dumps({
         "journey_id": item.journey_id, "response_id": item.response_id, "created_at": item.created_at,
-        "text": f"Will my payment change after the move? ({item.journey_id})", "watermark": "ILLUSTRATIVE - synthetic data"}).encode()
+        "text": "Will my payment change after the move?", "watermark": "ILLUSTRATIVE - synthetic data"}).encode()
         for item in records})
     requests = []
 
     def drafter(request):
         requests.append(request)
-        return {**GOOD, "sources": [request["approved_passages"][0]["id"]],
-                "body": request["approved_passages"][0]["body"]} if request["approved_passages"] else {**GOOD, "body": "The rate is 9 percent."}
+        return {**GOOD, "sources": [item["id"] for item in request["approved_passages"]]}
 
     result = job(store, journeys, proposals, Container(), questions=kept, drafter=drafter, drafter_label="gg-gap-review:3", now=NOW)
-    assert result["questions_read"] == 8 and len(requests) == 1
+    assert result["questions_read"] == 8 and len(requests) == 1 and requests[0]["member_questions"]
     (saved,), _ = improvement_store.read_proposals(proposals)
-    assert requests[0]["approved_passages"] and requests[0]["member_questions"]
     assert saved.kind == "content_gap" and saved.draft["suggested"]["agent"] == "gg-gap-review:3"
     assert result["suggestions_drafted"] == 1
     again = job(store, journeys, proposals, Container(), questions=kept, drafter=drafter, drafter_label="gg-gap-review:3",
@@ -470,24 +475,21 @@ def test_b3_b4_the_drafting_agent_is_pinned_tool_free_and_provisioned_as_its_own
     from scripts import create_agents
 
     plan = create_agents.provision(None, apply=False, role="gap-review")
-    assert plan["agent_name"] == "gg-gap-review" and plan["decision"] == "IMP-GAP-REVIEW-2" and "plan only" in plan["action"]
+    assert plan["agent_name"] == "gg-gap-review" and plan["decision"] == "IMP-GAP-REVIEW-3" and "plan only" in plan["action"]
     definition = gap_drafter.gap_review_definition("synthetic-model").as_dict()
     assert not definition.get("tools") and definition["text"]["format"]["strict"] is True
     assert set(definition["text"]["format"]["schema"]["properties"]) == gap_review.SUGGESTION_FIELDS - {"agent"}
-    for rule in ("Use ONLY facts", "never write a value placeholder", "no tools"):
+    for rule in ("Never write a value placeholder", "no tools", "figure a member typed", "EVERY factual statement"):
         assert rule.lower() in gap_drafter.GAP_REVIEW_INSTRUCTIONS.lower()
     with pytest.raises(ValueError):
         gap_drafter.GapDrafter(client=None, agent_version="latest")
     assert gap_drafter.GapDrafter(client=None, agent_version="3").label == "gg-gap-review:3"
 
 
-def test_b2_grounding_is_per_sentence_and_covers_number_words_dutch_steering_and_partial_copies():
-    request = passages(("C-001-v1.3", "The transition period ends on 1 January 2028. The minimum age is 65 for the pension."))
+def test_steering_in_either_language_and_partial_copies_of_a_question_are_rejected():
+    request = passages(("C-001-v1.3", "The transition period ends on 1 January 2028."))
     request["member_questions"] = ["Mijn buurman zegt dat mijn pensioen eind volgend jaar helemaal verandert, klopt dat?"]
     bad = {
-        "a number written as a word": {**GOOD, "body": "The period lasts twenty years."},
-        "a Dutch number word": {**GOOD, "body": "De periode duurt vijftig jaar."},
-        "a source figure in a new claim": {**GOOD, "body": "The maximum is 65 for the pension."},
         "Dutch steering": {**GOOD, "body": "U moet bezwaar maken."},
         "English steering": {**GOOD, "body": "You ought to wait."},
         "a copied part of a question in the title": {**GOOD, "title": "Mijn buurman zegt dat mijn pensioen verandert"},
@@ -496,9 +498,6 @@ def test_b2_grounding_is_per_sentence_and_covers_number_words_dutch_steering_and
     for name, raw in bad.items():
         with pytest.raises(ContractError):
             gap_review.accept_suggestion(raw, request, "gg-gap-review:3")
-    good = {**GOOD, "body": "The transition period ends on 1 January 2028. The minimum age is 65 for the pension.",
-            "title": "When the transition period ends"}
-    assert gap_review.accept_suggestion(good, request, "gg-gap-review:3")["title"] == "When the transition period ends"
 
 
 def test_b8_a_decision_is_bound_to_everything_the_owner_saw_including_a_suggestion():

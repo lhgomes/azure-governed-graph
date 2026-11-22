@@ -465,14 +465,21 @@ journeys). The container is not immutable, so an erasure request can be honoured
 drafting agent. Proposal blobs, which hold those examples, expire after 30 days too, and both lifecycle rules remove noncurrent versions. This text never feeds learning, ranking, prompts, templates, models
 or the catalogue; it reaches behaviour only through an owner approving a passage or style (B4 as amended by that decision).
 
-**Drafting agent.** `gg-gap-review` is a pinned, tool-free Foundry agent (`agents/gap_drafter.py`), called once for each
-new content proposal. It receives the situation, the example questions and the related approved passages, and returns a
-closed JSON suggestion: title, questions answered, passage text, the passages it used and what the owner must supply.
-The job admits a suggestion only if it passes `gap_review.accept_suggestion`: closed shape, only cited source passages, no
-placeholder, no steering, **no figure that no source passage contains**, no copied member question, and text only if
-sources are cited. A failed or ungrounded suggestion is dropped and the rules-only draft remains. If the facts are not in an approved
-passage, the agent returns an empty body and lists what the owner must supply. The suggestion is a draft the owner edits;
-it is labelled as not checked by a person, and nothing publishes without the owner's approval.
+**Drafting agent (IMP-GAP-REVIEW-3, owner decision).** `gg-gap-review` is a pinned, tool-free Foundry agent
+(`agents/gap_drafter.py`), called once for each new content proposal. It receives the situation, the example questions and
+the related approved passages, and does two things. It **analyses**: the themes in the questions and what the approved
+passages do not cover. It **drafts** a passage from its own knowledge, consistent with the existing passages, including
+general facts, figures and dates, and returns a closed JSON suggestion with the title, questions answered, passage text,
+the passages it stayed consistent with, **every claim it makes**, and what it was unsure of. This deliberately drops the
+earlier rule that every fact had to come from an approved passage: the passages cannot supply content that is missing.
+
+The job admits a suggestion only if it passes `gap_review.accept_suggestion`: closed shape, only passage ids it was given,
+no placeholder, no steering, no figure typed by a member (a member's own amounts are theirs, not content), no copied part of
+a member's question, a claim list whenever there is text, and every figure in the text appearing in a listed claim.
+The job does **not** vouch for the facts. An owner must verify each claim against an authoritative source and **record that
+source** before the console accepts an approval (the source goes into the immutable journal, and the publisher refuses an
+approval whose journal entry has no source). The suggestion is shown as not checked by a person, and nothing publishes
+without the owner's approval. A failed or rejected suggestion is dropped and the rules-only draft remains.
 
 A declined interaction is an explanation question that ended in an advisor offer, or whose answer an answer
 review flagged. Interactions are grouped by closed situation (journey stage, topic, channel, accessibility mode,

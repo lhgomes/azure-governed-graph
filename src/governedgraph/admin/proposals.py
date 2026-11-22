@@ -34,6 +34,7 @@ class ProposalDecision:
     reason: str
     confirmed: bool
     expected_revision: str = ""
+    source: str = ""
     content: dict | None = None
     style: dict | None = None
 
@@ -43,12 +44,13 @@ class ProposalDecision:
                 or self.decision not in {"approve", "reject", "defer", "acknowledge"}
                 or not isinstance(self.reason, str) or not 8 <= len(self.reason.strip()) <= 500
                 or self.confirmed is not True
+                or not isinstance(self.source, str) or len(self.source.strip()) > 300
                 or not isinstance(self.expected_revision, str)
                 or (self.expected_revision and not re.fullmatch(r"[a-f0-9]{64}", self.expected_revision))
                 or any(item is not None and not isinstance(item, dict) for item in (self.content, self.style))):
             raise ContractError("a confirmed decision, reason and the proposal revision shown are required")
-        if self.decision != "approve" and (self.content is not None or self.style is not None):
-            raise ContractError("only an approval carries content or style settings")
+        if self.decision != "approve" and (self.content is not None or self.style is not None or self.source):
+            raise ContractError("only an approval carries content, style settings or a source")
 
     @classmethod
     def from_dict(cls, payload: dict) -> ProposalDecision:

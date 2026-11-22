@@ -346,6 +346,8 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
                                            request, identity, CatalogueDecision, proposal=marker)
             if decision.style is not None or (decision.decision == "approve") == (decision.content is None):
                 raise HTTPException(400, "settings do not match the decision")
+            if decision.decision == "approve" and len(decision.source.strip()) < 8:
+                raise HTTPException(400, "record the source you verified the passage against (at least 8 characters)")
             approving = decision.decision == "approve"
             reference = ("GB-" if approving else "ADMIN-") + uuid4().hex
             record = {"action_id": reference, "actor": identity.actor, "reason": decision.reason.strip(),
@@ -359,7 +361,7 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
                 except ContractError as error:
                     raise HTTPException(400, str(error)) from error
                 approval = ContentApproval.for_document(document, reference, proposal.proposal_id)
-                record.update(content_name=approval.name, document_id=document.id)
+                record.update(content_name=approval.name, document_id=document.id, source=decision.source.strip())
             source.journal({**record, "status": "requested"})
             try:
                 if approval is not None:

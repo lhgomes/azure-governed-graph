@@ -129,7 +129,7 @@ def provision(project, *, apply: bool, role: str = "counsellor", agent_name: str
 
         model_deployment = gap_review_deployment()
         definition = gap_review_definition(model_deployment)
-        name, decision = GAP_REVIEW_AGENT_NAME, "IMP-GAP-REVIEW-2"
+        name, decision = GAP_REVIEW_AGENT_NAME, "IMP-GAP-REVIEW-3"
     elif role == "evaluation":
         model_deployment = "gpt-modern"
         definition = agent_definition(INSTRUCTIONS, model=model_deployment, reasoning_effort="none")

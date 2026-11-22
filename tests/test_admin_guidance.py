@@ -624,7 +624,8 @@ def test_an_ai_suggestion_is_labelled_unchecked_and_prefills_the_owners_editor(a
   run(`data.access.can_own = true;`);
   const row = run(`window.idea("content_gap", {action: "add", title: "Payment", language: "en", journey_states: ["first_contact"],
     answers: "q", related_content_ids: [], suggested: {title: "Drafted title", answers: "Does it change?", body: "Drafted passage.",
-    sources: ["C-001-v1.3"], gaps: ["The payment date rule."], agent: "gg-gap-review:3"}})`);
+    sources: ["C-001-v1.3"], claims: ["Payments continue after the transition."], gaps: ["The payment date rule."],
+    themes: ["Does the payment change"], coverage: ["First changed payment"], agent: "gg-gap-review:3"}})`);
   row.evidence.examples = ["Will my payment change?"];
   const target = document.createElement("div");
   context.window.AdminImprovements.mount(target, {row, data: run("data"), extra: {stages: ["*", "first_contact"], related: []},
@@ -632,6 +633,9 @@ def test_an_ai_suggestion_is_labelled_unchecked_and_prefills_the_owners_editor(a
   assert.match(target.textContent, /Will my payment change\?/);
   assert.match(target.textContent, /Drafted by an AI agent \(gg-gap-review:3\)\. Not checked by a person/);
   assert.match(target.textContent, /The payment date rule/);
+  assert.match(target.textContent, /Payments continue after the transition/);
+  assert.match(target.textContent, /Source you checked the passage against/);
+  assert.match(target.textContent, /Does the payment change/);
   const form = target.children[0].children.find((child) => child.tag === "form");
   assert.equal(form.querySelectorAll("input").find((input) => input.type !== "checkbox").value, "Drafted title");
   assert.equal(form.querySelectorAll("textarea")[1].value, "Drafted passage.");

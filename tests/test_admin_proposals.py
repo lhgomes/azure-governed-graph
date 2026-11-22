@@ -56,6 +56,9 @@ def decision(proposal, kind, **extra):
             "reason": "Synthetic owner decision", "confirmed": True, **extra}
 
 
+SOURCE = "Fund regulations, article 12, version 2026"
+
+
 def journal(directory):
     return read_lines(directory / "admin" / "actions.jsonl")
 
@@ -105,9 +108,14 @@ def test_b8_approved_content_is_handed_to_the_publisher_not_published_by_the_con
             "title": "Payment", "journey_states": ["*"], "answers": "", "body": body}))
         assert rejected.status_code == 400
     assert journal(directory) == [] and improvement_store.read_approvals(source.approvals) == []
+    no_source = decision(proposal, "approve", content={"title": "t", "journey_states": ["*"], "answers": "",
+                                                       "body": "Your payment is explained in your official letter."})
+    assert owner.post("/api/proposals/decision", json=no_source).status_code == 400
+    assert owner.post("/api/proposals/decision", json=no_source | {"source": "short"}).status_code == 400
+    assert journal(directory) == []
     content = {"title": "Will my payment change?", "journey_states": ["first_contact"],
                "answers": "Does my monthly payment change?", "body": "Your payment is explained in your official letter."}
-    response = owner.post("/api/proposals/decision", json=decision(proposal, "approve", content=content))
+    response = owner.post("/api/proposals/decision", json=decision(proposal, "approve", content=content, source=SOURCE))
     assert response.status_code == 200 and response.json()["status"] == "pending_publication"
     reference = response.json()["decision_ref"]
     assert reference.startswith("GB-")
@@ -122,7 +130,7 @@ def test_b8_approved_content_is_handed_to_the_publisher_not_published_by_the_con
     improvement_store.mark_published(source.approvals, approval, "job-1")
     source._cache = {}
     assert owner.get("/api/proposals").json()["proposals"][0]["status"]["code"] == "published"
-    assert owner.post("/api/proposals/decision", json=decision(proposal, "approve", content=content)).status_code == 409
+    assert owner.post("/api/proposals/decision", json=decision(proposal, "approve", content=content, source=SOURCE)).status_code == 409
 
 
 def test_b8_an_unfinished_approval_counts_only_if_its_effect_exists(desk, monkeypatch):
@@ -137,7 +145,7 @@ def test_b8_an_unfinished_approval_counts_only_if_its_effect_exists(desk, monkey
         raise AdminSourceError("ILLUSTRATIVE - synthetic storage outage")
 
     monkeypatch.setattr(source, "approve_content", outage)
-    response = owner.post("/api/proposals/decision", json=decision(proposal, "approve", content=content))
+    response = owner.post("/api/proposals/decision", json=decision(proposal, "approve", content=content, source=SOURCE))
     assert response.status_code == 503 and "uncertain" in response.json()["detail"]
     assert [row["status"] for row in journal(directory)] == ["requested", "uncertain"]
     assert owner.get("/api/proposals").json()["proposals"][0]["status"]["code"] == "open"
@@ -150,7 +158,7 @@ def test_b8_an_unfinished_approval_counts_only_if_its_effect_exists(desk, monkey
         original(row)
 
     monkeypatch.setattr(source, "journal", incomplete)
-    landed = owner.post("/api/proposals/decision", json=decision(proposal, "approve", content=content))
+    landed = owner.post("/api/proposals/decision", json=decision(proposal, "approve", content=content, source=SOURCE))
     assert landed.status_code == 503 and "may have applied" in landed.json()["detail"]
     monkeypatch.setattr(source, "journal", original)
     assert len(improvement_store.read_approvals(source.approvals)) == 1

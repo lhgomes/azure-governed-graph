@@ -134,6 +134,7 @@ def verify_decision(journal, approval: ContentApproval) -> None:
     proposal = row.get("proposal")
     if (row.get("action_id") != approval.decision_ref or row.get("action") != "proposal_content_approve"
             or row.get("document_id") != approval.content.id or row.get("content_name") != approval.name
+            or not isinstance(row.get("source"), str) or len(row["source"].strip()) < 8
             or not isinstance(proposal, dict) or proposal.get("proposal_id") != approval.proposal_id):
         raise PermissionError(f"approval {approval.decision_ref} does not match its journalled owner decision")
 

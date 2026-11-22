@@ -87,8 +87,10 @@ window.AdminImprovements = {
       if (idea) {
         const note = make("div", undefined, "notice");
         note.append(make("strong", `Drafted by an AI agent (${idea.agent}). Not checked by a person.`),
-          make("p", `It may use only these approved passages: ${idea.sources.join(", ") || "none"}. Read every statement and compare it with an approved source before you approve.`));
-        if (idea.gaps.length) note.append(make("p", `You need to supply: ${idea.gaps.join(" ")}`));
+          make("p", `It was written from the model's own knowledge${idea.sources.length ? ` and kept consistent with: ${idea.sources.join(", ")}` : ""}. Facts and figures may be wrong or out of date. You are the one who makes them true.`));
+        if (idea.themes.length) note.append(make("p", `What members are asking: ${idea.themes.join("; ")}`));
+        if (idea.coverage.length) note.append(make("p", `Not covered by the approved passages: ${idea.coverage.join("; ")}`));
+        if (idea.gaps.length) note.append(make("p", `The model left these out as uncertain: ${idea.gaps.join(" ")}`));
         form.append(note);
       }
       if (extra.base) {
@@ -102,9 +104,19 @@ window.AdminImprovements = {
       answers.value = idea?.answers || extra.base?.answers || draft.answers;
       const text = field("Passage", make("textarea")); text.rows = 8; text.maxLength = 8000;
       text.value = idea?.body || extra.base?.body || "";
+      if (idea?.claims.length) {
+        const claims = make("div", undefined, "notice");
+        claims.append(make("strong", "Check each of these against an authoritative source before you approve:"));
+        const list = make("ul"); idea.claims.forEach((claim) => list.append(make("li", claim))); claims.append(list);
+        form.append(claims);
+      }
+      const source = field("Source you checked the passage against (document or authority, required to approve)", make("input"));
+      source.maxLength = 300; source.placeholder = "For example: the fund's pension regulations, article and date";
       collect = () => {
         if (!title.value.trim() || !text.value.trim()) throw new Error("Give the passage a title and text before approving.");
-        return { content: { title: title.value.trim(), journey_states: stages(), answers: answers.value.trim(), body: text.value.trim() } };
+        if (source.value.trim().length < 8) throw new Error("Record the source you checked the passage against.");
+        return { source: source.value.trim(),
+          content: { title: title.value.trim(), journey_states: stages(), answers: answers.value.trim(), body: text.value.trim() } };
       };
     } else {
       form.append(make("p", "Acknowledging records that a person looked at examples. It changes no check. Changes to a check go through the technical owners.", "notice"));
@@ -113,7 +125,7 @@ window.AdminImprovements = {
     reason.required = true; reason.minLength = 8; reason.maxLength = 500; reason.rows = 3;
     const confirm = make("label", undefined, "checkbox");
     const tick = make("input"); tick.type = "checkbox"; tick.required = true;
-    confirm.append(tick, make("span", "I decide this as a human owner and have read what it does."));
+    confirm.append(tick, make("span", "I decide this as a human owner, have verified every claim against the source above, and have read what this does."));
     form.append(confirm);
     const error = make("p", undefined, "notice error"); error.hidden = true; error.setAttribute("role", "alert");
     const bar = make("div", undefined, "row-actions");
