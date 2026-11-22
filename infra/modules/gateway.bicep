@@ -220,6 +220,9 @@ var adminOperations = [
   { name: 'action', method: 'POST', path: '/api/actions', parameters: [] }
   { name: 'owner-action', method: 'POST', path: '/api/owner-actions', parameters: [] }
   { name: 'catalogue-action', method: 'POST', path: '/api/catalogue', parameters: [] }
+  { name: 'proposals', method: 'GET', path: '/api/proposals', parameters: [] }
+  { name: 'proposal', method: 'GET', path: '/api/proposals/{proposalId}', parameters: [ 'proposalId' ] }
+  { name: 'proposal-decision', method: 'POST', path: '/api/proposals/decision', parameters: [] }
 ]
 resource adminOps 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = [for op in adminOperations: if (deployAdminConsole) {
   parent: adminApi

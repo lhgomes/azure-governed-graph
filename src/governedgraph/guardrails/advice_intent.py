@@ -7,7 +7,7 @@ The generic English patterns below are the framework floor; a domain pack adds i
 language- and domain-specific patterns (catalogue/vocabulary_v1.json: advice_patterns).
 
 LocalAdviceClassifier is retained only as an offline evaluation baseline.
-Runtime interpretation belongs to the pinned contextual intent agent.
+Runtime interpretation belongs to the contextual intent agent.
 The independent output steering gate remains mandatory.
 """
 from __future__ import annotations

@@ -4,17 +4,17 @@ The standard pension WTP reference composition deploys the following services. O
 
 | Resource | Consumer/purpose |
 | --- | --- |
-| Foundry account and project | Model and agent execution |
+| Foundry account and project | Model and agent execution; optional `gg-gap-review` drafting agent for the daily gap review |
 | gpt-counsellor | Primary approved writer |
 | gpt-compact | Compact writer, fairness operator and optional persona |
 | embedding | Approved-content search vectorization |
 | configured Microsoft Decision 1.1 deployment | Direct intent, understanding and answer-review decisions |
 | Content Safety | Explicit Prompt Shields before inference |
 | AI Search | Approved-content grounding and indexing |
-| APIM | Governed member/strategy/admin APIs and pinned Responses |
-| Container Apps environment | Orchestrator, strategy, member values, optional admin/contact-centre and voice; bootstrap and scheduled P2 jobs |
+| APIM | Governed member/strategy/admin APIs and approved-agent Responses |
+| Container Apps environment | Orchestrator, strategy, member values, optional admin/contact-centre and voice; bootstrap, scheduled P2 and optional daily gap-review jobs |
 | Application ACR | Runtime, bootstrap, probe, P2 and fixture images |
-| Main storage | Explainability records, learning aggregates and optional immutable administration journal |
+| Main storage | Explainability records, learning aggregates, optional immutable administration journal, optional improvement proposals, kept declined questions (30-day expiry) and immutable content approvals |
 | Private content storage | Approved content, ranking state, journey state/inbox, learning audits, cohort zone, P2 artifacts/evidence and optional handovers |
 | Service Bus namespace | journey-events and escalations only |
 | Key Vault | Snapshot signing and verification, optional dev issuer key |
@@ -27,7 +27,7 @@ The standard agent provisioning set is gg-counsellor, gg-counsellor-voice-compac
 
 ## Workload permissions
 
-Retain distinct runtime, member-values, strategy, P2 pipeline, fairness and content-publisher identities. Each receives only relevant role assignments; the pipeline and fairness identities pull from the main ACR and access p2-artifacts. The pipeline reads learning-aggregates and learning-audits, writes evidence and signs only with the approved key. Fairness alone reads its restricted cohort zone and writes its audit; never grant it signing authority. Native job execution metadata remains readable at the job scope for pipeline monitoring and approved recovery.
+Retain distinct runtime, member-values, strategy, P2 pipeline, fairness and content-publisher identities; with the console, also the gap-review identity (reads response records and journey state, writes `improvement-proposals` only; the content publisher also verifies approvals against the journal). Each receives only relevant role assignments; the pipeline and fairness identities pull from the main ACR and access p2-artifacts. The pipeline reads learning-aggregates and learning-audits, writes evidence and signs only with the approved key. Fairness alone reads its restricted cohort zone and writes its audit; never grant it signing authority. Native job execution metadata remains readable at the job scope for pipeline monitoring and approved recovery.
 
 ## Fresh Azure validation
 

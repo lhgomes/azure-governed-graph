@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from urllib.request import urlopen
 
-from scripts.delivery import AGENT_NAMES, AGENT_ROLES, ROOT, Composition, DeliveryError, Runner, build, provision, run_job, save_json
+from scripts.delivery import ROOT, Composition, DeliveryError, Runner, build, provision, run_job, save_json
 from scripts.azd_env import EnvError, derived
 from scripts.deployment_target import new_target, read_inputs, same_scope, select_target
 from scripts.delivery_evidence import Evidence, admin_readiness, network_snapshot, readiness_observation, stage
@@ -94,11 +94,9 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
                 f"sign in as a user or supply operator_id explicitly. {error}"
             ) from None
     environment(runner, inputs, composition)
-    from scripts.bootstrap import agents, approve_search_link, persona_agent, release_approval, entra, initial_priors, member_public_jwk
-    from scripts.create_agents import provision as agent_plan
+    from scripts.bootstrap import agents, approve_search_link, gap_review_agent, persona_agent, release_approval, entra, initial_priors, member_public_jwk
 
-    plans = {role: agent_plan(None, apply=False, role=role, agent_name=AGENT_NAMES[role]) for role in AGENT_ROLES}
-    approval = release_approval(composition, plans)
+    approval = release_approval(composition)
     if catalogue_upgrade:
         from governedgraph.strategy_service.source_upgrade import load_upgrade
 
@@ -132,9 +130,10 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
                         "Have a tenant administrator review the corresponding Entra sign-in event, "
                         "then rerun from an approved sign-in context using the same resource group.")
         raise DeliveryError(f"Entra bootstrap failed: {error}.{guidance}") from None
-    pins, approval = agents(composition, foundation["ai"]["projectEndpoint"], subscription=inputs.subscription)
-    persona_version = (persona_agent(foundation["ai"]["projectEndpoint"], subscription=inputs.subscription)
-                       if inputs.voice_demo else "")
+    pins = agents(foundation["ai"]["projectEndpoint"], subscription=inputs.subscription)
+    if inputs.voice_demo:
+        persona_agent(foundation["ai"]["projectEndpoint"], subscription=inputs.subscription)
+    gap_review_agent(foundation["ai"]["projectEndpoint"], subscription=inputs.subscription)
     approve_search_link(runner, inputs, foundation)
     jobs = provision(runner, inputs, "infra/bootstrap.bicep", {
         "resourceGroupName": inputs.resource_group, "location": inputs.location, "foundation": foundation,
@@ -154,16 +153,15 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
         "orchestratorImage": images["runtime"]["image"], "strategyServiceImage": images["runtime"]["image"],
         "memberValuesImage": images["runtime"]["image"], "contactCentreImage": images["runtime"]["image"],
         "adminImage": images["runtime"]["image"], "p2ContainerImage": images["p2"]["image"],
-        "counsellorAgentVersion": pins["counsellor"]["agent_version"],
-        "voiceCompactAgentVersion": pins["voice-compact"]["agent_version"],
-        "writerApproval": approval,
-        "personaAgentVersion": persona_version,
+        "agentsPublished": True,
+        "personaAgentPublished": inputs.voice_demo,
+        "gapReviewAgentPublished": True,
         "memberTokenIssuer": ISSUER, "memberTokenPublicJwk": public_key, "onCallEmail": inputs.on_call_email,
         "deployVoiceDemo": inputs.voice_demo, "traceSyntheticConversations": inputs.voice_demo,
         "adminTraceLookup": inputs.voice_demo,
     }
     print("Deploying complete workloads...", flush=True)
-    stage(runner, "complete workloads", agent_pins={
+    stage(runner, "complete workloads", agents={
         role: {key: pin[key] for key in ("agent_name", "agent_version", "definition_sha256") if key in pin}
         for role, pin in pins.items()})
     outputs = provision(runner, inputs, composition.workload_template, {"configuration": workload})["deployment"]
@@ -172,9 +170,7 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
         print("Upgrading governed catalogue state...", flush=True)
         stage(runner, "signed catalogue upgrade")
         initial = initial_priors(runner, inputs, composition, foundation, images, catalogue_upgrade=True)
-    environment_values = {**outputs, **{AGENT_ROLES[role]: pin["agent_version"] for role, pin in pins.items()},
-                          **({"AZURE_AI_PERSONA_VERSION": persona_version} if persona_version else {}),
-                          "GOVERNEDGRAPH_WRITER_APPROVAL_JSON": json.dumps(approval),
+    environment_values = {**outputs,
                           "MEMBER_TOKEN_PUBLIC_JWK": json.dumps(public_key), "MEMBER_TOKEN_ISSUER": ISSUER,
                           "P2_CONTAINER_IMAGE": images["p2"]["image"], "DEV_FIXTURES_IMAGE": images["fixtures"]["image"],
                           "DEV_ISSUER_IMAGE": images["probe"]["image"],
@@ -194,7 +190,7 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
     readiness(runner, inputs, outputs)
     receipt = {"label": "ILLUSTRATIVE - synthetic data", "environment": inputs.environment,
                "subscription": inputs.subscription, "resource_group": inputs.resource_group, "naming_seed": inputs.naming_seed,
-               "images": images, "agent_pins": pins, "bootstrap": {"priors": initial, "executions": executions},
+               "images": images, "agents": pins, "bootstrap": {"priors": initial, "executions": executions},
                "outputs": outputs, "readiness": "passed", "evaluation": "not_run"}
     evidence = getattr(runner, "evidence", None)
     if evidence is not None:

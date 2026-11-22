@@ -7,7 +7,7 @@ from scripts import run_p2_container_jobs as p2
 
 IMAGE = "crmlsynthetic.azurecr.io/governedgraph/p2@sha256:" + "a" * 64
 VALUES = {"AZURE_AI_PROJECT_ENDPOINT": "https://synthetic.services.ai.azure.com/api/projects/p",
-          "AZURE_AI_FAIRNESS_AGENT_VERSION": "3", "FAIRNESS_CLIENT_ID": "00000000-0000-4000-8000-0000000000d1"}
+          "FAIRNESS_CLIENT_ID": "00000000-0000-4000-8000-0000000000d1"}
 
 
 def job():
@@ -33,19 +33,17 @@ def test_b6_b9_proof_runs_the_protective_agent_on_the_existing_fairness_job(monk
     assert body["image"] == IMAGE
     assert body["command"] == ["python", "-m", "governedgraph.agents.fairness_runtime", "--action", "audit"]
     env = {item["name"]: item["value"] for item in body["env"]}
-    assert env["AZURE_AI_FAIRNESS_AGENT_VERSION"] == "3" and env["GOVERNEDGRAPH_P2_ROLE"] == "fairness"
+    assert "AZURE_AI_FAIRNESS_AGENT_VERSION" not in env and env["GOVERNEDGRAPH_P2_ROLE"] == "fairness"
     assert env["FAIRNESS_MANAGED_IDENTITY_CLIENT_ID"] == env["AZURE_CLIENT_ID"] == VALUES["FAIRNESS_CLIENT_ID"]
     assert "SECRET_REFERENCE" not in env and "reinstate" not in json.dumps(body)
     assert json.loads(capsys.readouterr().out.splitlines()[-1]) == {"fairness_agent": "Succeeded", "execution": "execution-1"}
 
 
 @pytest.mark.parametrize("change", [
-    {"AZURE_AI_FAIRNESS_AGENT_VERSION": ""},
-    {"AZURE_AI_FAIRNESS_AGENT_VERSION": "latest"},
     {"AZURE_AI_PROJECT_ENDPOINT": ""},
     {"FAIRNESS_CLIENT_ID": ""},
 ])
-def test_b3_b6_proof_needs_a_pinned_agent_and_the_isolated_identity(monkeypatch, change):
+def test_b3_b6_proof_needs_the_project_and_the_isolated_identity(monkeypatch, change):
     monkeypatch.setattr(p2, "az_json", lambda *args: pytest.fail("must not start a job"))
     with pytest.raises(ValueError):
         p2.fairness_agent_proof(job(), IMAGE, {**VALUES, **change})

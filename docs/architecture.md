@@ -30,13 +30,17 @@ The sample's Transition Calculation, Event Processing and Adoption Guide agents
 are [design-depth contracts](../examples/pension_wtp/docs/agents-design-depth.md),
 not deployed administrator integrations.
 
+Deeper design pages: [conversation continuity](architecture-conversation-continuity.md),
+[catalogue versions and source upgrades](architecture-catalogue-operations.md) and
+[gap review](architecture-gap-review.md).
+
 ## Components
 
 | Component | Role and hosting |
 |---|---|
 | Chat and voice channels | Authenticated entry points through APIM; voice is an adapter to the same governed journey |
 | Orchestrator | Container App owning the state machine, authorization, audit barrier and durable outbox |
-| Counsellor | Version-pinned Microsoft Foundry prompt agent; writes explanations using official-value placeholders |
+| Counsellor | Microsoft Foundry prompt agent called by name, so its latest published version answers; writes explanations using official-value placeholders |
 | Intent, understanding and answer review | Closed semantic decisions via the pinned Microsoft Decision 1.1 deployment and SystemOne API; not hosted prompt agents |
 | Values facade | APIM-protected, read-only deterministic system-of-record API |
 | Approved retrieval | Azure AI Search over human-approved, versioned passages |
@@ -144,10 +148,16 @@ records or bypasses the host's gates.
 
 ### Agent and output contracts
 
-Foundry definitions are immutable and pinned by name and version. Runtime
-verifies the approved model, instructions and tools; it never creates agents,
-chooses `latest` or silently substitutes a model. Dependency versions are pinned
-in the [Azure requirements](../requirements-azure.txt).
+Foundry agent versions are immutable, but runtime calls each agent by name and
+the agent's latest version answers; there is no version pin and no runtime
+comparison of the definition. Delivery publishes a new version only when a
+definition changed (`scripts/create_agents.py`), so a prompt change needs no
+redeployment of the workloads. The model deployment is fixed in the agent
+definition, the gateway admits only the approved agent names and rejects any
+model, instruction, tool or text override, and runtime never creates agents.
+Prompt changes are controlled through the reviewed pull request and the
+authorized delivery pipeline. Dependency versions are pinned in the
+[Azure requirements](../requirements-azure.txt).
 
 Function requests execute only in journey-bound host tools. Model-supplied
 identity and member selectors are ignored; other arguments use closed schemas.
@@ -178,71 +188,12 @@ must not be described as completed until its durable effect is confirmed.
 
 ### Customer-scoped conversation continuity
 
-The authenticated, step-up-verified
-`MemberIdentity.member_ref`, namespaced by the configured trusted issuer and
-Foundry project, owns a durable Foundry conversation across turns,
-new contacts, channels and orchestrator restarts. A closed contact selector is
-not a memory reset. A new customer or absent earlier exchange gets no invented
-recollection. Each administrator test journey has a separate conversation;
-it neither reads nor updates ordinary customer history.
-
-Session start recovers the verified customer's conversation before releasing
-the audited greeting, using the same customer-before-journey lock order as a
-turn. Retained dialogue selects an approved returning greeting regardless of
-the contact selector. `second_contact` without retained dialogue selects an
-approved follow-up greeting that explicitly states the earlier conversation
-is unavailable; it does not create fictional history. New customers retain
-the existing first-contact greeting. Every variant includes the AI disclosure
-and human-help offer, and the disclosure version is recorded in the audit.
-The [closed channel start contract](../src/governedgraph/voice/voice_live_bridge.py)
-accepts only these approved greetings, not arbitrary text containing an AI label.
-Greetings neither replay historical text or figures nor append a customer turn.
-Recovery failures prevent greeting release; a busy customer produces the
-retryable conflict rather than an uncontextualized first-contact greeting.
-
-The [continuity adapter](../src/governedgraph/orchestrator/continuity.py) keeps
-only an opaque owner key, Foundry conversation ID and pending commit references
-under `customer-context/` in the existing `journey-state` container. Ordinary
-journey enumeration excludes that prefix. Customer leases serialize concurrent
-contacts; customer locks precede journey locks. A busy customer returns the
-existing retryable conflict, not a second concurrent model turn. Channel bodies
-and model tools cannot select customer or Foundry conversation identifiers.
-Non-step-up identities receive no persisted personal context.
-
-Only screened customer text paired with the final checked, audited answer
-committed for release is appended, never rejected drafts, internal decisions,
-tool outputs or withheld/escalated turns. A reference-only prepare journal is
-saved before the Foundry append. Recovery checks the durable journey request
-commit and flushes its existing audit/delivery outbox before accepting the pair;
-uncommitted appended items are removed before any later model invocation.
-Ambiguous appends are not blindly retried. Retention is the most recent **20
-completed turns**, not a time-based retention promise. Older Foundry context
-items are pruned on successful commit/recovery; cleanup failure prevents reuse
-and surfaces an error for retry. Immutable audit/event history is not deleted.
-A released reply is not proof of receipt, voice playback or comprehension.
-
-Prior dialogue is re-screened through Prompt Shields in provider-bounded batches.
-Historical numbers are masked before role-labelled dialogue is supplied as untrusted
-reference data to the Decision model (intent, understanding and answer review)
-and the writer. Current authorization, authoritative value reads, approved retrieval,
-signed ranking and all output gates still run. History never authorizes tools,
-restores an old journey state or becomes approved factual evidence. Demographic
-self-descriptions are not profile features and must not affect treatment.
-The [context contract](../src/governedgraph/agents/conversation_context.py) is
-closed; no demographic attribute or caller-selected identity is added.
-
-Inference remains behind APIM, with `store=false`; intra-answer tool rounds
-carry their inputs/outputs only in process memory. Accepted dialogue is retained
-through Foundry Conversations CRUD at the existing private project endpoint,
-using the existing runtime identity and permissions. This avoids automatically
-appending an unchecked model response to durable customer history.
-There is no new resource, grant, deployment mode, migration, bootstrap step or
-deployment-dependent repository check.
-
-Operational memory is not model training or modification of prompts, templates,
-models or catalogue: B4 continues to prohibit those transcript-driven changes.
-P2 still reads closed aggregates only, never Foundry conversation content.
-See [focused regression evidence and limits](evaluation.md#customer-scoped-conversation-continuity).
+The authenticated, step-up-verified customer owns a durable conversation across turns, new contacts, channels and
+restarts. Only screened customer text paired with the final checked, audited answer is retained, and the most recent
+20 completed turns are kept. History is re-screened, has numbers masked and is supplied as untrusted reference data.
+It never authorizes a tool, restores a journey state, becomes approved evidence or feeds learning. Session start
+recovers the context before the audited greeting. See
+[conversation continuity](architecture-conversation-continuity.md) for the full design.
 
 ## Durable state, audit and handover
 
@@ -292,52 +243,10 @@ The sample starts with six approved strategies:
 | S5 | Step-by-step explanation with teach-back |
 | S6 | Offer a human advisor; always available and never ranked |
 
-The source catalogue's S1-S5 version 1.1 adds `second_contact` eligibility without
-changing first-contact eligibility or template versions. Version 1.0 definitions
-remain available for historical evidence and verified predecessor selection
-during rolling delivery, not selection after upgrade. Separate
-second-contact expert priors emphasize focused teach-back and clarification;
-they never borrow first-contact outcomes. S6 remains unchanged and always
-available. The catalogue, expert baseline and revised counsellor instructions
-are a material change requiring reviewed Tier 2 delivery and newly verified
-signed snapshots before live activation (B3, B5, B8, B10). Updating source alone
-does not activate them or certify conversation quality.
-
-Delivery's shared Foundry project client uses a certificate-verified P-256
-transport, because hybrid key-share offers from some OpenSSL builds can be
-closed before HTTP. Certificate checks are never disabled and TLS is never
-downgraded. Selected-tenant credentials and approved immutable writer pins are
-unchanged. Request/response transport failures become explicit delivery errors
-so both delivery entrypoints finalize failed-stage evidence rather than leave a
-running receipt. No identity, grant, network path or runtime fallback is added.
-
-Sample catalogue and priors explicitly cover every catalogue-eligible combination
-of explanation intent, journey stage, channel and accessibility mode. New
-contexts use the approved default order, except second-contact contexts use the
-focused second-contact order; eligibility filters apply before signing. The
-signed snapshots, not an unsigned runtime default, authorize treatment. The same
-complete priors seed P2 and the control arm, and regression coverage checks all
-supported contexts. An upgrade that adds coverage archives prior state and resets
-live ordering to the approved baseline; protective suspensions and pauses remain
-effective.
-
-Source-pack upgrades use an explicit reviewed predecessor pack and exact target
-hashes in [source_upgrade_v1.json](../examples/pension_wtp/data/catalogue/source_upgrade_v1.json).
-They are a separate existing-target operation through
-[`scripts.upgrade_catalogue`](../scripts/upgrade_catalogue.py), not part of normal
-deployment. Normal deployment initializes expert priors before workloads and
-does not load or sign upgrade metadata. Empty state and snapshots matching the
-running catalogue do not depend on old upgrade files, even for future fresh
-catalogue versions. The exceptional upgrade alone rolls out compatible workloads
-before state activation. The existing P2 signing
-identity signs the human-approved plan and target expert baseline; the separate
-Strategy Service initializer verifies both and archives the entire old signed
-state before an ETag-conditional manifest update. New versions use their approved
-expert priors, never old-version learned ordering. Suspensions and owner pauses
-survive unchanged. Frozen state, pending or widening owner decisions and
-owner-managed catalogues block this source-pack upgrade. Immutable history is
-retained; no permission, schema-field, unfreeze or reinstatement bypass is added.
-See [explicit upgrades](deploying.md#explicit-source-catalogue-upgrade).
+Catalogue versions, complete expert priors for every eligible context and reviewed source-pack upgrades are
+described in [catalogue versions and source upgrades](architecture-catalogue-operations.md). Updating the source
+catalogue alone never activates it: activation is a reviewed Tier 2 delivery with newly verified signed snapshots
+(B3, B5, B8, B10).
 
 The Strategy Service verifies signatures and active catalogue versions on read,
 startup and rollback. Immutable current, last-good and static snapshots are
@@ -441,6 +350,15 @@ Each retrieval replaces prior passage context so later turns do not reuse retire
 cached material. Accessibility selects approved retrieval language and presentation,
 not a demographic inference or automatic translation permission.
 
+## Gap review
+
+A daily job reviews declined interactions and proposes missing approved content and explanation styles to the
+administration console. A tool-free drafting agent analyses the kept questions and drafts a passage or
+recommends a style. Every output is checked in code, and an owner decides in the console. Approved styles go
+through the signed catalogue release and approved passages through the content publisher. Nothing it proposes
+goes live by itself. This is the one governed exception to B4, because kept member questions inform proposals for
+people only. See [gap review](architecture-gap-review.md).
+
 ## Governed speech channel
 
 Voice is a transport adapter, not a second counsellor. It uses the same
@@ -508,10 +426,10 @@ Guidance-not-advice and opening AI disclosure apply across the runtime.
 | B1: deterministic authority | [Values tools](../src/governedgraph/agents/tools.py), [history number masking](../src/governedgraph/agents/conversation_context.py), [sample facade](../examples/pension_wtp/member_values_api) | [Values facade](../tests/test_member_values_facade.py), [customer continuity](../tests/test_customer_continuity.py) |
 | B2: no AI calculations | [Placeholder binding](../src/governedgraph/guardrails/binding.py), [numeric fidelity](../src/governedgraph/guardrails/numeric_fidelity.py) | [Numeric fidelity](../tests/test_numeric_fidelity.py), [Foundry output](../tests/test_foundry_counsellor.py) |
 | B3: approved strategies only | [Strategy Service](../src/governedgraph/strategy_service/service.py), [source upgrades](../src/governedgraph/strategy_service/source_upgrade.py), [host tools](../src/governedgraph/agents/tools.py) | [Signed Azure state](../tests/test_strategy_azure.py), [catalogue publication](../tests/test_foundry_publication.py), [upgrade gates](../tests/test_bootstrap.py) |
-| B4: no conversation-to-behavior path | [Closed aggregates](../src/governedgraph/common/contracts.py), [feedback projection](../src/governedgraph/learning/feedback.py) | [Ranking inputs](../tests/test_ranking_bounds.py), [learning feedback](../tests/test_learning_feedback.py) |
+| B4: no conversation-to-behavior path | [Closed aggregates](../src/governedgraph/common/contracts.py), [feedback projection](../src/governedgraph/learning/feedback.py), [gap review](../src/governedgraph/learning/gap_review.py) | [Ranking inputs](../tests/test_ranking_bounds.py), [learning feedback](../tests/test_learning_feedback.py), [gap review](../tests/test_gap_review.py) |
 | B5: bounded reorder-only learning | [Ranking pipeline](../src/governedgraph/learning/ranking_pipeline.py) | [Ranking bounds](../tests/test_ranking_bounds.py) |
 | B6: fairness veto for everyone | [Fairness agent](../src/governedgraph/agents/fairness_explainability.py), [read-time overlays](../src/governedgraph/strategy_service/service.py) | [Fairness veto](../tests/test_fairness_veto.py), [Azure overlays](../tests/test_strategy_azure.py) |
 | B7: no runtime demographics | [Closed contracts](../src/governedgraph/common/contracts.py), [customer context boundary](../src/governedgraph/orchestrator/continuity.py), [APIM policy](../infra/policies/strategy-request.xml) | [Demographic rejection](../tests/test_contracts_no_demographics.py), [customer isolation](../tests/test_customer_continuity.py) |
-| B8: human material-change approval | [Tier routing](../src/governedgraph/learning/run_cycle.py), [assurance committee](../src/governedgraph/learning/assurance_committee.py), [Strategy Service](../src/governedgraph/strategy_service/service.py), [signed source upgrade](../src/governedgraph/strategy_service/bootstrap.py) | [Reinstatement](../tests/test_strategy_service.py), [owner decisions](../tests/test_admin_owners.py), [writer approval](../tests/test_writer_approval.py), [upgrade gates](../tests/test_bootstrap.py) |
+| B8: human material-change approval | [Tier routing](../src/governedgraph/learning/run_cycle.py), [assurance committee](../src/governedgraph/learning/assurance_committee.py), [Strategy Service](../src/governedgraph/strategy_service/service.py), [signed source upgrade](../src/governedgraph/strategy_service/bootstrap.py), [proposal decisions](../src/governedgraph/admin/proposals.py) | [Proposal decisions](../tests/test_admin_proposals.py), [Reinstatement](../tests/test_strategy_service.py), [owner decisions](../tests/test_admin_owners.py), [upgrade gates](../tests/test_bootstrap.py) |
 | B9: human help always available | [State machine](../src/governedgraph/orchestrator/state_machine.py), [escalation tools](../src/governedgraph/agents/tools.py), [closed intent routing](../src/governedgraph/agents/decision_agents.py) | [Every-state escalation](../tests/test_state_machine.py), [durable handover](../tests/test_durable_orchestrator.py), [Decision model checks](../tests/test_decision_agents.py) |
 | B10: continuous governed control | [Arm assignment](../src/governedgraph/strategy_service/service.py), [uplift kill switch](../src/governedgraph/learning/uplift.py) | [Uplift](../tests/test_uplift_and_design_agents.py), [signed static rollback](../tests/test_governed_static_contracts.py) |

@@ -21,7 +21,7 @@ def warm_runtime() -> None:
         try:
             FoundryComposer.shared(INSTRUCTIONS)
         except FoundryUnavailable as error:
-            raise VoiceError("warm-up pinned agent unavailable") from error
+            raise VoiceError("warm-up agent unavailable") from error
         screen = AzurePromptShields(settings.content_safety_endpoint)
         screen.journey_id = correlation_id
         demo = domain.demo()

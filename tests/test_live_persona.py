@@ -68,14 +68,14 @@ def test_every_sample_persona_has_a_valid_live_card_without_demographic_attribut
 def test_b3_the_opening_is_fixed_and_only_later_turns_call_the_agent():
     client = Mock()
     client.responses.create.return_value = answer("Could you say that more simply?")
-    actor = LivePersona(card(), client=client, agent_version="1")
+    actor = LivePersona(card(), client=client)
 
     first = asyncio.run(actor.next_turn(""))
     assert first == PersonaTurn("Explain the letter.") and not client.responses.create.called
     second = asyncio.run(actor.next_turn("The letter explains the conversion of your rights."))
     assert second == PersonaTurn("Could you say that more simply?")
     inputs = client.responses.create.call_args.kwargs
-    assert inputs["store"] is False and inputs["extra_body"]["agent_reference"]["version"] == "1"
+    assert inputs["store"] is False and inputs["extra_body"]["agent_reference"] == {"type": "agent_reference", "name": "gg-persona-demo"}
     payload = json.loads(inputs["input"][0]["content"])
     assert set(payload) == {"persona_card", "you_opened_with", "guide_replied", "turns_remaining"}
     assert payload["guide_replied"] == "The letter explains the conversion of your rights."
@@ -88,7 +88,7 @@ def test_b3_the_opening_is_fixed_and_only_later_turns_call_the_agent():
 def test_persona_always_concludes_at_the_turn_limit_even_if_the_agent_does_not():
     client = Mock()
     client.responses.create.return_value = answer("One more question.", done=False)
-    actor = LivePersona(card(max_turns=3), client=client, agent_version="1")
+    actor = LivePersona(card(max_turns=3), client=client)
     turns = [asyncio.run(actor.next_turn("Reply.")) for _ in range(3)]
     assert [turn.done for turn in turns] == [False, False, True]
 
@@ -101,7 +101,7 @@ def test_persona_output_contract_is_closed(output_text):
     client = Mock()
     client.responses.create.return_value = SimpleNamespace(
         status="completed", output_text=output_text, output=[SimpleNamespace(type="message")])
-    actor = LivePersona(card(), client=client, agent_version="1")
+    actor = LivePersona(card(), client=client)
     asyncio.run(actor.next_turn(""))
     with pytest.raises(ContractError):
         asyncio.run(actor.next_turn("Reply."))
@@ -109,7 +109,7 @@ def test_persona_output_contract_is_closed(output_text):
 
 def test_persona_failures_are_reported_not_substituted_with_invented_replies(fake_openai):
     client = Mock()
-    actor = LivePersona(card(), client=client, agent_version="1")
+    actor = LivePersona(card(), client=client)
     asyncio.run(actor.next_turn(""))
     client.responses.create.side_effect = fake_openai("content_filter")
     with pytest.raises(PersonaBlocked):
@@ -251,7 +251,7 @@ def test_sample_workload_template_passes_the_persona_settings_to_the_framework_t
     from pathlib import Path
 
     wrapper = (Path(__file__).resolve().parents[1] / "examples/pension_wtp/infra/workloads.bicep").read_text()
-    for name in ("deployVoicePersona", "personaAgentVersion"):
+    for name in ("deployVoicePersona", "personaAgentPublished"):
         assert f"{name}: configuration.{name}" in wrapper
 
 
@@ -282,7 +282,6 @@ def azure_clients(monkeypatch):
     monkeypatch.setattr(live_persona, "settings", SimpleNamespace(project_endpoint="https://project.invalid",
                                                                   compact_deployment="gpt-compact"))
     monkeypatch.setenv("AZURE_PERSONA_CLIENT_ID", "persona-client")
-    monkeypatch.setenv("AZURE_AI_PERSONA_VERSION", "1")
     return seen
 
 
@@ -292,10 +291,10 @@ def test_persona_uses_only_its_own_agent_endpoint_under_its_own_identity(azure_c
     actor = connect_live_persona(card())
     assert azure_clients["cred"] == {"client_id": "persona-client"}
     assert azure_clients["openai"]["agent_name"] == "gg-persona-demo" and azure_clients["project"]["allow_preview"]
-    assert actor.agent_version == "1"
+    assert actor.agent_name == "gg-persona-demo"
 
 
-@pytest.mark.parametrize("missing", ["AZURE_PERSONA_CLIENT_ID", "AZURE_AI_PERSONA_VERSION"])
+@pytest.mark.parametrize("missing", ["AZURE_PERSONA_CLIENT_ID"])
 def test_unconfigured_persona_fails_closed(azure_clients, monkeypatch, missing):
     from governedgraph.agents.live_persona import connect_live_persona
 

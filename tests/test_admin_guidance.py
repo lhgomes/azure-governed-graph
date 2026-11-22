@@ -146,6 +146,7 @@ const context = vm.createContext({
 vm.runInContext(fs.readFileSync(process.argv[1] + "/guide.js", "utf8"), context);
 vm.runInContext(fs.readFileSync(process.argv[1] + "/testing.js", "utf8"), context);
 vm.runInContext(fs.readFileSync(process.argv[1] + "/catalogue.js", "utf8"), context);
+vm.runInContext(fs.readFileSync(process.argv[1] + "/improvements.js", "utf8"), context);
 vm.runInContext(fs.readFileSync(process.argv[1] + "/admin.js", "utf8"), context);
 const run = (script) => vm.runInContext(script, context);
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -539,4 +540,163 @@ assert.equal(run("activityRows()[0].status"), "Override active");
 run("data.state.owner_overrides = []");
 assert.equal(run("activityRows()[0].status"), "No longer in force");
 assert.equal(run("data.actions[0].status"), "pending_signature");
+""")
+
+
+IDEA = r"""
+run(`
+window.idea = (kind, draft, status = "open") => ({
+  proposal_id: "GP-" + "a".repeat(24), evidence_digest: "b".repeat(64), content_digest: "c".repeat(64), batch_id: "GRB-20261122T060000Z", kind,
+  rationale: "Six declined answers from five journeys.", draft, status: {code: status, label: "Open: waiting for an owner"},
+  allowed_decisions: kind === "false_negative_review" ? ["acknowledge", "defer", "reject"] : ["approve", "defer", "reject"],
+  situation: {topic: "payment_continuity", journey_state: "first_contact", channel: "chat"}, created_at: "2026-11-22T06:00:00+00:00",
+  evidence: {declined: 6, journeys: 5, unanswered: 6, review_flagged: 0, escalated: 0, content_retrieved_share: 0,
+    eligible_styles: ["S1"], review_issues: {}, content_versions: {}, sample_journey_ids: ["J-1"],
+    window_start: "a", window_end: "b", cases: []},
+});
+`);
+"""
+
+
+def test_an_owner_approves_a_proposed_style_from_its_details_and_a_reader_sees_no_form(admin_browser):
+    admin_browser(IDEA + r"""
+(async () => {
+  run(`
+    data.access.can_own = true; data.revision = "a".repeat(64);
+    data.style_patterns = [{strategy_id: "S3", name: "Visual explanation"}];
+    data.style_stages = ["first_contact", "values_reviewed"]; data.style_channels = ["chat", "voice"];
+    data.style_accessibility_modes = ["standard"];
+    window.posts = []; window.saved = [];
+  `);
+  const row = run(`window.idea("strategy_gap", {action: "add", name: "Rules scaffold", pattern_id: "S1",
+    eligible_journey_states: ["first_contact"], channels: ["chat"], accessibility_modes: ["standard"],
+    suggested: {fit: "existing", pattern_id: "S3", name: "Proposed style", why: "Members want a picture of the timeline.",
+      themes: ["When the change starts"], new_style_name: "", new_style_idea: "", agent: "gg-gap-review:3", context: ["S1"]}})`);
+  const target = document.createElement("div");
+  context.window.AdminImprovements.mount(target, {row, extra: {}, data: run("data"),
+    api: async (path, payload) => { context.window.posts.push({path, payload}); return {decision_ref: "GB-1", status: "pending_signature"}; },
+    saved: async (result, decision) => { context.window.saved.push(decision); }});
+  const form = target.querySelectorAll("form")[0];
+  const buttons = form.querySelectorAll("button");
+  assert.deepEqual(buttons.map((button) => button.textContent), ["Approve style", "Defer", "Reject"]);
+  assert.match(target.textContent, /Proposed by AI/);
+  assert.match(form.textContent, /Members want a picture of the timeline/);
+  assert.equal(form.querySelectorAll("input").filter((input) => input.type === "checkbox" && input.required).length, 0,
+    "clicking Approve is the approval; there is no separate confirmation box");
+  await buttons[0].listeners.click();
+  const posted = plain(context.window.posts[0]);
+  assert.equal(posted.path, "/api/proposals/decision");
+  assert.equal(posted.payload.decision, "approve");
+  assert.equal(posted.payload.confirmed, true);
+  assert.equal(posted.payload.reason, "Approved by owner.");
+  assert.equal(posted.payload.expected_revision, "a".repeat(64));
+  assert.deepEqual(posted.payload.style, {name: "Proposed style", pattern_id: "S3",
+    eligible_journey_states: ["first_contact"], channels: ["chat"], accessibility_modes: ["standard"]});
+  assert.deepEqual(plain(context.window.saved), ["approve"]);
+  const idea = run(`window.idea("strategy_gap", {action: "add", name: "Rules scaffold", pattern_id: "S1",
+    eligible_journey_states: ["first_contact"], channels: ["chat"], accessibility_modes: ["standard"],
+    suggested: {fit: "new", pattern_id: "S1", name: "", why: "No pattern shows both options side by side.",
+      themes: ["Comparing the timelines"], new_style_name: "Side by side view", new_style_idea: "Shows two timelines together.",
+      agent: "gg-gap-review:3", context: ["S1"]}})`);
+  idea.allowed_decisions = ["acknowledge", "defer", "reject"];
+  const gap = document.createElement("div");
+  context.window.AdminImprovements.mount(gap, {row: idea, extra: {}, data: run("data"), api() {}, saved() {}});
+  assert.deepEqual(gap.querySelectorAll("button").map((button) => button.textContent), ["Acknowledge", "Defer", "Reject"]);
+  assert.match(gap.textContent, /Side by side view/);
+  assert.match(gap.textContent, /cannot be approved here/);
+  run("data.access.can_own = false");
+  const readOnly = document.createElement("div");
+  context.window.AdminImprovements.mount(readOnly, {row, extra: {}, data: run("data"), api() {}, saved() {}});
+  assert.equal(readOnly.querySelectorAll("form").length, 0);
+  assert.match(readOnly.textContent, /Only an owner can decide/);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+""")
+
+
+def test_a_content_proposal_asks_for_a_passage_only_when_approving_and_rejection_needs_none(admin_browser):
+    admin_browser(IDEA + r"""
+(async () => {
+  run(`data.access.can_own = true; window.posts = [];`);
+  const row = run(`window.idea("content_gap", {action: "add", title: "Payment continuity", language: "en",
+    journey_states: ["first_contact"], answers: "Questions about payments", related_content_ids: []})`);
+  const target = document.createElement("div");
+  context.window.AdminImprovements.mount(target, {row, data: run("data"), extra: {stages: ["*", "first_contact"], related: []},
+    api: async (path, payload) => { context.window.posts.push(payload); return {decision_ref: "GB-1", status: "applied"}; },
+    saved: async () => {}});
+  const form = target.querySelectorAll("form")[0];
+  const [approve, defer, reject] = form.querySelectorAll("button");
+  await reject.listeners.click();
+  assert.equal(context.window.posts.length, 0, "rejecting needs a short reason");
+  assert.match(form.textContent, /Add a short reason/);
+  form.querySelectorAll("input").find((input) => (input.placeholder || "").startsWith("Reason")).value = "ILLUSTRATIVE - owner rejects this idea.";
+  await reject.listeners.click();
+  assert.equal(context.window.posts[0].decision, "reject");
+  assert.equal(context.window.posts[0].content, undefined);
+  await approve.listeners.click();
+  assert.equal(context.window.posts.length, 1, "approving without a passage must not post");
+  assert.match(form.textContent, /Give the passage a title and text/);
+  form.querySelectorAll("textarea")[0].value = "A passage";
+  form.querySelectorAll("input").find((input) => input.maxLength === 200).value = "A title";
+  await approve.listeners.click();
+  assert.equal(context.window.posts.length, 1, "approving a passage needs a recorded source");
+  assert.match(form.textContent, /Record the source/);
+  form.querySelectorAll("input").find((input) => input.maxLength === 300).value = "Fund regulations, article 12";
+  await approve.listeners.click();
+  assert.equal(context.window.posts[1].source, "Fund regulations, article 12");
+  assert.equal(context.window.posts[1].confirmed, true);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+""")
+
+
+def test_a_counted_review_idea_shows_its_next_step_once(admin_browser):
+    admin_browser(IDEA + r"""
+(async () => {
+  run(`data.access.can_own = true;`);
+  const row = run(`window.idea("false_negative_review", {})`);
+  const target = document.createElement("div");
+  context.window.AdminImprovements.mount(target, {row, data: run("data"), extra: {stages: [], related: []},
+    api: async () => ({}), saved: async () => {}});
+  const hint = "Open an example journey in Conversations to judge the answers. Then acknowledge, defer or reject.";
+  assert.equal(target.textContent.split(hint).length - 1, 1);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+""")
+
+
+def test_an_ai_suggestion_is_labelled_unchecked_and_prefills_the_owners_editor(admin_browser):
+    admin_browser(IDEA + r"""
+(async () => {
+  run(`data.access.can_own = true;`);
+  const row = run(`window.idea("content_gap", {action: "add", title: "Payment", language: "en", journey_states: ["first_contact"],
+    answers: "q", related_content_ids: [], suggested: {title: "Drafted title", answers: "Does it change?", body: "Drafted passage.",
+    sources: ["C-001-v1.3"], claims: ["Payments continue after the transition."], gaps: ["The payment date rule."],
+    themes: ["Does the payment change"], coverage: ["First changed payment"], agent: "gg-gap-review:3"}})`);
+  row.evidence.cases = [{journey_id: "J-1", created_at: "2026-11-22T06:00:00+00:00", outcome: "unanswered",
+    decline_reason: "output_gate", review_issues: [], passages: [], question: "Will my payment change?"},
+    {journey_id: "J-2", created_at: "2026-11-22T05:00:00+00:00", outcome: "review_flagged", decline_reason: "",
+    review_issues: ["grounding"], passages: ["C-001-v1.3"], question: ""}];
+  context.window.opened = [];
+  const target = document.createElement("div");
+  context.window.AdminImprovements.mount(target, {row, data: run("data"), extra: {stages: ["*", "first_contact"], related: []},
+    api: async () => ({}), saved: async () => {}, openJourney: (id) => context.window.opened.push(id)});
+  assert.match(target.textContent, /Will my payment change\?/);
+  assert.match(target.textContent, /Not answered/);
+  assert.match(target.textContent, /A safety check blocked the draft answer/);
+  assert.match(target.textContent, /No approved passage was found/);
+  assert.match(target.textContent, /Answered, but flagged/);
+  assert.match(target.textContent, /not based on the approved passage/);
+  assert.match(target.textContent, /Approved passages found: C-001-v1\.3/);
+  assert.match(target.textContent, /Proposed by AI/);
+  assert.match(target.textContent, /What was available/);
+  target.querySelectorAll("button").find((button) => button.textContent === "J-2").listeners.click();
+  assert.deepEqual(plain(context.window.opened), ["J-2"]);
+  assert.match(target.textContent, /Drafted by AI\. Nobody has checked it yet/);
+  assert.match(target.textContent, /The payment date rule/);
+  assert.match(target.textContent, /Payments continue after the transition/);
+  assert.match(target.textContent, /Source you checked against/);
+  assert.match(target.textContent, /Members ask: Does the payment change/);
+  assert.match(target.textContent, /Not yet covered: First changed payment/);
+  const form = target.querySelectorAll("form")[0];
+  assert.equal(form.querySelectorAll("input").find((input) => input.maxLength === 200).value, "Drafted title");
+  assert.equal(form.querySelectorAll("textarea")[0].value, "Drafted passage.");
+})().catch((error) => { console.error(error); process.exitCode = 1; });
 """)

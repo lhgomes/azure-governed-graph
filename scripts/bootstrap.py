@@ -10,19 +10,19 @@ import time
 from scripts.delivery import AGENT_NAMES, AGENT_ROLES, DeliveryError, provision, public_result, run_job
 
 
-def release_approval(composition, results: dict) -> dict:
-    from scripts.writer_approval import unique_fields
+def unique_fields(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    fields = {}
+    for key, value in pairs:
+        if key in fields:
+            raise DeliveryError("duplicate field in release approval")
+        fields[key] = value
+    return fields
+
+
+def release_approval(composition) -> dict:
     approval = json.loads(composition.release_approval.read_text(), object_pairs_hook=unique_fields)
-    if set(approval) != {"tier", "approved", "decision_ref", "evidence_ref", "writers"}:
+    if set(approval) != {"tier", "approved", "decision_ref", "evidence_ref"}:
         raise DeliveryError("human release approval has an invalid shape")
-    writers = {AGENT_NAMES[role]: role for role in ("counsellor", "voice-compact")}
-    if set(approval["writers"]) != set(writers):
-        raise DeliveryError("human release approval must cover both exact writer definitions")
-    for name, role in writers.items():
-        if results[role].get("agent_name") != name:
-            raise DeliveryError("human release approval does not match the provisioned writer name")
-        if approval["writers"][name] != {"definition_sha256": results[role]["definition_sha256"]}:
-            raise DeliveryError("human release approval is stale; no generated writer is activated")
     if (approval["tier"] != "tier2" or approval["approved"] is not True
             or not isinstance(approval["decision_ref"], str)
             or not re.fullmatch(r"(?:GB|HR)-[A-Za-z0-9][A-Za-z0-9._-]{0,127}", approval["decision_ref"])
@@ -32,45 +32,37 @@ def release_approval(composition, results: dict) -> dict:
     return approval
 
 
-def approved_writers(composition, results: dict, endpoint: str) -> dict:
-    from scripts.writer_approval import validate_record
-    approval = release_approval(composition, results)
-    writers = {AGENT_NAMES[role]: role for role in ("counsellor", "voice-compact")}
-    record = {**approval, "project_endpoint": endpoint,
-              "writers": {name: {"version": results[role]["agent_version"],
-                                "definition_sha256": results[role]["definition_sha256"]} for name, role in writers.items()}}
-    validate_record(record, {"AZURE_ENV_NAME": "gg-dev", "AZURE_AI_PROJECT_ENDPOINT": endpoint,
-                            **{AGENT_ROLES[role]: result["agent_version"] for role, result in results.items()}})
-    return record
-
-
-def agents(composition, endpoint: str, *, subscription: str) -> tuple[dict, dict]:
+def agents(endpoint: str, *, subscription: str) -> dict:
     from scripts.create_agents import project_client, provision as create
-    from scripts.writer_approval import verify
 
     with project_client(endpoint, subscription=subscription) as project:
         results = {role: create(project, apply=True, role=role, agent_name=AGENT_NAMES[role]) for role in AGENT_ROLES}
-        if any(result.get("agent_name") != AGENT_NAMES[role] for role, result in results.items()):
-            raise DeliveryError("Foundry returned a different deployment agent name")
-        if any(not re.fullmatch(r"[1-9][0-9]*", result.get("agent_version", ""))
-               or not re.fullmatch(r"[a-f0-9]{64}", result.get("definition_sha256", "")) for result in results.values()):
-            raise DeliveryError("Foundry returned missing immutable numeric pins or definition digests")
-        approval = approved_writers(composition, results, endpoint)
-        verify(project, approval, {"AZURE_ENV_NAME": "gg-dev", "AZURE_AI_PROJECT_ENDPOINT": endpoint,
-                                  **{AGENT_ROLES[role]: result["agent_version"] for role, result in results.items()}})
-    return results, approval
+    if any(result.get("agent_name") != AGENT_NAMES[role] for role, result in results.items()):
+        raise DeliveryError("Foundry returned a different deployment agent name")
+    if any(not re.fullmatch(r"[1-9][0-9]*", result.get("agent_version", ""))
+           or not re.fullmatch(r"[a-f0-9]{64}", result.get("definition_sha256", "")) for result in results.values()):
+        raise DeliveryError("Foundry returned a missing agent version or definition digest")
+    return results
 
 
-def persona_agent(endpoint: str, *, subscription: str) -> str:
-    """Provision the demo persona's pinned, tool-free agent; the caller grants its own identity access to it."""
+def persona_agent(endpoint: str, *, subscription: str) -> None:
+    """Publish the demo persona's tool-free agent; the caller grants its own identity access to it."""
     from scripts.create_agents import project_client, provision as create
 
     with project_client(endpoint, subscription=subscription) as project:
         result = create(project, apply=True, role="persona")
-    version = result.get("agent_version", "")
-    if not re.fullmatch(r"[1-9][0-9]*", version):
-        raise DeliveryError("Foundry returned no immutable numeric pin for the persona agent")
-    return version
+    if not re.fullmatch(r"[1-9][0-9]*", result.get("agent_version", "")):
+        raise DeliveryError("Foundry returned no published version for the persona agent")
+
+
+def gap_review_agent(endpoint: str, *, subscription: str) -> None:
+    """Publish the gap review's tool-free drafting agent; the job identity is granted that one agent only."""
+    from scripts.create_agents import project_client, provision as create
+
+    with project_client(endpoint, subscription=subscription) as project:
+        result = create(project, apply=True, role="gap-review")
+    if not re.fullmatch(r"[1-9][0-9]*", result.get("agent_version", "")):
+        raise DeliveryError("Foundry returned no published version for the gap-review agent")
 
 
 def entra(inputs, foundation: dict) -> dict:

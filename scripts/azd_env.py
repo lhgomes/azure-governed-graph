@@ -44,13 +44,11 @@ TASKS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...], dict[str, str]]] =
            ("P2_CONTAINER_IMAGE",), {}),
     "agents": ("Foundry agent provisioning (scripts/create_agents.py)",
                ("AZURE_SUBSCRIPTION_ID", "AZURE_AI_PROJECT_ENDPOINT", "AZURE_AI_MODEL_DEPLOYMENT"),
-               ("AZURE_AI_AGENT_NAME", "AZURE_AI_AGENT_VERSION", "AZURE_AI_FAIRNESS_AGENT_NAME",
-                "AZURE_AI_FAIRNESS_AGENT_VERSION", "FAIRNESS_MANAGED_IDENTITY_CLIENT_ID"),
+               ("AZURE_AI_AGENT_NAME", "AZURE_AI_FAIRNESS_AGENT_NAME", "FAIRNESS_MANAGED_IDENTITY_CLIENT_ID"),
            {}),
     "fairness": ("Fairness agent operator invocation",
                  ("AZURE_AI_PROJECT_ENDPOINT", "AZURE_RESOURCE_GROUP"),
-                 ("AZURE_AI_FAIRNESS_AGENT_NAME", "AZURE_AI_FAIRNESS_AGENT_VERSION",
-                  "FAIRNESS_MANAGED_IDENTITY_CLIENT_ID", "FAIRNESS_AGENT_IMAGE"), {}),
+                 ("AZURE_AI_FAIRNESS_AGENT_NAME", "FAIRNESS_MANAGED_IDENTITY_CLIENT_ID", "FAIRNESS_AGENT_IMAGE"), {}),
 }
 GUID_KEYS = ("STRATEGY_TENANT_ID", "STRATEGY_API_CLIENT_ID", "VOICE_DEMO_CLIENT_ID",
              "STRATEGY_RECOVERY_OPERATOR_ID", "FAIRNESS_MANAGED_IDENTITY_CLIENT_ID")

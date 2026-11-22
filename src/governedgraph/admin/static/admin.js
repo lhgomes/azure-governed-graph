@@ -7,6 +7,7 @@ let data = null;
 let journeys = [];
 let journeysTruncated = false;
 let strategyUsage = {};
+let improvements = { proposals: [], batches: [], stages: [], truncated: false, error: "" };
 let section = "strategies";
 let page = 0;
 let actionRevision = "";
@@ -86,6 +87,10 @@ function strategyRows() {
 function actionState(row) {
   const label = G.labels.status[row.status] || humanize(row.status);
   const tone = row.status === "applied" ? "good" : row.status === "failed" ? "bad" : "warn";
+  if (row.status === "pending_publication" && row.proposal) {
+    const idea = improvements.proposals.find((item) => item.status.decision_ref === row.action_id);
+    return idea?.status.code === "published" ? { label: "Published to approved content", tone: "good" } : { label, tone };
+  }
   if (row.action.startsWith("owner_catalogue_") && ["applied", "pending_signature"].includes(row.status)) {
     if (row.action === "owner_catalogue_cancel") return { label: "Publication cancelled", tone: "good" };
     if (data.state.catalogue_release?.decision_ref === row.action_id) return { label: "Published", tone: "good" };
@@ -261,7 +266,7 @@ function gateFor(error) {
 // Plain-language detail view: a short explanation and a list of facts first, the raw record only on request.
 function showDetails(title, intro, facts, record) {
   activeTest?.stop(); activeTest = null;
-  $("detail-dialog").classList.remove("testing-dialog");
+  $("detail-dialog").classList.remove("testing-dialog", "idea-dialog");
   $("detail-title").textContent = title;
   const body = node("div");
   if (intro) body.append(node("p", intro, "lead"));
@@ -522,7 +527,7 @@ function learningDetail(row) {
     ], { ...row, manifest: data.learning.manifest });
 }
 function actionDetail(row, records = [row]) {
-  const owner = row.action.startsWith("owner_");
+  const owner = row.action.startsWith("owner_") || Boolean(row.proposal);
   showDetails(`${owner ? "Owner decision" : "Safety action"}: ${(G.actions[row.action]?.label || G.ownerActions[row.action] || humanize(row.action))}`,
     "Every decision is written down before execution, and again when its outcome is known. Current override status is checked against the live state.",
     [
@@ -532,6 +537,8 @@ function actionDetail(row, records = [row]) {
       ["Style", row.owner_decision?.strategy_id ? styleName(row.owner_decision.strategy_id) : undefined],
       ["Stage", row.owner_decision?.journey_state ? stageNames([row.owner_decision.journey_state]) : undefined],
       ["Revoked override", row.owner_decision?.override_id],
+      ["Improvement idea", row.proposal?.proposal_id],
+      ["Content version", row.document_id],
       ["Who", row.actor],
       ["Why", row.reason],
       ["When", date(row.created_at)],
@@ -539,14 +546,15 @@ function actionDetail(row, records = [row]) {
       ["If it says Requested", row.status === "requested" ? "It was written down but never marked as finished. Ask a technical operator to check what happened." : undefined],
     ], { ...row, journal_steps: records });
 }
-async function journeyDetail(row) {
+async function journeyDetail(row, back = null) {
   $("detail-title").textContent = `Journey ${row.journey_id}`;
   const body = $("detail-body");
   body.replaceChildren(node("p", "Loading the answer records..."));
   $("detail-dialog").showModal();
   try {
     const result = await api(`/api/journeys/${encodeURIComponent(row.journey_id)}`);
-    body.replaceChildren(node("p", "One member's conversation. Below is the saved record for each answer and, if switched on, the example conversation itself. Only made-up members appear here.", "lead"),
+    body.replaceChildren(...(back ? [button("Back to the idea", back, "quiet")] : []),
+      node("p", "One member's conversation. Below is the saved record for each answer and, if switched on, the example conversation itself. Only made-up members appear here.", "lead"),
       node("p", "Answer records never contain conversation text. The example conversation comes from a separate source.", "notice"));
     const actions = node("div", null, "detail-actions");
     const traces = button("Show the example conversation", () => loadTraces(row.journey_id, traceArea, traces), "quiet");
@@ -628,6 +636,40 @@ function openStyleEditor(action, style) {
   $("style-dialog").showModal();
 }
 
+function improvementNote() {
+  if (improvements.error) return improvements.error;
+  const last = improvements.batches[0];
+  const base = last ? `Last review ${date(last.created_at)}: ${last.declined_signals} declined answers from ${last.records_read} saved records.`
+    : "No review has run yet.";
+  return base + (improvements.truncated ? " There are more ideas than this page can hold." : "");
+}
+async function improvementDetail(row) {
+  activeTest?.stop(); activeTest = null;
+  $("detail-dialog").classList.remove("testing-dialog");
+  $("detail-dialog").classList.add("idea-dialog");
+  $("detail-title").textContent = window.AdminImprovements.kinds[row.kind];
+  const target = node("div");
+  target.append(node("p", "Loading the idea...", "lead idea-loading"));
+  $("detail-body").replaceChildren(target);
+  $("detail-dialog").showModal();
+  try {
+    const extra = await api(`/api/proposals/${row.proposal_id}`);
+    window.AdminImprovements.mount(target, { row: extra.proposal, extra, data, api,
+      openJourney: (journeyId) => {
+        $("detail-dialog").classList.remove("idea-dialog");
+        journeyDetail({ journey_id: journeyId }, () => improvementDetail(row));
+      },
+      saved: async (result, decision) => {
+        $("detail-dialog").close();
+        $("notification").textContent = decision === "approve"
+          ? `Approved and queued (${result.decision_ref}). Nothing changes until it is ${row.kind === "strategy_gap" ? "signed and released" : "published"}.`
+          : `Decision recorded (${result.decision_ref}).`;
+        $("notification").hidden = false;
+        await refresh();
+      } });
+  } catch (error) { target.replaceChildren(node("p", error.message, "notice error")); }
+}
+
 function render() {
   if (!data) return;
   const [title, heading, description] = sections[section];
@@ -640,6 +682,7 @@ function render() {
   if (section === "journeys" && journeysTruncated) {
     $("section-description").textContent += " There are more records than this page can hold, so only a sample is shown.";
   }
+  if (section === "improvements") $("section-description").textContent = improvementNote();
   $("trace-lookup").hidden = section !== "journeys";
   renderStyleManagement();
   $("page-description").textContent = G.sections[section].description;
@@ -649,14 +692,15 @@ function render() {
     else item.removeAttribute("aria-current");
   });
   const sources = {
-    strategies: strategyRows(), journeys, activity: activityRows(),
+    strategies: strategyRows(), journeys, improvements: improvements.proposals, activity: activityRows(),
   };
   const query = $("search").value.trim().toLowerCase();
   const filtered = sources[section].filter((row) => JSON.stringify(row).toLowerCase().includes(query));
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   page = Math.min(page, totalPages - 1);
   const rows = filtered.slice(page * pageSize, (page + 1) * pageSize);
-  const unit = section === "strategies" ? "styles" : section === "journeys" ? "conversations" : "entries";
+  const unit = section === "strategies" ? "styles" : section === "journeys" ? "conversations"
+    : section === "improvements" ? "ideas" : "entries";
   $("result-count").textContent = `${filtered.length} of ${sources[section].length} ${unit}${query ? " match your search" : ""}`;
   $("pagination").hidden = totalPages <= 1;
   $("page-number").textContent = `Page ${page + 1} of ${totalPages}`;
@@ -689,6 +733,13 @@ function render() {
     content = table(columns, rows, (row) => [
       reference(row.journey_id, "Select to see each answer", () => journeyDetail(row)), row.member_ref,
       row.responses, row.strategies.map(styleName).join(", "), date(row.last_activity),
+    ]);
+  } else if (section === "improvements") {
+    content = table(columns, rows, (row) => [
+      reference(window.AdminImprovements.label(row), window.AdminImprovements.kinds[row.kind], () => improvementDetail(row)),
+      badge(row.status.label, window.AdminImprovements.tones[row.status.code] || ""),
+      `${row.evidence.declined} from ${row.evidence.journeys} journeys`,
+      date(row.created_at),
     ]);
   } else {
     content = table(columns, rows, (row) => {
@@ -756,7 +807,11 @@ async function refresh() {
   loading = true; $("refresh").disabled = true; $("controls").disabled = true;
   $("error").hidden = true; $("content").setAttribute("aria-busy", "true");
   try {
-    const [overview, evidence] = await Promise.all([api("/api/overview"), api("/api/journeys")]);
+    const [overview, evidence, ideas] = await Promise.all([api("/api/overview"), api("/api/journeys"),
+      api("/api/proposals").catch((error) => {
+        if (error instanceof AccessError && [401, 403].includes(error.status)) throw error;
+        return { proposals: [], batches: [], stages: [], truncated: false, error: error.message };
+      })]);
     if (!evidence.strategy_usage || typeof evidence.strategy_usage !== "object" || Array.isArray(evidence.strategy_usage)
         || Object.values(evidence.strategy_usage).some((value) => !Number.isInteger(value) || value < 0)) {
       throw new Error("Recorded usage is unavailable or invalid. Refresh after checking the administration service.");
@@ -766,6 +821,7 @@ async function refresh() {
     }
     data = overview; journeys = evidence.journeys; journeysTruncated = Boolean(evidence.truncated);
     strategyUsage = evidence.strategy_usage;
+    improvements = { error: "", ...ideas };
     const banner = $("state-banner");
     banner.classList.toggle("frozen", data.state.frozen);
     banner.replaceChildren(node("strong", data.state.frozen ? "Learning is paused" : "Learning is on"),
@@ -955,7 +1011,9 @@ $("close-help").addEventListener("click", () => $("help-dialog").close());
 $("guide").open = store.get("gg-admin-guide") === "open";
 $("guide").addEventListener("toggle", () => store.set("gg-admin-guide", $("guide").open ? "open" : "closed"));
 $("close-detail").addEventListener("click", () => $("detail-dialog").close());
-$("detail-dialog").addEventListener("close", () => { activeTest?.stop(); activeTest = null; });
+$("detail-dialog").addEventListener("close", () => {
+  activeTest?.stop(); activeTest = null; $("detail-dialog").classList.remove("idea-dialog");
+});
 $("close-action").addEventListener("click", () => $("action-dialog").close());
 $("action-dialog").addEventListener("cancel", (event) => { if (applying) event.preventDefault(); });
 $("action-kind").addEventListener("change", actionImpact);

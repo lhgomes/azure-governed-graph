@@ -21,7 +21,10 @@ param deployDevIssuer bool = false
 @description('Opt-in assigned presenter path. Effective only in gg-dev; defaults off everywhere.')
 param deployVoiceDemo bool = false
 param deployVoicePersona bool = false
-param personaAgentVersion string = ''
+@description('True once delivery has published the persona agent.')
+param personaAgentPublished bool = false
+@description('True once delivery has published the gap-review agent; false means no AI drafts: no style ideas are offered and content ideas have no draft.')
+param gapReviewAgentPublished bool = false
 param voiceDemoClientId string = ''
 param voiceDemoOperatorId string = ''
 @description('Immutable P2 image; native learning and fairness schedules are configured at the approved cadence.')
@@ -31,12 +34,8 @@ param strategyApiClientId string = ''
 @description('Approved human dev recovery operator; empty disables recovery, never enables strategy reinstatement.')
 param strategyRecoveryOperatorId string = ''
 param counsellorAgentName string = 'gg-counsellor'
-@description('Exact version returned by scripts/create_agents.py --apply; never use latest.')
-param counsellorAgentVersion string = ''
-@description('Exact immutable compact voice candidate version (IMP-35); empty fails closed.')
-param voiceCompactAgentVersion string = ''
-@description('Verified human Tier-2 writer approval object. Null or empty keeps generated answers suspended.')
-param writerApproval object?
+@description('True once delivery has published the counsellor and compact voice agents; false keeps generated answers closed.')
+param agentsPublished bool = false
 @description('Explicit synthetic conversation visibility; only effective in the opted-in gg-dev presenter.')
 param traceSyntheticConversations bool = false
 @allowed(['gpt-counsellor', 'gpt-compact'])
@@ -111,7 +110,7 @@ module fairnessConsumer 'modules/fairness-agent-consumer.bicep' = {
   }
 }
 // The persona agent must already exist (created before this deployment); the grant is scoped to it alone.
-module personaConsumer 'modules/persona-agent-consumer.bicep' = if (deployVoicePersona && environmentName == 'gg-dev' && !empty(personaAgentVersion)) {
+module personaConsumer 'modules/persona-agent-consumer.bicep' = if (deployVoicePersona && environmentName == 'gg-dev' && personaAgentPublished) {
   name: 'persona-agent-consumer'
   scope: rg
   params: {
@@ -143,8 +142,8 @@ module compute 'modules/compute.bicep' = {
     token: token
     runtimeIdentityId: security.outputs.runtimeIdentityId
     runtimeIdentityClientId: security.outputs.runtimeIdentityClientId
-    personaIdentityId: deployVoicePersona && !empty(personaAgentVersion) ? security.outputs.personaIdentityId : ''
-    personaClientId: deployVoicePersona && !empty(personaAgentVersion) ? security.outputs.personaClientId : ''
+    personaIdentityId: deployVoicePersona && personaAgentPublished ? security.outputs.personaIdentityId : ''
+    personaClientId: deployVoicePersona && personaAgentPublished ? security.outputs.personaClientId : ''
     runtimePrincipalId: security.outputs.runtimePrincipalId
     memberValuesIdentityId: security.outputs.memberValuesIdentityId
     memberValuesClientId: security.outputs.memberValuesClientId
@@ -218,10 +217,8 @@ module compute 'modules/compute.bicep' = {
       AZURE_AI_AGENT_NAME: counsellorAgentName
       AZURE_AI_GATEWAY_URL: 'https://apim-gg-${token}.azure-api.net/foundry/openai/v1'
       GOVERNEDGRAPH_SERVICE_NAME: 'gg-orchestrator'
-      AZURE_AI_AGENT_VERSION: counsellorAgentVersion
-      AZURE_AI_VOICE_COMPACT_VERSION: voiceCompactAgentVersion
       AZURE_AI_DECISION_DEPLOYMENT: ai.outputs.decisionDeployment
-      AZURE_AI_PERSONA_VERSION: personaAgentVersion
+      GOVERNEDGRAPH_CAPTURE_DECLINED_QUESTIONS: deployAdminConsole ? 'true' : 'false'
       GOVERNEDGRAPH_TRACE_SYNTHETIC_CONVERSATIONS: traceSyntheticConversations && environmentName == 'gg-dev' && deployVoiceDemo ? 'true' : 'false'
       GOVERNEDGRAPH_LOG_LLM_CALLS: environmentName == 'gg-dev' ? 'true' : 'false'
       GOVERNEDGRAPH_VOICE_DRAFT_MODEL: voiceDraftModel
@@ -305,9 +302,7 @@ module modelGateway 'modules/model-gateway.bicep' = {
     apimName: 'apim-gg-${token}'
     projectEndpoint: ai.outputs.projectEndpoint
     runtimeClientId: security.outputs.runtimeIdentityClientId
-    mainAgentVersion: counsellorAgentVersion
-    compactAgentVersion: voiceCompactAgentVersion
-    writerApprovalJson: empty(writerApproval) ? '' : string(writerApproval)
+    agentsReady: agentsPublished
     // gg-dev only: a live persona answers in seconds, so a rewrite round can use ~16k tokens in under a minute.
     // The daily token quota below stays unchanged.
     conversationTokensPerMinute: environmentName == 'gg-dev' ? 30000 : 12000
@@ -355,6 +350,43 @@ module p2ContainerMonitor 'modules/p2-container-monitor-rbac.bicep' = if (!empty
   dependsOn: [p2ContainerJobs]
 }
 
+// The drafting agent must already exist (created before this deployment); the grant is scoped to it alone.
+module gapReviewConsumer 'modules/gap-review-agent-consumer.bicep' = if (deployAdminConsole && gapReviewAgentPublished) {
+  name: 'gap-review-agent-consumer'
+  scope: rg
+  params: {
+    gapReviewPrincipalId: security.outputs.gapReviewPrincipalId
+    aiServicesName: ai.outputs.aiServicesName
+    projectName: last(split(ai.outputs.projectEndpoint, '/'))
+  }
+}
+
+// Daily batch that reviews declined interactions and proposes missing content and styles to the administration console.
+module gapReview 'modules/gap-review-job.bicep' = if (deployAdminConsole) {
+  name: 'gap-review-job'
+  scope: rg
+  params: {
+    location: location
+    token: token
+    image: adminImage
+    identityId: security.outputs.gapReviewIdentityId
+    identityClientId: security.outputs.gapReviewClientId
+    env: union(domainEnv, {
+      AZURE_ENV_NAME: environmentName
+      EXPLAINABILITY_STORAGE_URL: data.outputs.blobEndpoint
+      EXPLAINABILITY_CONTAINER: 'explainability-records'
+      GOVERNEDGRAPH_IMPROVEMENT_CONTAINER: 'improvement-proposals'
+      GOVERNEDGRAPH_APPROVALS_CONTAINER: 'content-approvals'
+      GOVERNEDGRAPH_DECLINED_QUESTIONS_CONTAINER: 'declined-questions'
+      AZURE_AI_PROJECT_ENDPOINT: ai.outputs.projectEndpoint
+      AZURE_AI_GAP_REVIEW_AGENT: gapReviewAgentPublished ? 'gg-gap-review' : ''
+      JOURNEY_STORAGE_URL: data.outputs.contentBlobEndpoint
+      STRATEGY_ADMIN_URL: '${gateway.outputs.gatewayUrl}/strategy-admin'
+      STRATEGY_API_CLIENT_ID: strategyApiClientId
+    })
+  }
+}
+
 module adminTraceRbac 'modules/admin-trace-rbac.bicep' = if (deployAdminConsole && adminTraceLookup) {
   name: 'admin-trace-access'
   scope: rg
@@ -383,6 +415,7 @@ output CONTENT_STORAGE_URL string = data.outputs.contentBlobEndpoint
 output CONTENT_STORAGE_RESOURCE_ID string = data.outputs.contentStorageId
 output CONTENT_CONTAINER string = 'approved-content'
 output CONTENT_PUBLISH_JOB_NAME string = 'job-gg-content-publisher'
+output GAP_REVIEW_JOB_NAME string = deployAdminConsole ? 'job-gg-gap-review' : ''
 output CONTENT_SEARCH_SHARED_LINK_ID string = data.outputs.contentSharedLinkId
 output AZURE_KEY_VAULT_URL string = security.outputs.keyVaultUri
 output EXPLAINABILITY_STORAGE_URL string = data.outputs.blobEndpoint

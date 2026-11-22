@@ -84,7 +84,7 @@ class JourneyRecord:
                            "pending": [asdict(item) for item in self.pending],
                            "processed_requests": self.processed_requests,
                            "escalation_sequence": self.escalation_sequence,
-                           "pending_audits": [asdict(item) for item in self.pending_audits],
+                           "pending_audits": [item.to_dict() for item in self.pending_audits],
                            "outcome_requests": self.outcome_requests,
                            "playback_requests": self.playback_requests}, sort_keys=True)
 

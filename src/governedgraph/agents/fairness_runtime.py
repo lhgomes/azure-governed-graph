@@ -73,14 +73,6 @@ def agent_definition():
     )
 
 
-def endpoint_selector(version: str):
-    from azure.ai.projects.models import FixedRatioVersionSelectionRule, VersionSelector
-
-    return VersionSelector(version_selection_rules=[
-        FixedRatioVersionSelectionRule(agent_version=version, traffic_percentage=100),
-    ])
-
-
 class FairnessTools:
     def __init__(self, request: FairnessRequest, *, audit_runner, case_writer, records_reader):
         self.request = request
@@ -138,17 +130,11 @@ class FoundryFairnessAgent:
         if client is None:
             from azure.ai.projects import AIProjectClient
 
-            if not settings.fairness_agent_version.isdecimal() or credential is None:
-                raise FoundryUnavailable("pinned fairness agent version and fairness managed identity are required")
+            if credential is None:
+                raise FoundryUnavailable("the fairness managed identity is required")
             project = AIProjectClient(endpoint=settings.project_endpoint, credential=credential,
                                       allow_preview=True, connection_timeout=5, read_timeout=10, retry_total=0)
-            version = project.agents.get_version(settings.fairness_agent_name, settings.fairness_agent_version)
-            if (version.name != settings.fairness_agent_name or version.version != settings.fairness_agent_version
-                    or version.definition.as_dict() != agent_definition().as_dict()):
-                raise FoundryUnavailable("pinned fairness definition does not match its protective host")
-            endpoint = project.agents.get(settings.fairness_agent_name).as_dict().get("agent_endpoint") or {}
-            if endpoint.get("version_selector") != endpoint_selector(settings.fairness_agent_version).as_dict():
-                raise FoundryUnavailable("fairness endpoint does not route exclusively to the approved version")
+            project.agents.get(settings.fairness_agent_name)
             client = project.get_openai_client(agent_name=settings.fairness_agent_name, max_retries=0, timeout=20)
         self.client = client
 
@@ -161,20 +147,18 @@ class FoundryFairnessAgent:
         for round_number in range(MAX_TOOL_ROUNDS + 1):
             kwargs = {"input": inputs, "timeout": 20, "max_output_tokens": 600,
                       "extra_body": {"agent_reference": {"type": "agent_reference",
-                                     "name": settings.fairness_agent_name,
-                                     "version": settings.fairness_agent_version}}}
+                                     "name": settings.fairness_agent_name}}}
             if previous is not None:
                 kwargs["previous_response_id"] = previous
             response = self.client.responses.create(**kwargs)
             llm_log.record(None, "fairness", settings.fairness_agent_name,
-                           {"agent": f"{settings.fairness_agent_name}:{settings.fairness_agent_version}",
+                           {"agent": settings.fairness_agent_name,
                             "input": inputs, "previous_response_id": previous}, response)
             if response.status != "completed":
                 raise FoundryUnavailable("fairness response did not complete")
             calls = [item for item in response.output if item.type == "function_call"]
             if not calls:
-                return {"agent_name": settings.fairness_agent_name,
-                        "agent_version": settings.fairness_agent_version, **receipt}
+                return {"agent_name": settings.fairness_agent_name, **receipt}
             if round_number == MAX_TOOL_ROUNDS or len(calls) > MAX_CALLS_PER_ROUND:
                 raise FoundryUnavailable("fairness tool-call limit reached")
             inputs = [{"type": "function_call_output", "call_id": call.call_id,

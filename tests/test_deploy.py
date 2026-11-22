@@ -8,7 +8,6 @@ from types import SimpleNamespace
 import pytest
 
 from scripts import bootstrap, delivery, deploy
-from scripts.azd_env import EnvError
 from scripts.delivery_evidence import Evidence
 from governedgraph.strategy_service.provision_auth import GraphError
 
@@ -451,7 +450,8 @@ def delivery_flow(private_delivery, monkeypatch):
     monkeypatch.setattr(deploy, "provision", provision)
     monkeypatch.setattr(deploy, "image_artifacts", note("images", images))
     monkeypatch.setattr(bootstrap, "entra", note("entra", registrations))
-    monkeypatch.setattr(bootstrap, "agents", note("agents", (pins, {})))
+    monkeypatch.setattr(bootstrap, "agents", note("agents", pins))
+    monkeypatch.setattr(bootstrap, "gap_review_agent", lambda *_, **__: None)
     monkeypatch.setattr(bootstrap, "approve_search_link", note("search link"))
     monkeypatch.setattr(bootstrap, "initial_priors", note("initial priors", {"initialize": {"initialized": True}}))
     monkeypatch.setattr(bootstrap, "member_public_jwk", note("public key", {}))
@@ -869,27 +869,10 @@ def test_no_obsolete_deployment_state_or_acceptance_hooks():
     assert not (delivery.ROOT / "scripts/acceptance.py").exists()
 
 
-def test_b8_the_release_approval_binds_only_the_new_deployments_immutable_writer_versions():
-    results = writer_plans()
-    record = bootstrap.approved_writers(COMPOSITION, results, "https://approved.services.ai.azure.com/api/projects/test")
-    assert record["tier"] == "tier2" and record["approved"] is True
-    assert {value["version"] for value in record["writers"].values()} == {"17"}
-    assert record["project_endpoint"] == "https://approved.services.ai.azure.com/api/projects/test"
-
-
-@pytest.mark.parametrize("role", ["counsellor", "voice-compact"])
-def test_b8_writer_approval_cannot_relabel_a_differently_named_agent(role):
-    results = writer_plans()
-    results[role]["agent_name"] = "legacy-synthetic-writer"
-    with pytest.raises(delivery.DeliveryError, match="writer name"):
-        bootstrap.approved_writers(COMPOSITION, results, "https://approved.services.ai.azure.com/api/projects/test")
-
-
-def test_b8_the_sample_authorization_covers_only_its_exact_shipped_writer_definitions():
-    results = writer_plans()
-    approval = json.loads(COMPOSITION.release_approval.read_text())
-    assert approval["writers"]["gg-counsellor"]["definition_sha256"] == results["counsellor"]["definition_sha256"]
-    assert approval["writers"]["gg-counsellor-voice-compact"]["definition_sha256"] == results["voice-compact"]["definition_sha256"]
+def test_b8_the_release_approval_is_the_closed_human_tier2_decision_without_any_agent_binding():
+    approval = bootstrap.release_approval(COMPOSITION)
+    assert approval == json.loads(COMPOSITION.release_approval.read_text())
+    assert set(approval) == {"tier", "approved", "decision_ref", "evidence_ref"}
 
 
 def test_normal_release_approval_does_not_depend_on_upgrade_artifacts(tmp_path):
@@ -897,7 +880,7 @@ def test_normal_release_approval_does_not_depend_on_upgrade_artifacts(tmp_path):
     directory.mkdir()
     (directory / "source_upgrade_v1.json").write_text("deliberately invalid obsolete migration metadata")
     composition = SimpleNamespace(release_approval=COMPOSITION.release_approval, data_directory=tmp_path)
-    assert bootstrap.release_approval(composition, writer_plans()) == json.loads(COMPOSITION.release_approval.read_text())
+    assert bootstrap.release_approval(composition) == json.loads(COMPOSITION.release_approval.read_text())
 
 
 @pytest.mark.parametrize("change", [
@@ -906,26 +889,23 @@ def test_normal_release_approval_does_not_depend_on_upgrade_artifacts(tmp_path):
     lambda value: value.update(decision_ref="automatic"),
     lambda value: value.update(evidence_ref=""),
     lambda value: value.update(extra="unknown"),
-    lambda value: value["writers"]["gg-counsellor"].update(definition_sha256="0" * 64),
-    lambda value: value["writers"]["gg-counsellor"].update(version="latest"),
+    lambda value: value.update(writers={"gg-counsellor": {"version": "1"}}),
 ])
-def test_b7_b8_release_approval_is_closed_and_has_no_numeric_version_exception(tmp_path, change):
+def test_b7_b8_release_approval_is_closed(tmp_path, change):
     approval = json.loads(COMPOSITION.release_approval.read_text())
     change(approval)
     path = tmp_path / "approval.json"
     path.write_text(json.dumps(approval))
-    sample = SimpleNamespace(release_approval=path)
-    with pytest.raises((delivery.DeliveryError, EnvError, ValueError)):
-        bootstrap.approved_writers(sample, writer_plans(), "https://approved.services.ai.azure.com/api/projects/test")
+    with pytest.raises(delivery.DeliveryError):
+        bootstrap.release_approval(SimpleNamespace(release_approval=path))
 
 
 def test_b7_b8_duplicate_approval_fields_and_malformed_files_fail_closed(tmp_path):
     path = tmp_path / "approval.json"
     for content in ('{"tier":"tier2","tier":"tier1"}', "not-json"):
         path.write_text(content)
-        with pytest.raises((EnvError, ValueError)):
-            bootstrap.approved_writers(SimpleNamespace(release_approval=path), writer_plans(),
-                                       "https://approved.services.ai.azure.com/api/projects/test")
+        with pytest.raises((delivery.DeliveryError, ValueError)):
+            bootstrap.release_approval(SimpleNamespace(release_approval=path))
 
 
 @pytest.mark.parametrize("status", ["Unknown", "", "Failed", "Stopped", "Canceled"])
@@ -1003,7 +983,7 @@ def test_absent_immutable_image_is_built_exactly_once(capsys, monkeypatch):
 
 
 @pytest.mark.parametrize("role", delivery.AGENT_ROLES)
-def test_every_foundry_role_requires_an_actual_immutable_version(monkeypatch, role):
+def test_every_foundry_role_requires_a_published_version(monkeypatch, role):
     from contextlib import nullcontext
     from scripts import create_agents
     results = writer_plans()
@@ -1016,8 +996,8 @@ def test_every_foundry_role_requires_an_actual_immutable_version(monkeypatch, ro
         assert agent_name == delivery.AGENT_NAMES[role]
         return results[role]
     monkeypatch.setattr(create_agents, "provision", create)
-    with pytest.raises(delivery.DeliveryError, match="immutable numeric pins"):
-        bootstrap.agents(COMPOSITION, "https://approved.services.ai.azure.com/api/projects/test",
+    with pytest.raises(delivery.DeliveryError, match="missing agent version"):
+        bootstrap.agents("https://approved.services.ai.azure.com/api/projects/test",
                          subscription="selected-subscription")
 
 
@@ -1033,7 +1013,7 @@ def test_deployment_agent_names_override_legacy_settings_without_changing_standa
     definition = SimpleNamespace(as_dict=lambda: {"kind": "prompt", "instructions": "ILLUSTRATIVE - synthetic data"})
     monkeypatch.setattr(create_agents, "agent_definition", lambda *_: definition)
     monkeypatch.setattr(fairness_runtime, "agent_definition", lambda: definition)
-    pinned, versions, reads = [], [], []
+    followed, versions, reads = [], [], []
     def create(**kwargs):
         assert kwargs["agent_name"] == delivery.AGENT_NAMES[role]
         version = SimpleNamespace(name=kwargs["agent_name"], version="1", metadata=kwargs["metadata"],
@@ -1043,8 +1023,8 @@ def test_deployment_agent_names_override_legacy_settings_without_changing_standa
     def list_versions(name):
         reads.append(name)
         return versions
-    monkeypatch.setattr(create_agents, "pin_fairness_endpoint",
-                        lambda _project, version, *, agent_name: pinned.append((agent_name, version)))
+    monkeypatch.setattr(create_agents, "follow_latest_endpoint",
+                        lambda _project, *, agent_name: followed.append(agent_name))
     project = SimpleNamespace(agents=SimpleNamespace(list_versions=list_versions, create_version=create))
     assert create_agents.provision(None, apply=False, role=role)["agent_name"] == legacy[role]
     plan = create_agents.provision(None, apply=False, role=role, agent_name=delivery.AGENT_NAMES[role])
@@ -1053,20 +1033,19 @@ def test_deployment_agent_names_override_legacy_settings_without_changing_standa
         result = create_agents.provision(project, apply=True, role=role, agent_name=delivery.AGENT_NAMES[role])
         assert result["agent_name"] == delivery.AGENT_NAMES[role] and result["agent_version"] == "1"
     assert len(versions) == 1 and reads == [delivery.AGENT_NAMES[role]] * 2
-    assert pinned == ([(delivery.AGENT_NAMES[role], "1")] * 2 if role == "fairness" else [])
+    assert followed == ([delivery.AGENT_NAMES[role]] * 2 if role == "fairness" else [])
 
 
-def test_b8_bootstrap_rejects_an_unexpected_agent_identity_before_writer_verification(monkeypatch):
+def test_b8_bootstrap_rejects_an_unexpected_agent_identity(monkeypatch):
     from contextlib import nullcontext
-    from scripts import create_agents, writer_approval
+    from scripts import create_agents
 
     results = writer_plans()
     results["fairness"]["agent_name"] = "legacy-synthetic-fairness"
     monkeypatch.setattr(create_agents, "project_client", lambda *_, **kw: nullcontext(object()))
     monkeypatch.setattr(create_agents, "provision", lambda _project, **kw: results[kw["role"]])
-    monkeypatch.setattr(writer_approval, "verify", lambda *_: pytest.fail("must not verify unexpected identities"))
     with pytest.raises(delivery.DeliveryError, match="different deployment agent name"):
-        bootstrap.agents(COMPOSITION, "https://approved.services.ai.azure.com/api/projects/test",
+        bootstrap.agents("https://approved.services.ai.azure.com/api/projects/test",
                          subscription="selected-subscription")
 
 
@@ -1322,12 +1301,12 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
         "contactCentreApiClientId")})
     def scoped_agents(*_, subscription):
         assert subscription == inputs.subscription
-        return results, bootstrap.approved_writers(composition, results, foundation["ai"]["projectEndpoint"])
+        return results
     monkeypatch.setattr(bootstrap, "agents", scoped_agents)
     def scoped_persona(endpoint, *, subscription):
         assert subscription == inputs.subscription and endpoint == foundation["ai"]["projectEndpoint"]
-        return "7"
     monkeypatch.setattr(bootstrap, "persona_agent", scoped_persona)
+    monkeypatch.setattr(bootstrap, "gap_review_agent", lambda endpoint, *, subscription: None)
     monkeypatch.setattr(bootstrap, "approve_search_link", lambda *_: None)
     monkeypatch.setattr(bootstrap, "member_public_jwk", lambda *_: {"kty": "RSA", "n": "AQAB", "e": "AQAB"})
     def initialize_in_selected_order(*_, **kwargs):
@@ -1346,7 +1325,9 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
     workload = calls[-1][1]["configuration"]
     assert workload["orchestratorImage"] == workload["strategyServiceImage"] == workload["memberValuesImage"]
     assert "p2MlArtifactContainers" not in workload
-    assert workload["personaAgentVersion"] == "7" and workload["deployVoicePersona"] is True
+    assert workload["personaAgentPublished"] is True and workload["deployVoicePersona"] is True
+    assert workload["agentsPublished"] is True and workload["gapReviewAgentPublished"] is True
+    assert not any("Version" in key or key == "writerApproval" for key in workload)
     assert calls[0][1]["deployVoicePersona"] is True
     assert receipt["readiness"] == "passed" and receipt["evaluation"] == "not_run"
     assert capsys.readouterr().out.splitlines() == [

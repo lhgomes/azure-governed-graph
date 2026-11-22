@@ -68,8 +68,7 @@ def record_synthetic_conversation(journey_id: str, member_ref: str, user_text: s
     with operation(journey_id, CONVERSATION_SPAN, agent_name=settings.agent_name) as span:
         span.set_attributes({
             "gen_ai.operation.name": "invoke_agent",
-            "gen_ai.agent.id": f"{settings.agent_name}:{settings.agent_version}",
-            "gen_ai.agent.version": settings.agent_version,
+            "gen_ai.agent.id": settings.agent_name,
             "gen_ai.conversation.id": journey_id, "gen_ai.response.id": response_id,
             "governedgraph.synthetic.conversation": True,
             "governedgraph.synthetic.watermark": "ILLUSTRATIVE - synthetic data",
@@ -278,8 +277,7 @@ def journey_span(tools):
 
     with operation(tools.journey.journey_id, "governedgraph.member_journey",
                    agent_name=tools.agent_name, parent=tools.trace_parent) as span:
-        span.set_attributes({"gen_ai.agent.version": tools.agent_version,
-                             "gen_ai.request.model": tools.model_deployment})
+        span.set_attributes({"gen_ai.request.model": tools.model_deployment})
         ctx = span.get_span_context()
         tools.trace_parent = f"00-{ctx.trace_id:032x}-{ctx.span_id:016x}-01"
         yield span

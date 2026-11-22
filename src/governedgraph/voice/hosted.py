@@ -81,7 +81,6 @@ async def run_hosted(script: VoiceScriptRequest, token: str, identity: MemberIde
         and all(row["response_id"] in audit["delivered_response_ids"] for row in rows)
         and all(reply.audit_status == "committed" for reply in result.replies),
         "response_ids": [row["response_id"] for row in rows],
-        "agent_versions": sorted({row["agent_version"] for row in explanation}),
         "total_seconds": elapsed,
         "under_two_minutes": elapsed < 120,
         "metrics": result.metrics,

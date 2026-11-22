@@ -8,22 +8,18 @@ from unittest.mock import MagicMock, Mock
 import pytest
 
 from scripts.azd_env import EnvError
-from scripts.run_foundry_evals import PIN_KEYS, run, validate
+from scripts.run_foundry_evals import WRITER_NAMES, run, validate
 
 
 def values():
     return {
         "AZURE_ENV_NAME": "gg-dev",
         "AZURE_AI_PROJECT_ENDPOINT": "https://synthetic.services.ai.azure.com/api/projects/synthetic",
-        **dict.fromkeys(PIN_KEYS.values(), "1"),
     }
 
 
-@pytest.mark.parametrize("change", [
-    {"AZURE_ENV_NAME": "production"}, {"AZURE_AI_PROJECT_ENDPOINT": ""},
-    {"AZURE_AI_AGENT_VERSION": ""}, {"AZURE_AI_VOICE_COMPACT_VERSION": "latest"},
-])
-def test_publication_requires_gg_dev_project_and_every_explicit_pin(change):
+@pytest.mark.parametrize("change", [{"AZURE_ENV_NAME": "production"}, {"AZURE_AI_PROJECT_ENDPOINT": ""}])
+def test_publication_requires_the_gg_dev_project(change):
     with pytest.raises(EnvError):
         validate({**values(), **change})
 
@@ -37,9 +33,10 @@ def project():
         "gg-counsellor-voice-compact": agent_definition(INSTRUCTIONS, model="gpt-compact"),
     }
     remote = Mock()
-    remote.agents.get_version.side_effect = lambda name, version: SimpleNamespace(
-        name=name, version=version, definition=definitions[name],
-    )
+    remote.agents.list_versions.side_effect = lambda name: [
+        SimpleNamespace(name=name, version="1", definition=SimpleNamespace(as_dict=lambda: {"older": True})),
+        SimpleNamespace(name=name, version="2", definition=definitions[name]),
+    ]
     client = MagicMock()
     client.__enter__.return_value = client
     remote.get_openai_client.return_value = client
@@ -65,7 +62,7 @@ def test_fresh_publication_wires_pins_and_preserves_every_acceptance_gate(
     collected = []
 
     def collect(model, composer, actor_factory, directory, *, on_row, decision_agents, supporting_recorders):
-        assert composer.agent_version == "1"
+        assert composer.agent_version == "2"
         assert not decision_agents
         assert not supporting_recorders
         actor = actor_factory(PersonaScenario("synthetic", "ILLUSTRATIVE - synthetic data", "Explain", "Explain"))
@@ -98,12 +95,12 @@ def test_fresh_publication_wires_pins_and_preserves_every_acceptance_gate(
     assert run(remote, values(), output) == (0 if failure is None else 1)
     saved = json.loads(output.read_text())
     assert saved["project_endpoint"] == values()["AZURE_AI_PROJECT_ENDPOINT"]
-    assert saved["versions"] == dict.fromkeys(PIN_KEYS, "1")
+    assert saved["versions"] == dict.fromkeys(WRITER_NAMES, "2")
     assert saved["foundry"]["run_id"] == "fresh-run"
     assert saved["automatic_promotion"] is False
     assert saved["evaluation_passed"] == (failure is None)
     assert collected == ["gpt-counsellor", "gpt-compact"]
-    assert remote.agents.get_version.call_count == len(PIN_KEYS)
+    assert remote.agents.list_versions.call_count == len(WRITER_NAMES)
     original = deepcopy(saved)
     with pytest.raises(FileExistsError):
         run(remote, values(), output)
@@ -112,10 +109,10 @@ def test_fresh_publication_wires_pins_and_preserves_every_acceptance_gate(
 
 def test_changed_remote_definition_blocks_before_paid_calls(tmp_path, no_local_adapter_guard):
     remote = project()
-    remote.agents.get_version.side_effect = lambda name, version: SimpleNamespace(
-        name=name, version=version, definition=SimpleNamespace(as_dict=lambda: {"changed": True}),
-    )
-    with pytest.raises(ValueError, match="pinned definition"):
+    remote.agents.list_versions.side_effect = lambda name: [
+        SimpleNamespace(name=name, version="1", definition=SimpleNamespace(as_dict=lambda: {"changed": True})),
+    ]
+    with pytest.raises(ValueError, match="differs from the selected sample's definition"):
         run(remote, values(), tmp_path / "report.json")
     remote.get_openai_client.assert_not_called()
     assert not (tmp_path / "report.json").exists()

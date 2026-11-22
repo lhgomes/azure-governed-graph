@@ -115,6 +115,47 @@ The current state is not a full historical snapshot archive. Published learning 
 the approved synthetic baseline; the view distinguishes the manifest's observed, eligible and pending
 live decisions rather than claiming that every aggregate interaction was observed live.
 
+## Improvement ideas: declined answers and proposed fixes
+
+A scheduled review (`job-gg-gap-review`, daily) looks at every explanation question whose answer was declined: it ended
+in an advisor offer, or the answer review flagged it. Some of these answers were legitimate. The review groups them by
+journey stage, topic, channel, accessibility mode and language, and proposes a fix when a situation has at least five
+declined answers from three journeys. **Improvement ideas** lists the proposals; see
+[Gap review](architecture-gap-review.md) for the rules.
+
+| Idea | What an owner decides |
+|---|---|
+| Missing approved content | Write the passage from an approved source, choose its stages, approve. |
+| Approved content to revise | Edit a copy of the approved passage, approve to publish a new version. |
+| Missing explanation style | Read the AI's reasoning, then edit and approve its recommended name, pattern and eligibility to queue it. If the AI says no approved pattern fits, acknowledge, defer or reject the described idea. |
+| Answers refused that may have been fine | Open example journeys in **Conversations**, then acknowledge, defer or reject. No check is changed here. |
+
+Readers can open every idea. Only owners decide. A decision needs a reason and explicit confirmation, shows the
+proposal revision it was made on (a changed proposal returns HTTP 409), and is journalled before it takes effect, like
+every other owner decision. **Approve** never makes a change live by itself:
+
+- a style joins the single pending catalogue publication, which P2 signs and activates (see above);
+- a passage is queued for the content publisher. Its status reads *Approved: waiting for the content publisher* until
+  the publisher has indexed it, then *Published to approved content*. If the live passage changed after you approved,
+  the publisher refuses it and the status reads *Not published*; decide again on the new idea that follows. An operator starts the publisher with
+  `python -m governedgraph.search.run_publisher_job --approved-proposals`.
+
+An idea lists up to ten declined answers, one per journey, each with a link to its journey in **Conversations**, the outcome,
+the reason, the member's question (owners only) and the approved passages found. *What was available* names the styles that
+could explain and the passages used. A badge says whether the AI proposed the fix. An idea shows counts, labels and up to five of the questions members asked (kept for 30 days, shown to owners only) with example journey IDs;
+open the journeys in **Conversations** to judge an answer. For missing or revisable content, an AI agent adds an analysis
+(what members are asking, what the approved passages do not cover) and a draft passage written from the model's own
+knowledge, labelled *Not checked by a person*. The draft can be wrong or out of date. The editor lists every claim it makes.
+Verify each one against an authoritative source, edit the passage, and record that **source** (required) before approving.
+Facts the model was unsure of are listed for you to supply. For a missing style, the AI reads the same questions and says
+why the current styles do not suit them. It then either recommends an approved explanation pattern, which you can edit and
+approve into the next signed release, or describes a new way of explaining that does not exist yet. You can only acknowledge,
+defer or reject that second kind, because it has to be built. Without an AI answer no style idea is shown. A deferred idea returns to *Open* when its evidence changes; a rejected or
+acknowledged idea stays closed. A decision whose journal was never completed counts only if its effect exists: an approval that
+did land is shown as queued and cannot be rejected, and one that did not land leaves the idea open. Investigate any
+*Requested* entry in **Activity**. Idea status is derived from the whole action journal (up to 5,000 blobs); a larger
+journal fails closed with an explicit error instead of hiding a decision.
+
 ## Protective controls
 
 - **Freeze** uses the existing Strategy Service protection: retain/restore the last good snapshot
@@ -256,9 +297,10 @@ What is created, and why it is narrow:
 |---|---|
 | Identity `id-gg-admin-*` | Its own identity. Not shared with the runtime, Strategy Service, P2 or fairness roles. |
 | Container App `ca-gg-admin-*` | Internal ingress, one replica (the session capability is per process), minimal environment. No member-token keys, Service Bus, Key Vault or model settings. |
-| Gateway route `/admin/` | Nine explicit routes (page, assets, five reads, protective action, owner action). Everything else is a 404 at the gateway. |
+| Gateway route `/admin/` | Explicit routes only: page, assets, reads, the protective action, owner actions and the improvement-idea decision. Everything else is a 404 at the gateway. |
 | Reader on `explainability-records`, `learning-aggregates`, `learning-evidence` | Container scope only. These hold immutable audit references, aggregates and committee/uplift evidence. |
 | Contributor on `admin-actions` | Container scope. The container is a 30-day immutable store: each action step is a separate create-only blob. |
+| Reader on `improvement-proposals`, contributor on `content-approvals` | Container scope. Reads gap-review proposals and hands owner-approved passages to the content publisher, create-only (30-day immutable). It has no access to Search or the approved-content container. |
 | `Strategy.Freeze` and `Strategy.Suspend` app roles | Admin protective rights only; `Strategy.Suspend` also authenticates the journal-writing proxy on owner requests. It has no `Strategy.Publish` or signing rights. A separate verified human owner token is mandatory for overrides. |
 
 It cannot read the cohort zone, approved content, journey state, member values, signing keys or

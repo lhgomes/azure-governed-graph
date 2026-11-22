@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from governedgraph.common import domain
 from governedgraph.common.config import DATA_DIR, settings
-from governedgraph.search.corpus import ContentDocument, approve_version, load_corpus
+from governedgraph.search.corpus import ContentDocument, apply_owner_approvals, approve_version, load_corpus
 
 log = logging.getLogger("governedgraph.search.ingest")
 VECTOR_DIMENSIONS = 3072
@@ -169,6 +169,29 @@ class AzureContentPublisher:
 
     def publish(self, seed: list[ContentDocument],
                 candidate: ContentDocument | list[ContentDocument] | None = None) -> None:
+        candidates = [] if candidate is None else candidate if isinstance(candidate, list) else [candidate]
+
+        def apply(docs: list[ContentDocument]) -> list[ContentDocument]:
+            for approved in candidates:
+                docs = approve_version(docs, approved)
+            return docs
+
+        self._publish(seed, apply)
+
+    def publish_owner_approved(self, seed: list[ContentDocument], approvals: list[tuple[ContentDocument, str]]
+                               ) -> tuple[list[str], dict[str, str]]:
+        """Owner approvals, checked against the live feed under the lease. Returns applied ids and refusals."""
+        outcome: dict = {}
+
+        def apply(docs: list[ContentDocument]) -> list[ContentDocument]:
+            docs, applied, refused = apply_owner_approvals(docs, approvals)
+            outcome.update(applied=[doc.id for doc in applied], refused=refused, changed=bool(applied))
+            return docs
+
+        self._publish(seed, apply, skip_when=lambda: not outcome.get("changed"))
+        return outcome.get("applied", []), outcome.get("refused", {})
+
+    def _publish(self, seed: list[ContentDocument], apply, skip_when=lambda: False) -> None:
         from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 
         payload = "\n".join(json.dumps(doc.index_document()) for doc in seed)
@@ -177,9 +200,9 @@ class AzureContentPublisher:
         except ResourceExistsError:
             log.info("using_existing_approved_content_feed")
         with self.blob.acquire_lease(lease_duration=-1) as lease:
-            docs = load_corpus(self.blob.download_blob(lease=lease).content_as_text(), indexed=True)
-            for approved in ([] if candidate is None else candidate if isinstance(candidate, list) else [candidate]):
-                docs = approve_version(docs, approved)
+            docs = apply(load_corpus(self.blob.download_blob(lease=lease).content_as_text(), indexed=True))
+            if skip_when():
+                return
             try:
                 result = self.indexers.get_indexer_status(self.indexer_name).last_result
             except ResourceNotFoundError:

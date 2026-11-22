@@ -1,4 +1,4 @@
-"""Provision a governed prompt agent once; default is a read-only plan (IMP-11)."""
+"""Publish a governed prompt agent as a new version when its definition changed; default is a read-only plan (IMP-11)."""
 from __future__ import annotations
 
 import argparse
@@ -92,21 +92,27 @@ def definition_sha256(definition: dict[str, object]) -> str:
     return hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()
 
 
-def pin_fairness_endpoint(project, version: str, *, agent_name: str | None = None) -> None:
-    from azure.ai.projects.models import AgentEndpointConfig
-    from governedgraph.agents.fairness_runtime import endpoint_selector
+def latest_version(project, name: str):
+    return max(project.agents.list_versions(name), key=lambda v: int(v.version), default=None)
 
-    selector = endpoint_selector(version)
+
+def follow_latest_endpoint(project, *, agent_name: str) -> None:
+    """Route the agent's endpoint to its latest version; this clears any earlier fixed-version route."""
+    from azure.ai.projects.models import AgentEndpointConfig, FixedRatioVersionSelectionRule, VersionSelector
+
+    selector = VersionSelector(version_selection_rules=[
+        FixedRatioVersionSelectionRule(agent_version="@latest", traffic_percentage=100),
+    ])
     expected = selector.as_dict()
-    name = settings.fairness_agent_name if agent_name is None else agent_name
-    current = project.agents.get(name).as_dict()
-    if current["agent_endpoint"]["version_selector"] == expected:
+    current = (project.agents.get(agent_name).as_dict().get("agent_endpoint") or {}).get("version_selector")
+    if current in (None, expected) or all(
+            rule.get("agent_version") == "@latest" for rule in current.get("version_selection_rules", [])):
         return
     updated = project.agents.update_details(
-        agent_name=name, agent_endpoint=AgentEndpointConfig(version_selector=selector),
+        agent_name=agent_name, agent_endpoint=AgentEndpointConfig(version_selector=selector),
     ).as_dict()
     if updated["agent_endpoint"]["version_selector"] != expected:
-        raise RuntimeError("fairness endpoint did not acknowledge the approved immutable version")
+        raise RuntimeError("the agent endpoint did not acknowledge following the latest version")
 
 
 def provision(project, *, apply: bool, role: str = "counsellor", agent_name: str | None = None) -> dict[str, str]:
@@ -124,6 +130,12 @@ def provision(project, *, apply: bool, role: str = "counsellor", agent_name: str
         model_deployment = persona_deployment()
         definition = live_persona_definition(model_deployment)
         name, decision = LIVE_PERSONA_AGENT_NAME, "IMP-persona-demo"
+    elif role == "gap-review":
+        from governedgraph.agents.gap_drafter import GAP_REVIEW_AGENT_NAME, gap_review_definition, gap_review_deployment
+
+        model_deployment = gap_review_deployment()
+        definition = gap_review_definition(model_deployment)
+        name, decision = GAP_REVIEW_AGENT_NAME, "IMP-GAP-REVIEW-3"
     elif role == "evaluation":
         model_deployment = "gpt-modern"
         definition = agent_definition(INSTRUCTIONS, model=model_deployment, reasoning_effort="none")
@@ -153,20 +165,19 @@ def provision(project, *, apply: bool, role: str = "counsellor", agent_name: str
     except ResourceNotFoundError:
         logging.getLogger("governedgraph.agent_provision").info("approved_agent_does_not_exist")
         versions = []
-    matching = [v for v in versions if (v.metadata or {}).get("definition_sha256") == digest
-                and v.definition.as_dict() == definition.as_dict()]
-    if matching:
-        version = matching[-1]
-        action = "reuse immutable matching version"
+    latest = max(versions, key=lambda v: int(v.version), default=None)
+    if (latest is not None and (latest.metadata or {}).get("definition_sha256") == digest
+            and latest.definition.as_dict() == definition.as_dict()):
+        version = latest
+        action = "reuse latest matching version"
     else:
         version = project.agents.create_version(
             agent_name=name, definition=definition,
             metadata={"definition_sha256": digest, "decision": decision, "data": "ILLUSTRATIVE - synthetic data"},
         )
-        action = "created; pin this version before deployment"
+        action = "created; served as the latest version"
     if role == "fairness":
-        pin_fairness_endpoint(project, version.version, agent_name=name)
-        result["endpoint_version"] = version.version
+        follow_latest_endpoint(project, agent_name=name)
     return {**result, "agent_version": version.version, "action": action}
 
 
@@ -174,7 +185,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--role", choices=("counsellor", "fairness", "voice-compact",
-                                        "evaluation", "persona"),
+                                        "evaluation", "persona", "gap-review"),
                         default="counsellor")
     args = parser.parse_args()
     if args.apply:

@@ -120,14 +120,12 @@ def verify_live_persona_version(version: Any, model: str) -> None:
 class LivePersona:
     """One persona conversation. The opening is fixed; every later turn is generated from the card."""
 
-    def __init__(self, card: PersonaCard, *, client, agent_name: str = LIVE_PERSONA_AGENT_NAME,
-                 agent_version: str):
-        if not isinstance(card, PersonaCard) or not agent_name or not str(agent_version).isdecimal():
-            raise ValueError("a persona card and pinned Foundry persona version are required")
+    def __init__(self, card: PersonaCard, *, client, agent_name: str = LIVE_PERSONA_AGENT_NAME):
+        if not isinstance(card, PersonaCard) or not agent_name:
+            raise ValueError("a persona card and Foundry persona agent name are required")
         self.card = card
         self.client = client
         self.agent_name = agent_name
-        self.agent_version = str(agent_version)
         self.turns = 0
         self.messages: list[dict[str, str]] = []
 
@@ -151,14 +149,13 @@ class LivePersona:
         try:
             result = self.client.responses.create(
                 input=self.messages, store=False, max_output_tokens=300, timeout=30,
-                extra_body={"agent_reference": {
-                    "type": "agent_reference", "name": self.agent_name, "version": self.agent_version}},
+                extra_body={"agent_reference": {"type": "agent_reference", "name": self.agent_name}},
             )
         except BadRequestError as error:
             if error.code != "content_filter":
                 raise
             raise PersonaBlocked("live persona input was filtered") from None
-        llm_log.record(None, "persona", self.agent_name, {"agent": f"{self.agent_name}:{self.agent_version}",
+        llm_log.record(None, "persona", self.agent_name, {"agent": self.agent_name,
                                                            "input": self.messages}, result)
         if (result.status != "completed" or not result.output_text.strip()
                 or any(item.type != "message" for item in result.output)):
@@ -175,16 +172,14 @@ class LivePersona:
 def connect_live_persona(card: PersonaCard) -> LivePersona:
     """Open the persona's own agent endpoint under its own identity; fail closed when it is not configured.
 
-    The identity holds endpoint use on this one agent only, so the pinned definition is verified at delivery
-    (the immutable version is matched by digest) and never read at runtime.
+    The identity holds endpoint use on this one agent only, so its definition is never read at runtime.
     """
     from azure.ai.projects import AIProjectClient
     from azure.identity import ManagedIdentityCredential
 
     client_id = os.getenv("AZURE_PERSONA_CLIENT_ID", "")
-    version = os.getenv("AZURE_AI_PERSONA_VERSION", "")
-    if not client_id or not version.isdecimal() or not settings.project_endpoint:
-        raise ContractError("the live persona identity and pinned agent version are not configured")
+    if not client_id or not settings.project_endpoint:
+        raise ContractError("the live persona identity and Foundry project endpoint are not configured")
     try:
         project = AIProjectClient(endpoint=settings.project_endpoint,
                                   credential=ManagedIdentityCredential(client_id=client_id), allow_preview=True,
@@ -193,4 +188,4 @@ def connect_live_persona(card: PersonaCard) -> LivePersona:
     except Exception as error:
         log.error("live_persona_connect_failed", extra={"error_type": type(error).__name__})
         raise ContractError("the live persona agent endpoint is unavailable") from error
-    return LivePersona(card, client=client, agent_version=version)
+    return LivePersona(card, client=client)

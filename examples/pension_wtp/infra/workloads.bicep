@@ -21,9 +21,7 @@ module graph '../../../infra/workloads.bicep' = {
     contactCentreImage: configuration.contactCentreImage
     adminImage: configuration.adminImage
     p2ContainerImage: configuration.p2ContainerImage
-    counsellorAgentVersion: configuration.counsellorAgentVersion
-    voiceCompactAgentVersion: configuration.voiceCompactAgentVersion
-    writerApproval: configuration.writerApproval
+    agentsPublished: configuration.agentsPublished
     memberTokenIssuer: configuration.memberTokenIssuer
     memberTokenPublicJwk: configuration.memberTokenPublicJwk
     onCallEmail: configuration.onCallEmail
@@ -42,7 +40,8 @@ module graph '../../../infra/workloads.bicep' = {
     voiceDemoOperatorId: configuration.voiceDemoOperatorId
     deployVoiceDemo: configuration.deployVoiceDemo
     deployVoicePersona: configuration.deployVoicePersona
-    personaAgentVersion: configuration.personaAgentVersion
+    personaAgentPublished: configuration.personaAgentPublished
+    gapReviewAgentPublished: configuration.gapReviewAgentPublished
     traceSyntheticConversations: configuration.traceSyntheticConversations
     adminTraceLookup: configuration.adminTraceLookup
   }

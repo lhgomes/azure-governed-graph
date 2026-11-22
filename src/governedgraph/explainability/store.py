@@ -29,7 +29,7 @@ class AuditConflict(ValueError):
 
 
 def encoded(record: ExplainabilityRecord) -> str:
-    payload = asdict(record)
+    payload = record.to_dict()
     if record.contract_version not in {"1.2", "1.3"}:
         payload.pop("decision_evidence")
     return json.dumps(payload, sort_keys=True)
@@ -198,7 +198,7 @@ def system_record(journey, response_id: str, kind: str) -> ExplainabilityRecord:
         journey_id=journey.journey_id, member_ref=journey.member_ref,
         strategy_id="S6", strategy_version="1.0", snapshot_id="none", arm="n/a",
         content_versions=[], value_ids=[], value_sources=[], model_deployment="deterministic",
-        agent_name="gg-orchestrator", agent_version="1", template_version="system-1",
+        agent_name="gg-orchestrator", template_version="system-1",
         disclosure_given=True, escalation_offered=True, request_key=journey.request_key(),
         numeric_fidelity_passed=True, response_id=response_id, response_kind=kind,
     )

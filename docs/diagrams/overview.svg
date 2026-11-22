@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="650" viewBox="0 0 1200 650" role="img" aria-labelledby="title description" font-family="Arial, Helvetica, sans-serif"><title id="title">How GovernedGraph works</title><desc id="description">Host-controlled member guidance uses Microsoft Decision 1.1 for closed semantic decisions and Foundry prompt agents for explanation, with deterministic gates and durable audit. Approved content and read-only authoritative values are supplied by the adopter. A separate scheduled Azure learning plane uses immutable outcome aggregates, deterministic fairness vetoes, tiered human governance and signed ranking feedback.</desc><defs><marker id="m64748b" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#64748b"/></marker><marker id="m087f82" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#087f82"/></marker><marker id="m946014" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#946014"/></marker><marker id="ma13d5c" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#a13d5c"/></marker><marker id="m275d9b" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#275d9b"/></marker><marker id="m7044a5" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#7044a5"/></marker></defs>
-<rect x="0" y="0" width="1200" height="650" rx="0" fill="#ffffff" stroke="none" stroke-width="1.4"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-labelledby="title description" font-family="Arial, Helvetica, sans-serif"><title id="title">How GovernedGraph works</title><desc id="description">Host-controlled member guidance uses Microsoft Decision 1.1 for closed semantic decisions and Foundry prompt agents for explanation, with deterministic gates and durable audit. Approved content and read-only authoritative values are supplied by the adopter. A separate scheduled Azure learning plane uses immutable outcome aggregates, deterministic fairness vetoes, tiered human governance and signed ranking feedback. A third scheduled review reads declined answers, an AI drafting agent recommends missing content and explanation styles, and an owner decides in the administration console before anything is published.</desc><defs><marker id="m64748b" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#64748b"/></marker><marker id="m087f82" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#087f82"/></marker><marker id="m946014" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#946014"/></marker><marker id="ma13d5c" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#a13d5c"/></marker><marker id="m275d9b" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#275d9b"/></marker><marker id="m7044a5" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#7044a5"/></marker></defs>
+<rect x="0" y="0" width="1200" height="820" rx="0" fill="#ffffff" stroke="none" stroke-width="1.4"/>
 <text x="24" y="38" font-size="28" fill="#172b45" font-weight="700" text-anchor="start">How GovernedGraph works</text>
 <rect x="20" y="60" width="1160" height="344" rx="10" fill="#f4f7fc" stroke="#c6d5e8" stroke-width="1.4"/>
 <text x="40" y="85" font-size="13" fill="#275d9b" font-weight="700" text-anchor="start">01 / GOVERNED MEMBER JOURNEY</text>
@@ -105,4 +105,41 @@
 <path d="M1160 558 H1171 V430 H447 V234 H434" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="5 4" marker-end="url(#m087f82)"/>
 <rect x="675" y="420" width="270" height="20" rx="3" fill="#ffffff" stroke="none" stroke-width="1.4"/>
 <text x="810" y="434" font-size="12" fill="#087f82" font-weight="400" text-anchor="middle">Verified ranking via Strategy Service</text>
+<rect x="20" y="650" width="1160" height="156" rx="10" fill="#fbf3f5" stroke="#d9a3b4" stroke-width="1.4"/>
+<text x="40" y="675" font-size="13" fill="#a13d5c" font-weight="700" text-anchor="start">03 / REVIEW OF MISSED ANSWERS</text>
+<text x="1160" y="675" font-size="12" fill="#a13d5c" font-weight="400" text-anchor="end">Daily Azure Container Apps Job · Own managed identity · Nothing goes live by itself</text>
+<rect x="40" y="694" width="208" height="100" rx="7" fill="#ffffff" stroke="#087f82" stroke-width="1.4"/>
+<text x="53" y="712" font-size="10" fill="#087f82" font-weight="700" text-anchor="start">01 / EVIDENCE</text>
+<text x="53" y="735" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Declined answers</text>
+<text x="53" y="754" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Question kept 30 days</text>
+<text x="53" y="770" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Owners only</text>
+<text x="53" y="786" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Not a learning input</text>
+<path d="M248 744 H264" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>
+<rect x="268" y="694" width="208" height="100" rx="7" fill="#ffffff" stroke="#087f82" stroke-width="1.4"/>
+<text x="281" y="712" font-size="10" fill="#087f82" font-weight="700" text-anchor="start">02 / REVIEW</text>
+<text x="281" y="735" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Gap review</text>
+<text x="281" y="754" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Counts per situation</text>
+<text x="281" y="770" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Finds missing content</text>
+<text x="281" y="786" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Finds missing styles</text>
+<path d="M476 744 H492" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>
+<rect x="496" y="694" width="208" height="100" rx="7" fill="#ffffff" stroke="#087f82" stroke-width="1.4"/>
+<text x="509" y="712" font-size="10" fill="#087f82" font-weight="700" text-anchor="start">03 / AI DRAFT</text>
+<text x="509" y="735" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Drafting agent</text>
+<text x="509" y="754" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Reads the questions, no tools</text>
+<text x="509" y="770" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Drafts and recommends</text>
+<text x="509" y="786" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Output checked by code</text>
+<path d="M704 744 H720" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>
+<rect x="724" y="694" width="208" height="100" rx="7" fill="#ffffff" stroke="#a13d5c" stroke-width="1.4"/>
+<text x="737" y="712" font-size="10" fill="#a13d5c" font-weight="700" text-anchor="start">04 / OWNER</text>
+<text x="737" y="735" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Improvement ideas</text>
+<text x="737" y="754" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Reviewed in the console</text>
+<text x="737" y="770" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Approve, reject or defer</text>
+<text x="737" y="786" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Source recorded</text>
+<path d="M932 744 H948" fill="none" stroke="#087f82" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#m087f82)"/>
+<rect x="952" y="694" width="208" height="100" rx="7" fill="#ffffff" stroke="#087f82" stroke-width="1.4"/>
+<text x="965" y="712" font-size="10" fill="#087f82" font-weight="700" text-anchor="start">05 / PUBLICATION</text>
+<text x="965" y="735" font-size="15.5" fill="#172b45" font-weight="700" text-anchor="start">Existing governed paths</text>
+<text x="965" y="754" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Signed catalogue release</text>
+<text x="965" y="770" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Approved-content publisher</text>
+<text x="965" y="786" font-size="12" fill="#475569" font-weight="400" text-anchor="start">Same B3 and B8 gates</text>
 </svg>

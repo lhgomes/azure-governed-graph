@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import json
 
 from governedgraph.agents import llm_log
+from governedgraph.agents.foundry_runtime import agent_reference
 from governedgraph.common.config import DATA_DIR
 from governedgraph.common.contracts import ContractError, _strict
 from governedgraph.common.io import load_json
@@ -60,11 +61,12 @@ class PersonaScenario:
 
 
 class FoundryPersona:
-    """Pinned, tool-free actor. The caller passes text, never a runtime object."""
+    """Tool-free actor. The caller passes text, never a runtime object. A version is only for testing one candidate."""
 
-    def __init__(self, scenario: PersonaScenario, *, client, agent_name: str, agent_version: str):
-        if not isinstance(scenario, PersonaScenario) or not agent_name or not agent_version.isdecimal():
-            raise ValueError("a scenario and pinned Foundry persona version are required")
+    def __init__(self, scenario: PersonaScenario, *, client, agent_name: str, agent_version: str | None = None):
+        if not isinstance(scenario, PersonaScenario) or not agent_name or (
+                agent_version is not None and not agent_version.isdecimal()):
+            raise ValueError("a scenario and Foundry persona agent name are required")
         self.scenario = scenario
         self.client = client
         self.agent_name = agent_name
@@ -94,14 +96,13 @@ class FoundryPersona:
         try:
             result = self.client.responses.create(
                 input=self.messages, store=False, max_output_tokens=300, timeout=30,
-                extra_body={"agent_reference": {
-                    "type": "agent_reference", "name": self.agent_name, "version": self.agent_version}},
+                extra_body={"agent_reference": agent_reference(self.agent_name, self.agent_version)},
             )
         except BadRequestError as error:
             if error.code != "content_filter":
                 raise
             raise PersonaBlocked("Foundry persona input was filtered") from None
-        llm_log.record(None, "persona", self.agent_name, {"agent": f"{self.agent_name}:{self.agent_version}",
+        llm_log.record(None, "persona", self.agent_name, {"agent": self.agent_name,
                                                            "input": self.messages}, result)
         if (result.status != "completed" or not result.output_text.strip()
                 or any(item.type != "message" for item in result.output)):

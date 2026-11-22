@@ -29,7 +29,7 @@ python -m scripts.deploy --inputs .azure/private-delivery.json
 ```
 
 The first command reviews the scope and sequence; the second provisions the
-Azure resources, publishes pinned agents, deploys the services and checks
+Azure resources, publishes the agents, deploys the services and checks
 readiness. It does **not** run paid evaluations or claim acceptance.
 
 ## What happens during one journey
@@ -43,7 +43,7 @@ readiness. It does **not** run paid evaluations or claim acceptance.
    override both treatment and control arms.
 4. Official member values come from the protected values API and approved
    passages come from Azure AI Search. The model never determines or rounds a value.
-5. Pinned Foundry agents compose explanations with placeholders. The host binds
+5. Foundry agents compose explanations with placeholders. The host binds
    authoritative values, enforces numeric fidelity and records immutable audit
    evidence before exposing a response.
 6. The journey and outbox are committed in Azure Blob storage and delivered via
@@ -66,7 +66,7 @@ Budget for Foundry model inference and evaluation, Speech, Container Apps, APIM,
   member journey in Azure.
 - Run B1–B10 regression tests from the approved Azure runner. These tests may
   use injected fakes for pure logic; no local application runtime is supported.
-- Run pinned Foundry and synthetic channel evaluations in Azure and retain
+- Run Foundry and synthetic channel evaluations in Azure and retain
   versioned evidence. A deployment-only green status is not evaluation success.
 
 The execution and evidence contract is described in

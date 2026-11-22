@@ -33,7 +33,7 @@ another deployment or add credentials to the environment.
 | `reconcile` | Response-audit reconciliation |
 | `recovery` | Separately authorized human recovery |
 | `p2` | Learning-cycle operator tooling |
-| `agents`, `fairness` | Pinned Foundry definitions and fairness operator |
+| `agents`, `fairness` | Foundry definitions and fairness operator |
 
 ## Demonstrating the journey
 
@@ -99,7 +99,7 @@ Each candidate uses twenty warm turns and separate fresh SDK/Speech controls.
 Use new output paths. Never filter or retry failed turns to manufacture a
 percentile, change control assignment or remove suspensions.
 Physical microphone/speaker behavior requires its own browser check.
-Warm-up reuses connections and immutable definitions, not member values or replies,
+Warm-up reuses connections, not member values or replies,
 and does not bypass per-turn checks.
 
 ### Hosted synthetic proof
@@ -223,7 +223,7 @@ leave protection in place. Synthetic fixture uplift is not live performance.
 
 ## Fairness Foundry operator
 
-The fairness agent is pinned to an immutable version, never `@latest`, and runs
+The fairness agent follows its latest published version and runs
 only under its dedicated fairness identity. Trusted host context supplies scope;
 model tool arguments cannot select member records or override a veto.
 
@@ -243,7 +243,7 @@ python -m scripts.run_dev_proof channel --environment gg-dev --logs
 
 Confirm developer Key Vault access is absent. Tokens stay in probe memory and
 expire within fifteen minutes. Use existing operator/runtime diagnostics to check
-numeric fidelity, agent versions, response linkage and
+numeric fidelity, agent names, response linkage and
 [content-free native traces](../../../docs/observability.md).
 
 Check advice escalation, injection screening, scoped values, duplicate delivery,

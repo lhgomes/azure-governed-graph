@@ -176,10 +176,9 @@ def fairness_agent_proof(job: dict, image: str, values: dict[str, str]) -> str:
     container = job["properties"]["template"]["containers"][0]
     env = {item["name"]: item["value"] for item in container.get("env", []) if "value" in item}
     required = {"AZURE_AI_PROJECT_ENDPOINT": values.get("AZURE_AI_PROJECT_ENDPOINT", ""),
-                "AZURE_AI_FAIRNESS_AGENT_VERSION": values.get("AZURE_AI_FAIRNESS_AGENT_VERSION", ""),
                 "FAIRNESS_MANAGED_IDENTITY_CLIENT_ID": values.get("FAIRNESS_CLIENT_ID", "")}
-    if not all(required.values()) or not required["AZURE_AI_FAIRNESS_AGENT_VERSION"].isdecimal():
-        raise ValueError("the fairness-agent proof needs the project endpoint, pinned agent version and fairness identity")
+    if not all(required.values()):
+        raise ValueError("the fairness-agent proof needs the project endpoint and fairness identity")
     env.update(required)
     env["GOVERNEDGRAPH_P2_STAGE"] = "fairness-agent-proof"
     body = {"containers": [{

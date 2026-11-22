@@ -127,14 +127,17 @@ def test_b7_b8_console_grants_are_container_scoped_and_exclude_cohorts_content_a
     rbac = (ROOT / "infra/modules/rbac.bicep").read_text()
     admin = block(rbac, "// --- administration console", "// --- developer")
     scopes = re.findall(r"scope: (\w+)", admin)
-    assert sorted(scopes) == ["adminActionsContainer", "learningEvidence", "outcomeContainer", "recordsContainer"]
+    assert sorted(scopes) == ["adminActionsContainer", "approvalsContainer", "improvementContainer", "learningEvidence",
+                              "outcomeContainer", "recordsContainer"]
     for forbidden in ("cohortContainer", "auditContainer", "rankingContainer", "contentContainer", "journey", "snapshotKey",
                       "scope: st\n", "scope: contentStorage", "scope: kv", "keySignerRole", "verifyRole", "scope: search"):
         assert forbidden not in admin
     roles = re.findall(r"roleDefinitionId: subscriptionResourceId\('Microsoft.Authorization/roleDefinitions', (roles\.\w+)\)", admin)
-    assert roles.count("roles.blobDataContributor") == 1 and roles.count("roles.blobDataReader") == 3
+    assert roles.count("roles.blobDataContributor") == 2 and roles.count("roles.blobDataReader") == 4
     contributor = block(admin, "resource adminJournalWrite", "\n}\n")
     assert "adminActionsContainer" in contributor
+    assert "roles.blobDataReader" in block(admin, "resource adminProposalRead", "\n}\n")
+    assert "approvalsContainer" in block(admin, "resource adminApprovalWrite", "\n}\n")
     assert "principalId: adminPrincipalId" in admin and "principalId: runtimePrincipalId" not in admin
 
 
@@ -161,7 +164,8 @@ def test_b3_b8_gateway_lists_every_console_route_and_exposes_no_wildcard_or_publ
     assert sorted(routes) == sorted([
         ("GET", "/"), ("GET", "/assets/{name}"), ("GET", "/api/access"), ("GET", "/api/overview"), ("GET", "/api/journeys"),
         ("GET", "/api/journeys/{journeyId}"), ("GET", "/api/traces/{journeyId}"), ("POST", "/api/actions"),
-        ("POST", "/api/owner-actions"), ("POST", "/api/catalogue")])
+        ("POST", "/api/owner-actions"), ("POST", "/api/catalogue"), ("GET", "/api/proposals"),
+        ("GET", "/api/proposals/{proposalId}"), ("POST", "/api/proposals/decision")])
     assert "/*" not in ops and "path: 'admin'" in gateway
     main = (ROOT / "infra/workloads.bicep").read_text()
     assert "STRATEGY_ADMIN_PRINCIPAL_ID: security.outputs.adminPrincipalId" in main
@@ -181,3 +185,49 @@ def test_b8_risky_console_options_are_off_by_default_and_reviewed_access_is_expl
     assert '"adminReaderGroupId": console["reader_group_id"]' in bootstrap
     assert '"adminOperatorGroupId": console["operator_group_id"]' in bootstrap
     assert "azure-monitor-query==2.0.0" in (ROOT / "requirements-azure.txt").read_text()
+
+
+def test_b3_b4_b8_gap_review_has_its_own_identity_reads_records_and_cannot_write_an_approval():
+    rbac = (ROOT / "infra/modules/rbac.bicep").read_text()
+    review = block(rbac, "// --- gap review, improvement proposals", "// --- administration console")
+    grants = re.findall(r"scope: ([\w\[\]]+)\n\s+name: guid\([^,]+, (\w+), (roles\.\w+)\)", review)
+    assert sorted(grants) == sorted([
+        ("recordsContainer", "gapReviewPrincipalId", "roles.blobDataReader"),
+        ("journeyContainers[0]", "gapReviewPrincipalId", "roles.blobDataReader"),
+        ("improvementContainer", "gapReviewPrincipalId", "roles.blobDataContributor"),
+        ("approvalsContainer", "gapReviewPrincipalId", "roles.blobDataReader"),
+        ("declinedQuestionsContainer", "gapReviewPrincipalId", "roles.blobDataReader"),
+        ("approvalsContainer", "contentPublisherPrincipalId", "roles.blobDataContributor"),
+        ("adminActionsContainer", "contentPublisherPrincipalId", "roles.blobDataReader")])
+    for forbidden in ("snapshotKey", "keySignerRole", "scope: search", "scope: kv", "cohortContainer", "contentContainer",
+                      "pipelinePrincipalId", "adminPrincipalId", "runtimePrincipalId"):
+        assert forbidden not in review
+    security = (ROOT / "infra/modules/security.bicep").read_text()
+    assert "name: 'id-gg-gap-review-${token}'" in security
+    job = (ROOT / "infra/modules/gap-review-job.bicep").read_text()
+    assert "governedgraph.learning.gap_review_job" in job and "triggerType: 'Schedule'" in job
+    for forbidden in ("KEY_VAULT", "SEARCH", "SERVICE_BUS", "AZURE_AI_", "Strategy.", "keyVault"):
+        assert forbidden not in job
+    data = (ROOT / "infra/modules/data.bicep").read_text()
+    for name, resource in (("improvement-proposals", "improvementProposals"), ("content-approvals", "contentApprovals"),
+                           ("declined-questions", "declinedQuestions")):
+        assert f"name: '{name}'" in data and "publicAccess: 'None'" in block(data, f"resource {resource} ", "\n}\n")
+    assert "allowProtectedAppendWrites: false" in block(data, "resource contentApprovalsWorm", "\n}\n")
+    # Member text must stay erasable: no immutability on the containers that hold it, and a lifecycle expiry instead.
+    assert "improvementProposalsWorm" not in data and "declinedQuestionsWorm" not in data
+    lifecycle = block(data, "resource improvementLifecycle", "\n}\n")
+    assert "'declined-questions/'" in lifecycle and "'improvement-proposals/'" in lifecycle
+    # Blob versioning is on: expiry must remove noncurrent versions too, and example questions expire with the questions.
+    assert lifecycle.count("daysAfterModificationGreaterThan: 30") == 2 and lifecycle.count("version: { delete:") == 2
+    assert "daysAfterModificationGreaterThan: 90" not in lifecycle
+
+
+def test_b4_only_the_runtime_writes_declined_questions_and_only_the_gap_review_reads_them():
+    rbac = (ROOT / "infra/modules/rbac.bicep").read_text()
+    grants = re.findall(r"scope: declinedQuestionsContainer\n\s+name: guid\([^,]+, (\w+), (roles\.\w+)\)", rbac)
+    assert sorted(grants) == [("gapReviewPrincipalId", "roles.blobDataReader"),
+                              ("runtimePrincipalId", "roles.blobDataContributor")]
+    workloads = (ROOT / "infra/workloads.bicep").read_text()
+    assert "GOVERNEDGRAPH_CAPTURE_DECLINED_QUESTIONS: deployAdminConsole" in workloads
+    consumer = (ROOT / "infra/modules/gap-review-agent-consumer.bicep").read_text()
+    assert "scope: agent" in consumer and "name: 'gg-gap-review'" in consumer and "scope: account" not in consumer

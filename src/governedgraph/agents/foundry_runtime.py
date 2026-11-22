@@ -1,9 +1,8 @@
-"""Foundry 2.9.0 versioned prompt agent; every tool executes in the journey's host."""
+"""Foundry prompt agents, called by name so the agent's selected version answers; every tool executes in the journey's host."""
 from __future__ import annotations
 
 import json
 import logging
-import os
 from functools import lru_cache
 from threading import Lock
 from dataclasses import asdict
@@ -44,6 +43,11 @@ TOOL_SCHEMAS = [
     {"name": "escalate_to_advisor", "description": "Offer a human; use for any personal advice or option choice.",
      "properties": {"reason_code": {"type": "string"}, "context_summary": {"type": "string"}}},
 ]
+
+
+def agent_reference(name: str, version: str | None = None) -> dict:
+    """Reference an agent by name; without a version Foundry answers with the agent's selected (latest) version."""
+    return {"type": "agent_reference", "name": name, **({"version": version} if version else {})}
 
 
 def tool_definitions():
@@ -169,7 +173,8 @@ class FoundryComposer:
         self.instructions = instructions
         self.client = client
         self.agent_name = "gg-counsellor-voice-compact" if compact else settings.agent_name
-        self.agent_version = os.getenv("AZURE_AI_VOICE_COMPACT_VERSION", "") if compact else settings.agent_version
+        # Only an evaluation harness sets a version, to test one specific candidate; runtime answers by name.
+        self.agent_version: str | None = None
         self.model = settings.compact_deployment if compact else settings.model_deployment
         if client is None:
             from azure.ai.projects import AIProjectClient
@@ -177,19 +182,12 @@ class FoundryComposer:
             from azure.identity import DefaultAzureCredential
             from openai import OpenAIError
 
-            if not self.agent_version or not self.agent_version.isdecimal():
-                raise FoundryUnavailable("an explicit numeric Foundry agent version is required")
             try:
                 project = AIProjectClient(endpoint=settings.project_endpoint, credential=DefaultAzureCredential(),
                                           connection_timeout=5, read_timeout=10, retry_total=0)
-                version = project.agents.get_version(self.agent_name, self.agent_version)
+                project.agents.get(self.agent_name)
             except (AzureError, OpenAIError, TimeoutError, ValueError) as error:
-                raise FoundryUnavailable("pinned Foundry agent is unavailable") from error
-            expected = agent_definition(instructions, model=self.model)
-            actual = version.definition
-            if (version.name != self.agent_name or version.version != self.agent_version
-                    or actual.as_dict() != expected.as_dict()):
-                raise FoundryUnavailable("pinned agent definition does not match the approved host definition")
+                raise FoundryUnavailable("Foundry agent is unavailable") from error
             self.client = project.get_openai_client(
                 max_retries=0, timeout=20,
                 **({"base_url": settings.ai_gateway_url} if settings.ai_gateway_url else {}),
@@ -355,11 +353,10 @@ class FoundryComposer:
                 kwargs = {"input": inputs, "store": False, "timeout": 20, "max_output_tokens": 1200,
                           "include": ["reasoning.encrypted_content"],
                           "extra_headers": headers(tools.journey.journey_id, tools.trace_parent),
-                          "extra_body": {"agent_reference": {"type": "agent_reference", "name": self.agent_name,
-                                                   "version": self.agent_version}}}
+                          "extra_body": {"agent_reference": agent_reference(self.agent_name, self.agent_version)}}
                 if not allow_tools:
                     kwargs["tool_choice"] = "none"
-                sent = {"agent": f"{self.agent_name}:{self.agent_version}", "round": round_number,
+                sent = {"agent": self.agent_name, "round": round_number,
                         "tool_choice": kwargs.get("tool_choice"), "input": inputs}
                 with tools.trace.measure("foundry_requests"):
                     pending = True

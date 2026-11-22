@@ -52,6 +52,7 @@ class Trace:
     review_feedback: list[dict[str, str]] = field(default_factory=list)
     turn_trace: list[dict] = field(default_factory=list)
     rate_limit_wait: float = 0.0
+    decline_reason: str = ""
 
     def note(self, stage: str, result: str, issues: list[str] | tuple[str, ...] = ()) -> None:
         """Content-free turn evidence: closed codes only, never member or answer text."""
@@ -70,7 +71,7 @@ class Trace:
 class CounsellorTools:
     def __init__(self, journey: Journey, authenticated_member_ref: str, values_client, strategy_client,
                  search, store, model_deployment: str, template_version: str, *,
-                 agent_name: str = "local-template-composer", agent_version: str = "1",
+                 agent_name: str = "local-template-composer",
                  prompt_screen=None, step_up_verified: bool = True):
         self.journey = journey
         self.auth_ref = authenticated_member_ref
@@ -82,7 +83,6 @@ class CounsellorTools:
         self.template_version = template_version
         self.explanation_pattern = ""
         self.agent_name = agent_name
-        self.agent_version = agent_version
         self.prompt_screen = prompt_screen
         self.step_up_verified = step_up_verified
         self.trace = Trace()
@@ -182,11 +182,12 @@ class CounsellorTools:
             content_versions=list(self.trace.content_versions),
             value_ids=[v.value_id for v in vals], value_sources=sorted({f"{v.source_system}:{v.calculation_run_id}" for v in vals}),
             model_deployment=self.model_deployment, template_version=self.template_version,
-            agent_name=self.agent_name, agent_version=self.agent_version,
+            agent_name=self.agent_name,
             disclosure_given=disclosure_given, escalation_offered=True,
             request_key=self.journey.request_key(), numeric_fidelity_passed=numeric_fidelity_passed,
             response_id=self.response_id or uuid.uuid4().hex, response_kind=response_kind,
             decision_evidence=list(self.trace.decision_evidence),
+            decline_reason=self.trace.decline_reason if response_kind in {"acknowledgment", "escalation"} else "",
         )
         try:
             self.store.append(rec)

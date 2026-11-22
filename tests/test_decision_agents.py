@@ -85,7 +85,7 @@ def test_decision_model_is_sole_draft_reviewer(monkeypatch, verdict, expected):
     turn.trace.composition_source = "foundry"
     turn.conversation_context = lambda: []
     session = SimpleNamespace(tools=turn, decision_agents={}, journey=SimpleNamespace(journey_id="J-review"))
-    monkeypatch.setattr(FoundryDecisionAgent, "shared", lambda _: pytest.fail("legacy reviewer called"))
+    monkeypatch.setattr(FoundryDecisionAgent, "judge", lambda *_: pytest.fail("legacy reviewer called"))
     monkeypatch.setattr(decision_agents, "review_payload", lambda *_: {"task": {"excluded_concepts": []}})
     def choose(_tools, _state, questions, optional=frozenset()):
         if verdict is None:
@@ -357,6 +357,8 @@ def test_b4_legacy_audit_outbox_retries_remain_byte_exact_without_rewriting_hist
     counsellor.handle("Will the transition change what I receive?")
     old = counsellor.tools.store.read_all()[-1]
     old["contract_version"] = version
+    old.pop("decline_reason")  # legacy records predate the field and were stored without it
+    old["agent_version"] = "1"  # legacy records carry the version they were pinned to
     if version == "1.1":
         old.pop("decision_evidence")
     else:

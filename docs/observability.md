@@ -121,8 +121,8 @@ record separately whether you rendered it there.
 
 `/foundry/openai/v1/responses` is an authenticated **Responses front door**.
 It allows the existing runtime identity only, forwards that caller's Entra
-token and validates the already-approved pinned counsellor, intent,
-understanding and answer-review agent versions. There is no direct unpinned
+token and admits only the approved counsellor and compact voice agent names,
+rejecting any model, instruction, tool or text override. There is no direct
 classifier exception. Member
 tokens never enter this route. Host-selected model/agent metadata is retained.
 
@@ -137,14 +137,14 @@ reason `conversation_limit` and its own member wording, not as an outage.
 
 **Compatibility limitation:** [Foundry gateway documentation](https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway#supported-configurations)
 explicitly excludes the Responses API from its BYOM model-gateway integration.
-The existing counsellor uses that API and a verified, pinned prompt agent.
+The existing counsellor uses that API and a named prompt agent.
 The front door is not an inference-level backend pool. It does **not** claim
 deployment load-balancing/failover, silently substitute the compact model,
 rewrite agent references or replay a possibly accepted model request.
 Changing this route to another supported agent architecture requires an
-explicit decision while preserving version verification and all host gates.
+explicit decision while preserving the approved-name check and all host gates.
 Until a compatible integration is independently approved and verified, retain
-the pinned front door; on model failure, use permitted checked text or human handover.
+the approved-agent front door; on model failure, use permitted checked text or human handover.
 
 ## Workbook and queries
 

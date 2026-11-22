@@ -55,7 +55,7 @@ async def probe_voice(orchestrator: str) -> None:
     for name in checks:
         print(f"{'PASS' if result[name] is True else 'FAIL'} {name} journey_id={result['journey_id']}", flush=True)
     print(json.dumps({key: result[key] for key in (
-        "journey_id", "runtime_principal_id", "response_ids", "agent_versions",
+        "journey_id", "runtime_principal_id", "response_ids",
     )}), flush=True)
     if not all(result[name] is True for name in checks):
         raise ProbeFailure("hosted voice flow acceptance failed")

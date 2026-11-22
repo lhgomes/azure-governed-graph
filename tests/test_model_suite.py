@@ -24,7 +24,7 @@ from evals.run_model_suite import (
 )
 
 from governedgraph.agents.counsellor import INSTRUCTIONS, Counsellor
-from governedgraph.agents.decision_agents import FoundryDecisionAgent
+from governedgraph.agents.decision_agents import DecisionUnavailable, FoundryDecisionAgent
 from governedgraph.agents.decision_agents import agent_definition as decision_definition
 from governedgraph.agents.foundry_runtime import agent_definition
 from governedgraph.agents.persona_simulator import PERSONA_INSTRUCTIONS, PERSONA_TEXT, ScriptedPersona
@@ -400,11 +400,10 @@ def test_on_demand_command_wires_three_pinned_candidates_all_roles_and_persisten
     project.get_openai_client.assert_called_once_with(max_retries=0, timeout=20)
 
 
-def test_explicit_decision_version_never_changes_runtime_settings():
-    old = settings.review_agent_version
-    agent = FoundryDecisionAgent("answer-review", client=Mock(), agent_version="123")
-    assert agent.agent_version == "123"
-    assert settings.review_agent_version == old
+def test_decision_agent_under_evaluation_needs_an_explicit_numeric_version():
+    assert FoundryDecisionAgent("answer-review", client=Mock(), agent_version="123").agent_version == "123"
+    with pytest.raises(DecisionUnavailable):
+        FoundryDecisionAgent("answer-review", client=Mock(), agent_version="latest")
 
 
 def test_b3_b8_replay_uses_injected_decisions_and_same_candidate_for_review_and_repair(

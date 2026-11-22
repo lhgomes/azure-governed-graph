@@ -49,6 +49,58 @@ resource adminActions 'Microsoft.Storage/storageAccounts/blobServices/containers
   name: 'admin-actions'
   properties: { publicAccess: 'None' }
 }
+// Gap-review proposals: written once by the gap-review job, read by the administration console.
+resource improvementProposals 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (deployAdminConsole) {
+  parent: blob
+  name: 'improvement-proposals'
+  properties: { publicAccess: 'None' }
+}
+// Member questions that ended without an explanation, kept for the gap review. Not immutable, so an erasure request
+// can be honoured; written by the runtime, read only by the gap review, expired by the lifecycle rule below.
+resource declinedQuestions 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (deployAdminConsole) {
+  parent: blob
+  name: 'declined-questions'
+  properties: { publicAccess: 'None' }
+}
+resource improvementLifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = if (deployAdminConsole) {
+  parent: st
+  name: 'default'
+  properties: {
+    policy: {
+      rules: [
+        {
+          name: 'expire-declined-questions'
+          enabled: true
+          type: 'Lifecycle'
+          definition: {
+            filters: { blobTypes: [ 'blockBlob' ], prefixMatch: [ 'declined-questions/' ] }
+            actions: { baseBlob: { delete: { daysAfterModificationGreaterThan: 30 } }, version: { delete: { daysAfterCreationGreaterThan: 30 } } }
+          }
+        }
+        {
+          name: 'expire-improvement-proposals'
+          enabled: true
+          type: 'Lifecycle'
+          definition: {
+            filters: { blobTypes: [ 'blockBlob' ], prefixMatch: [ 'improvement-proposals/' ] }
+            actions: { baseBlob: { delete: { daysAfterModificationGreaterThan: 30 } }, version: { delete: { daysAfterCreationGreaterThan: 30 } } }
+          }
+        }
+      ]
+    }
+  }
+}
+// Owner-approved passages awaiting the content publisher, and its publication markers. Create-only, enforced by retention.
+resource contentApprovals 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (deployAdminConsole) {
+  parent: blob
+  name: 'content-approvals'
+  properties: { publicAccess: 'None' }
+}
+resource contentApprovalsWorm 'Microsoft.Storage/storageAccounts/blobServices/containers/immutabilityPolicies@2023-05-01' = if (deployAdminConsole) {
+  parent: contentApprovals
+  name: 'default'
+  properties: { immutabilityPeriodSinceCreationInDays: 30, allowProtectedAppendWrites: false }
+}
 resource adminActionsWorm 'Microsoft.Storage/storageAccounts/blobServices/containers/immutabilityPolicies@2023-05-01' = if (deployAdminConsole) {
   parent: adminActions
   name: 'default'

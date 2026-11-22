@@ -1,6 +1,6 @@
 """Counsellor = Member Communication Agent (L3) over the host-owned guardrail pipeline.
 
-Implements the runtime sequence described in docs/architecture.md using a pinned
+Implements the runtime sequence described in docs/architecture.md using a named
 Foundry prompt agent with journey-bound function tools and placeholder-only drafts.
 Post-processing: bind figures by reference -> numeric-fidelity gate ->
 steering check -> explainability record. A placeholder-contract rejection may use
@@ -22,9 +22,14 @@ from dataclasses import dataclass, field
 from governedgraph.agents.clients import default_strategy_client, default_values_client
 from governedgraph.agents.tools import CounsellorTools
 from governedgraph.common.config import DATA_DIR, settings
-from governedgraph.common.contracts import AnswerDraft, AnswerReview, ExplanationContext, IntentDecision, UnderstandingDecision
+from governedgraph.common.contracts import (
+    AnswerDraft, AnswerReview, ExplanationContext, IntentDecision, UnderstandingDecision, event_timestamp,
+)
 from governedgraph.common.domain import message, prompt as domain_prompt
 from governedgraph.common.io import load_json
+from governedgraph.explainability.declined_questions import (
+    CAPTURED_REASONS, MAX_CHARS, DeclinedQuestion, default_question_store,
+)
 from governedgraph.explainability.store import default_store
 from governedgraph.guardrails import numeric_fidelity
 from governedgraph.guardrails.advice_intent import response_steers_choice
@@ -82,6 +87,13 @@ def dependency(domain, operation, *args):
 INSTRUCTIONS = domain_prompt("counsellor")
 
 
+# Default decline reason for each host escalation code; a call site that knows better passes its own.
+ESCALATION_DECLINES = {
+    "safety": "content_safety", "teach_back_failed": "teach_back_failed", "advice_intent": "advice_question",
+    "member_request": "member_request", "component_failure": "component_failure", "conversation_limit": "conversation_limit",
+}
+
+
 def _quality_only(review: AnswerReview) -> bool:
     """Only relevance/style defects remain; every safety check (grounding, advice, document, language) passed."""
     return review.verdict == "revise" and bool(review.issues) and set(review.issues) <= {"relevance", "strategy"}
@@ -120,6 +132,9 @@ class TurnResult:
 
 
 class Counsellor:
+    question_store = None
+    _utterance = ""
+
     def __init__(self, journey: Journey, authenticated_member_ref: str, strategy_service=None,
                  composer: str | None = None, member_token: str = "", step_up_verified: bool = True,
                  audit_enqueue=None, audit_store=None, voice_model: str = ""):
@@ -146,7 +161,6 @@ class Counsellor:
             model_deployment=settings.model_deployment,
             template_version=TEMPLATES["template_set_version"],
             agent_name=settings.agent_name,
-            agent_version=settings.agent_version,
             prompt_screen=self.screen,
             step_up_verified=step_up_verified,
         )
@@ -156,10 +170,11 @@ class Counsellor:
         if self.compact_voice:
             self.tools.model_deployment = settings.compact_deployment
             self.tools.agent_name = "gg-counsellor-voice-compact"
-            self.tools.agent_version = os.getenv("AZURE_AI_VOICE_COMPACT_VERSION", "")
         self._current_strategy: str | None = None
         self.step_up_verified = step_up_verified
         self._prefetched = False
+        self.question_store = default_question_store()
+        self._utterance = ""
 
     def _parallel_explanation_sources(self, utterance: str):
         """Parallel read-only tools, only after screening and the intent-agent decision."""
@@ -237,11 +252,13 @@ class Counsellor:
         from governedgraph.explainability.store import AuditUnavailable
 
         previous_count = len(self.journey.events)
+        self._utterance = utterance
         self.tools.response_id = self.tools.response_id or uuid.uuid4().hex
         self.tools.trace.audit_record = None
         self.tools.trace.decision_evidence = []
         self.tools.trace.turn_trace = []
         self.tools.trace.rate_limit_wait = 0.0
+        self.tools.trace.decline_reason = ""
         self.tools.conversation_screened = False
         self._turn_exclusions: set[str] = set()
         self._prefetched = False
@@ -343,7 +360,7 @@ class Counsellor:
         if not ranked:
             return self._escalate("selected test style is not currently eligible or available"
                                   if self.journey.test_strategy_id else "no eligible approved strategy left",
-                                  "teach_back_failed")
+                                  "teach_back_failed", decline_reason="no_eligible_style")
         strategy = self.catalogue.get(ranked[0].strategy_id)
         t.explanation_pattern = self._pattern_for(strategy)
         t.template_version = strategy.template_version
@@ -359,7 +376,8 @@ class Counsellor:
         except ToolUnavailable as error:
             raise DependencyFailure("journey-bound component unavailable") from error
         if len(t.trace.escalations) > escalation_count:
-            return self._escalate("model requested a human advisor", "advice_intent")
+            return self._escalate("model requested a human advisor", "advice_intent",
+                                  decline_reason="model_requested_advisor")
         if strategy.strategy_id not in {r.strategy_id for r in t.trace.ranked.ranked}:
             raise DependencyFailure("selected strategy no longer served")
         with t.trace.measure("post_processing"):
@@ -385,7 +403,7 @@ class Counsellor:
             with t.trace.measure("post_processing"):
                 text, fid, reason = self._post_process(draft, strategy)
             if reason:
-                return self._unanswered(reason)
+                return self._unanswered(reason, "answer_review" if review.verdict != "pass" else "output_gate")
             intent = next((item.decision for item in reversed(t.trace.decision_evidence)
                            if item.role == "intent" and item.decision["route"] == "explanation"), None)
             focus = intent["reason"] if intent else (
@@ -401,6 +419,9 @@ class Counsellor:
         self.journey.strategies_tried.append(strategy.strategy_id)
         with t.trace.measure("audit_commit"):
             t.write_explainability_record(strategy.strategy_id, numeric_fidelity_passed=fid.passed)
+        reviews = [item for item in t.trace.decision_evidence if item.role == "answer-review"]
+        if reviews and reviews[-1].decision["verdict"] != "pass":
+            self._keep_declined_question(flagged=True)
         # A task-specific fallback is not a reviewed teach-back.
         fallback_goal = t.trace.composition_source == "template_fallback" and bool(_task_template(t, strategy))
         teach_back_skipped = t.trace.composition_source == "foundry" and last_explanation is None
@@ -557,7 +578,21 @@ class Counsellor:
             self.tools.trace.note("output_gate", "no_approved_fallback")
         return "", numeric_fidelity.FidelityResult(False, [], ["<blocked>"]), failure_reason
 
-    def _unanswered(self, reason: str) -> TurnResult:
+    def _keep_declined_question(self, flagged: bool = False) -> None:
+        """Best effort, after the audit record: a storage problem here never changes what the member receives.
+
+        ``flagged`` keeps the question of an answer that was delivered after the answer review raised an issue."""
+        if (self.question_store is None or self.journey.test_strategy_id or not self._utterance.strip()
+                or not (flagged or self.tools.trace.decline_reason in CAPTURED_REASONS)):
+            return
+        try:
+            self.question_store.append(DeclinedQuestion(
+                self.journey.journey_id, self.tools.response_id, event_timestamp(), self._utterance[:MAX_CHARS]))
+        except Exception as error:
+            log.error("declined_question_not_kept", extra={"journey_id": self.journey.journey_id,
+                                                           "error_type": type(error).__name__})
+
+    def _unanswered(self, reason: str, decline_reason: str = "output_gate") -> TurnResult:
         """A failed answer is a host failure, not a request for the member to repeat their question."""
         log.warning("answer_unavailable_without_relevant_fallback",
                     extra={"journey_id": self.journey.journey_id, "failure_domain": reason})
@@ -565,19 +600,24 @@ class Counsellor:
         text = message("answer_unavailable") + offer
         fidelity = numeric_fidelity.check(text, None, [])
         if not offer or not fidelity.passed or response_steers_choice(text) or "{{" in text or "}}" in text:
-            return self._escalate("no safe answer or advisor offer available", "safety")
+            return self._escalate("no safe answer or advisor offer available", "safety", decline_reason="no_safe_answer")
         self.journey.unanswered_streak = min(self.journey.unanswered_streak + 1, 100)
         self.tools.trace.note("outcome", "advisor_offer")
         self.tools.trace.composition_source = "unanswered"
+        self.tools.trace.decline_reason = decline_reason
         self.tools.write_explainability_record(ESCALATION_STRATEGY, response_kind="acknowledgment")
+        self._keep_declined_question()
         self.journey.last_explanation = None
         return TurnResult(text, self.journey.state.value, fidelity=fidelity)
 
-    def _escalate(self, summary: str, reason_code: str, already_requested: bool = False) -> TurnResult:
+    def _escalate(self, summary: str, reason_code: str, already_requested: bool = False,
+                  decline_reason: str = "") -> TurnResult:
         if not already_requested:
             self.journey.fire(Event.ESCALATE, event_id=f"esc-{uuid.uuid4().hex[:6]}")
         self.tools.escalate_to_advisor(reason_code, summary)
+        self.tools.trace.decline_reason = decline_reason or ESCALATION_DECLINES.get(reason_code, "")
         self.tools.write_explainability_record(ESCALATION_STRATEGY, response_kind="escalation")
+        self._keep_declined_question()
         self.tools.trace.note("outcome", "escalated", [reason_code])
         msg = message("advice_declined") if reason_code == "advice_intent" else ""
         if reason_code == "safety":

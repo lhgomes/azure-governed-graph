@@ -18,8 +18,11 @@ from threading import Lock
 from typing import Protocol
 
 from governedgraph.admin.data import Context, build_overview, tier1_decision, uplift_decision
-from governedgraph.common.config import settings
+from governedgraph.common.config import DATA_DIR, settings
 from governedgraph.common.contracts import ExplainabilityRecord, SuspensionEvent
+from governedgraph.learning import improvement_store
+from governedgraph.learning.gap_review import effective_corpus
+from governedgraph.search.corpus import ContentDocument, load_corpus
 from governedgraph.strategy_service.snapshot import RankingSnapshot
 from governedgraph.strategy_service.overrides import OwnerDecision, OwnerOverride
 from governedgraph.strategy_service.catalogue import Catalogue
@@ -56,6 +59,8 @@ class Containers:
     aggregates: object
     evidence: object
     actions: object
+    proposals: object | None = None
+    approvals: object | None = None
 
 
 class AzureSources:
@@ -65,11 +70,13 @@ class AzureSources:
     profile = "azure"
 
     def __init__(self, *, http, containers: Containers, strategy_client_factory: Callable[[], AdminStrategyClient],
-                 context: Context | None = None, max_audit_blobs: int = 1000, cache_seconds: float = 30.0):
+                 context: Context | None = None, max_audit_blobs: int = 1000, cache_seconds: float = 30.0,
+                 max_journal_blobs: int = 5000):
         self.http, self.containers = http, containers
         self._client_factory = strategy_client_factory
         self._client: AdminStrategyClient | None = None
         self._context, self.max_audit_blobs, self.cache_seconds = context, max_audit_blobs, cache_seconds
+        self.max_journal_blobs = max_journal_blobs
         self._cache: dict[str, tuple[float, object]] = {}
         self._cache_lock = Lock()
 
@@ -94,6 +101,8 @@ class AzureSources:
             records.get_container_client("learning-aggregates"),
             content.get_container_client("learning-evidence"),
             records.get_container_client(os.getenv("GOVERNEDGRAPH_ADMIN_ACTIONS_CONTAINER", "admin-actions")),
+            records.get_container_client(settings.improvement_container),
+            records.get_container_client(settings.approvals_container),
         )
 
         def client():
@@ -254,6 +263,76 @@ class AzureSources:
             log.error("admin_source_failed", extra={"source": "journal", "error_type": type(error).__name__})
             raise AdminSourceError("The admin journal is unavailable; check the identity's access.") from error
         return sorted(rows, key=lambda row: (str(row.get("created_at", "")), str(row.get("status", ""))))
+
+    # ----- improvement proposals (written by the gap-review job; read here, approved content handed to the publisher) -----
+    def _improvement_containers(self):
+        if self.containers.proposals is None or self.containers.approvals is None:
+            raise AdminSourceError("Improvement review is not configured for this deployment.")
+        return self.containers.proposals, self.containers.approvals
+
+    def improvement(self) -> dict:
+        def load() -> dict:
+            proposals, approvals = self._improvement_containers()
+            try:
+                found, truncated = improvement_store.read_proposals(proposals)
+                return {"proposals": found, "truncated": truncated, "batches": improvement_store.read_batches(proposals),
+                        "approved": {item.name for item in improvement_store.read_approvals(approvals)},
+                        "published": improvement_store.published_names(approvals),
+                        "refused": improvement_store.refused_names(approvals)}
+            except improvement_store.StoreTooLarge as error:
+                raise AdminSourceError(str(error)) from error
+            except (ValueError, TypeError, KeyError) as error:
+                raise AdminSourceError("An improvement proposal is unreadable; investigate before relying on this view.") from error
+            except Exception as error:
+                log.error("admin_source_failed", extra={"source": "improvement", "error_type": type(error).__name__})
+                raise AdminSourceError("Improvement proposal storage is unavailable; check the identity's read access.") from error
+
+        return self._cached("improvement", load)
+
+    def content_corpus(self) -> list[ContentDocument]:
+        try:
+            seed = load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text())
+            container = self._improvement_containers()[1]
+            refused = improvement_store.refused_names(container)
+            approvals = [item.content for item in improvement_store.read_approvals(container) if item.name not in refused]
+            return effective_corpus(seed, approvals)
+        except AdminSourceError:
+            raise
+        except improvement_store.StoreTooLarge as error:
+            raise AdminSourceError(str(error)) from error
+        except (ValueError, TypeError, KeyError, OSError) as error:
+            raise AdminSourceError("The approved content could not be read or is inconsistent.") from error
+        except Exception as error:
+            log.error("admin_source_failed", extra={"source": "content", "error_type": type(error).__name__})
+            raise AdminSourceError("Approved content storage is unavailable; check the identity's access.") from error
+
+    def approve_content(self, approval: improvement_store.ContentApproval) -> None:
+        from azure.core.exceptions import AzureError
+
+        try:
+            improvement_store.write_approval(self._improvement_containers()[1], approval)
+        except AzureError as error:
+            raise AdminSourceError("The approved content hand-off failed; investigate the decision reference.") from error
+        finally:
+            with self._cache_lock:
+                self._cache.pop("improvement", None)
+
+    def proposal_decisions(self) -> list[dict]:
+        """Every journalled step that belongs to an improvement idea. A truncated journal could hide an approval, so it is an error."""
+        try:
+            names, truncated = self._names(self.containers.actions, "", self.max_journal_blobs, (".json",))
+            if truncated:
+                raise AdminSourceError("The admin journal is too large to derive the status of improvement ideas safely; "
+                                       "ask a technical operator to raise the journal read limit.")
+            rows = [json.loads(raw) for raw in self._download(self.containers.actions, names)]
+        except AdminSourceError:
+            raise
+        except (ValueError, TypeError) as error:
+            raise AdminSourceError("The admin journal contains an unreadable record.") from error
+        except Exception as error:
+            log.error("admin_source_failed", extra={"source": "journal", "error_type": type(error).__name__})
+            raise AdminSourceError("The admin journal is unavailable; check the identity's access.") from error
+        return [row for row in rows if isinstance(row, dict) and isinstance(row.get("proposal"), dict)]
 
     def overview(self) -> dict:
         state = self.state()

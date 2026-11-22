@@ -1,4 +1,4 @@
-"""Versioned hosted semantic agents; closed schemas and pinned Foundry versions."""
+"""Semantic decision agents; closed schemas and a bounded, host-validated contract."""
 from __future__ import annotations
 
 import json
@@ -286,12 +286,14 @@ def _record_model_decision(tools, role: str, decision: IntentDecision | AnswerRe
 
 
 class FoundryDecisionAgent:
-    def __init__(self, role: str, *, client=None, agent_version: str | None = None):
+    """Evaluation-only hosted reviewer; a candidate under test is addressed by an explicit version."""
+
+    def __init__(self, role: str, *, agent_version: str, client=None):
         if role not in INSTRUCTIONS:
             raise ValueError("unknown decision-agent role")
         self.role = role
         self.agent_name = f"gg-{role}-agent"
-        self.agent_version = agent_version if agent_version is not None else settings.review_agent_version
+        self.agent_version = agent_version
         if not self.agent_version.isdecimal():
             raise DecisionUnavailable("an explicit decision-agent version is required")
         if client is None:
@@ -309,19 +311,6 @@ class FoundryDecisionAgent:
                 **({"base_url": settings.ai_gateway_url} if settings.ai_gateway_url else {}),
             )
         self.client = client
-
-    @classmethod
-    def shared(cls, role: str) -> "FoundryDecisionAgent":
-        from governedgraph.agents.connections import isolated, scoped
-
-        if isolated():
-            return scoped(role, lambda: cls(role))
-        return cls._cached(role)
-
-    @classmethod
-    @lru_cache(maxsize=3)
-    def _cached(cls, role: str) -> "FoundryDecisionAgent":
-        return cls(role)
 
     def close(self):
         self.client.close()
