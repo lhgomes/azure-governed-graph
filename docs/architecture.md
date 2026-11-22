@@ -240,7 +240,7 @@ There is no new resource, grant, deployment mode, migration, bootstrap step or
 deployment-dependent repository check.
 
 Operational memory is not model training or modification of prompts, templates,
-models or catalogue: B4 continues to prohibit those transcript-driven changes.
+models or catalogue: B4 continues to prohibit those transcript-driven changes. The one exception is the owner-approved gap review below, which proposes to people only.
 P2 still reads closed aggregates only, never Foundry conversation content.
 See [focused regression evidence and limits](evaluation.md#customer-scoped-conversation-continuity).
 

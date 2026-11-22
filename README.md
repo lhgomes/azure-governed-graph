@@ -14,14 +14,15 @@ your deterministic systems **make authoritative decisions**, and a learning loop
 1. **Facts never come from the model.** Official values come from your system of record. The model writes a placeholder such as
    `{{value:<id>}}`; the host fills in the real value and checks it.
 2. **Only approved strategies run, and learning only reorders them.** Azure-hosted learning ranks a catalogue of approved
-   explanation styles within hard limits. It never writes content and never reads raw conversations.
+   explanation styles within hard limits. It never writes content and never reads raw conversations. A separate daily review of
+   declined answers can *propose* missing content or styles, but only to an owner: nothing it proposes goes live without a human approval.
 3. **Quality gates can veto, and humans approve anything that widens.** A cohort audit can remove a strategy for every member.
    Protective actions (suspend, freeze, escalate) are autonomous; anything that widens what the system may say, use or decide
    needs a human.
 
 ## How it works
 
-[![How GovernedGraph works: a member's question passes three gates in the framework, using a domain pack and values source that you supply; a separate bounded learning loop and an administration console keep people in charge](docs/diagrams/overview.svg)](docs/diagrams/overview.svg)
+[![How GovernedGraph works: a member's question passes three gates in the framework, using a domain pack and values source that you supply; a separate bounded learning loop, a review of missed answers and an administration console keep people in charge](docs/diagrams/overview.svg)](docs/diagrams/overview.svg)
 
 *Select the diagram for the full-size view. For a step-by-step walkthrough of one answer and a glossary, see
 [getting started](docs/getting-started.md); for every semantic role and gate, see the
@@ -82,7 +83,7 @@ These are the framework's contract. Each has a code enforcement point and a regr
 | B1 | Authoritative values and determinations (calculations, rule-based outcomes, official records) stay in deterministic systems (read-only, behind a gateway) |
 | B2 | Generative AI may explain an authoritative value but never calculates, rounds, estimates or writes one (placeholder binding, 100% numeric-fidelity gate) |
 | B3 | Runtime selects only from an approved, versioned strategy catalogue (signed ranking snapshot) |
-| B4 | Raw conversations never retrain a model or change behaviour |
+| B4 | Raw conversations never retrain a model or change behaviour. The one exception, decided by the owner: member questions kept for 30 days may inform proposals that an owner reviews |
 | B5 | Learning is bounded continuous ranking of approved strategies only (minimum sample, maximum rank shift, reorder-only) |
 | B6 | Quality gates can veto a high-performing strategy, for all members |
 | B7 | No runtime demographics; demographics exist only in a segregated cohort zone for aggregate audit |
@@ -112,7 +113,7 @@ integration or production acceptance. See the [limits to state with any result](
 | Go deeper | |
 |---|---|
 | [Architecture](docs/architecture.md) | Azure P1/P2 flows, persistence, security and governance boundaries |
-| [Administration console](docs/administration.md) | Rankings, vetoes, suspensions, decisions, conversations; protective actions and access control |
+| [Administration console](docs/administration.md) | Rankings, vetoes, suspensions, decisions, conversations, improvement ideas from declined answers; protective actions and access control |
 | [Deploying](docs/deploying.md) | Governed Azure delivery and teardown |
 | [Agent workflow diagram](docs/diagrams/agent-workflow.md) | The detailed semantic roles and gates diagram, step-by-step explanation and editable Mermaid sources |
 

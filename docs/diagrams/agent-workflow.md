@@ -3,7 +3,7 @@
 New to the project? Start with the simpler [overview diagram](overview.svg), which the README uses:
 the framework, what you supply, the people involved and the learning loop in one picture. This page is the detail behind it.
 
-[Vector SVG](agent-workflow.svg) (1600 × 900, 16:9, white background). The [overview SVG](overview.svg) is 1200 × 650. Both are canonical, scalable diagram assets. Export a PNG when required, for example with `inkscape agent-workflow.svg --export-type=png --export-width=3840 --export-filename=agent-workflow.png` (or substitute `overview` for `agent-workflow`) from this directory.
+[Vector SVG](agent-workflow.svg) (1600 × 1100, white background). The [overview SVG](overview.svg) is 1200 × 820. Both are canonical, scalable diagram assets. Export a PNG when required, for example with `inkscape agent-workflow.svg --export-type=png --export-width=3840 --export-filename=agent-workflow.png` (or substitute `overview` for `agent-workflow`) from this directory.
 
 The diagram presents the implemented member-guidance workflow and separate
 governed learning loop, not an unrestricted agent-to-agent conversation.
@@ -134,6 +134,13 @@ flowchart LR
         assurance["Assurance checks and tier routing"]
         publish["Sign and publish"]
     end
+    subgraph Review["Daily review of missed answers"]
+        declined["Declined answers and kept questions"]
+        gapjob["Gap review job"]
+        drafter["gg-gap-review agent, no tools"]
+        ideas["Improvement ideas"]
+    end
+    owner["Owner decision in the administration console"]
     route -->|"closed routing decision"| intent
     intent -->|"selected branch"| branch
     branch -->|"teach-back branch"| understanding
@@ -151,6 +158,13 @@ flowchart LR
     fairness -.->|"suspend universally"| reads
     assurance -->|"eligible approved ranking"| publish
     publish -->|"verified snapshot on next read"| reads
+    commit -->|"declined answers, question kept 30 days"| declined
+    declined --> gapjob
+    gapjob -->|"questions, styles, patterns"| drafter
+    drafter -->|"checked recommendation"| ideas
+    ideas --> owner
+    owner -->|"approved style: signed catalogue release"| publish
+    owner -->|"approved passage: content publisher"| reads
 ```
 
 ### Component inventory
@@ -169,6 +183,9 @@ flowchart LR
 | Fairness and Explainability | Pinned Foundry prompt agent | Explicit separately authorized operator proof; not required for scheduled veto |
 | Assurance checks and tier routing | Governed review | Validate Tier 1 moves; reserve material changes for humans |
 | Sign and publish | Scheduled host | Publish the governed signed ranking snapshot |
+| Gap review job | Scheduled deterministic job | Group declined answers by situation and find missing content or styles |
+| Gap review agent (`gg-gap-review`) | Pinned, tool-free Foundry prompt agent | Analyse the kept questions, draft a passage and recommend a style; output is checked by code |
+| Improvement ideas | Administration console | Owner approves, rejects or defers; approvals use the signed catalogue release and the content publisher |
 
 ## Source references
 
@@ -178,6 +195,7 @@ flowchart LR
 - [Runtime workflow](../../src/governedgraph/orchestrator/workflow.py)
 - [Counsellor, review and release gates](../../src/governedgraph/agents/counsellor.py)
 - [Learning workflow](../../src/governedgraph/learning/run_cycle.py)
+- [Gap review](../../src/governedgraph/learning/gap_review.py) and [its job](../../src/governedgraph/learning/gap_review_job.py)
 - [Assurance checks](../../src/governedgraph/learning/assurance_committee.py)
 - [Fairness veto](../../src/governedgraph/agents/fairness_explainability.py)
 - [Architecture](../architecture.md)
