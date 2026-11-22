@@ -140,7 +140,7 @@ resource gapReviewFreshness 'Microsoft.Insights/scheduledQueryRules@2023-12-01' 
     enabled: true
     scopes: [ logAnalyticsId ]
     evaluationFrequency: 'PT1H'
-    windowSize: 'PT1H'
+    windowSize: 'PT48H'
     autoMitigate: true
     skipQueryValidation: true
     criteria: {
@@ -153,7 +153,7 @@ let latest = toscalar(
   | where tostring(parse_json(Raw).event) == "gap_review_completed"
   | summarize max(TimeGenerated)
 );
-print missed=iif(isnull(latest) or latest < ago(36h), 1, 0)
+print TimeGenerated=now(), missed=iif(isnull(latest) or latest < ago(36h), 1, 0)
 | where missed == 1
 '''
           timeAggregation: 'Count'
