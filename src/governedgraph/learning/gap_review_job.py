@@ -95,43 +95,118 @@ def read_questions(container, response_ids: set[str]) -> dict[str, str]:
     return found
 
 
-def supplemental_feedback_counts(records, journeys) -> dict:
-    """Synthetic gg-dev only. Observational closed feedback; not a ranking input."""
+def supplemental_feedback_counts(records, journeys, *, since: datetime, now: datetime) -> dict:
+    """Synthetic-only observed outcome diagnostics with cross-journey attribution.
+
+    Walk the *originating* and subsequent journey states, since a linked contact
+    is recorded on the later journey. No member text is collected or exported.
+    Listing must be complete within the bounded budget; missing origin states
+    are explicitly flagged, never counted as successful feedback.
+    """
     from azure.core.exceptions import ResourceNotFoundError
     from governedgraph.orchestrator.store import JourneyRecord, validate_id
 
-    eligible = {}
+    eligible: dict[tuple[str, str], tuple[str, datetime]] = {}
     for record in records:
         if record.response_kind != "explanation" or not record.response_id:
             continue
         intent = next((item.decision for item in reversed(record.decision_evidence)
                        if item.role == "intent"), None)
-        if intent and intent.get("route") == "explanation":
-            eligible.setdefault(record.journey_id, set()).add(record.response_id)
-    negative, followups = set(), set()
-    scanned = 0
-    for journey_id in sorted(eligible):
-        validate_id(journey_id)
-        try:
-            raw = journeys.get_blob_client(f"{journey_id}.json").download_blob().readall()
-        except ResourceNotFoundError:
+        if not intent or intent.get("route") != "explanation":
             continue
-        if len(raw) > MAX_RESPONSE_BLOB_BYTES:
-            raise GapReviewCapacityError("oversized journey state during closed feedback review")
-        record = JourneyRecord.decode(raw.decode("utf-8"))
-        if record.journey.test_strategy_id:
+        identity = (record.journey_id, record.response_id)
+        created = datetime.fromisoformat(record.created_at.replace("Z", "+00:00"))
+        if created.tzinfo is None or created < since or created > now:
+            raise ValueError("feedback reference has an invalid observation timestamp")
+        prior = eligible.setdefault(identity, (record.member_ref, created))
+        if prior != (record.member_ref, created):
+            raise ValueError("conflicting feedback source identity")
+
+    origins: dict[str, str] = {}
+    for (journey_id, _), (member_ref, _) in eligible.items():
+        if journey_id in origins and origins[journey_id] != member_ref:
+            raise ValueError("conflicting member reference for one journey")
+        origins[journey_id] = member_ref
+
+    negative: set[tuple[str, str]] = set()
+    followups: set[tuple[str, str]] = set()
+    ambiguous = 0
+    seen_origins: set[str] = set()
+    ineligible_origins: set[str] = set()
+    scanned = total_bytes = 0
+    for item in journeys.list_blobs(name_starts_with=""):
+        if not item.name.endswith(".json") or "/" in item.name:
             continue
         scanned += 1
-        expected = eligible[journey_id]
-        for event in record.journey.events:
-            if event.event == "outcome_reported" and event.outcome_choice == "no" and event.outcome_response_id in expected:
-                negative.add(event.outcome_response_id)
-            if event.event == "contact_linked" and event.related_response_id in expected:
-                followups.add(event.related_response_id)
-    return {"status": "synthetic_gg_dev_observational", "eligible_response_references": sum(map(len, eligible.values())),
-            "journeys_scanned": scanned, "reported_no": len(negative),
-            "linked_followups_observed": len(followups)}
+        if scanned > MAX_RECORDS:
+            raise GapReviewCapacityError("journey inventory exceeds the safe scan budget")
+        journey_id = validate_id(item.name[:-5])
+        if getattr(item, "size", 0) > MAX_RESPONSE_BLOB_BYTES:
+            raise GapReviewCapacityError("oversized journey state during feedback review")
+        try:
+            raw = journeys.get_blob_client(item.name).download_blob().readall()
+        except ResourceNotFoundError:
+            if journey_id in origins:
+                ineligible_origins.add(journey_id)
+            continue
+        total_bytes += len(raw)
+        if len(raw) > MAX_RESPONSE_BLOB_BYTES or total_bytes > MAX_TOTAL_RESPONSE_BYTES:
+            raise GapReviewCapacityError("journey bytes exceed the safe scan budget")
+        if raw == b"null":
+            if journey_id in origins:
+                ineligible_origins.add(journey_id)
+            continue
+        stored = JourneyRecord.decode(raw.decode("utf-8")).journey
+        if stored.journey_id != journey_id:
+            raise ValueError("journey state identity does not match its storage name")
+        if stored.test_strategy_id:
+            if journey_id in origins:
+                ineligible_origins.add(journey_id)
+            continue
+        if journey_id in origins:
+            seen_origins.add(journey_id)
+            if stored.member_ref != origins[journey_id]:
+                ineligible_origins.add(journey_id)
 
+        for event in stored.events:
+            if event.event not in {"outcome_reported", "contact_linked"}:
+                continue
+            occurred = datetime.fromisoformat(event.created_at.replace("Z", "+00:00"))
+            if occurred.tzinfo is None:
+                raise ValueError("closed feedback event lacks timezone")
+            if not (since <= occurred <= now):
+                continue
+            if event.event == "outcome_reported":
+                identity = (journey_id, event.outcome_response_id)
+                source = eligible.get(identity)
+                if source and source[0] == stored.member_ref and occurred >= source[1] and event.outcome_choice == "no":
+                    negative.add(identity)
+            else:
+                # A contact event lives on the *later* journey, and names the
+                # earlier journey explicitly. Matching only the response ID can
+                # misattribute two different journeys' opaque response IDs.
+                identity = (event.related_journey_id, event.related_response_id)
+                source = eligible.get(identity)
+                if source and source[0] == stored.member_ref and occurred >= source[1]:
+                    followups.add(identity)
+                elif source:
+                    ambiguous += 1
+    invalid_origins = (set(origins) - seen_origins) | ineligible_origins
+    # A later journey cannot validate an absent or test-origin journey. Suppress
+    # its counters even if the linked identity/member otherwise appears to fit.
+    negative.difference_update({identity for identity in negative if identity[0] in invalid_origins})
+    followups.difference_update({identity for identity in followups if identity[0] in invalid_origins})
+    missing = len(invalid_origins)
+    return {
+        "status": "synthetic_gg_dev_observational",
+        "eligible_response_references": len(eligible),
+        "journeys_scanned": scanned,
+        "reported_no": len(negative),
+        "linked_followups_observed": len(followups),
+        "attribution_complete": missing == 0,
+        "unverified_origin_journeys": missing,
+        "ambiguous_link_events": ambiguous,
+    }
 
 def suggest(proposal, drafter, label: str, corpus, vocabulary, catalogue):
     """Attach a grounded suggestion, or return the proposal unchanged. Nothing from the agent is trusted before checks."""
@@ -179,11 +254,13 @@ def run(*, records, journeys, proposals, approvals, catalogue, vocabulary, seed,
         written += improvement_store.create_once(proposals, proposal.blob_name, proposal.encode())
         current[proposal.proposal_id] = proposal.evidence_digest
     redacted = improvement_store.redact_expired_questions(proposals, now)
-    extra = (supplemental_feedback_counts(observed, journeys)
+    extra = (supplemental_feedback_counts(observed, journeys, since=since, now=now)
              if os.getenv("AZURE_ENV_NAME") == "gg-dev"
              and os.getenv("GOVERNEDGRAPH_GAP_REVIEW_SYNTHETIC_FEEDBACK") == "true"
              else {"status": "disabled", "eligible_response_references": 0,
-                   "journeys_scanned": 0, "reported_no": 0, "linked_followups_observed": 0})
+                   "journeys_scanned": 0, "reported_no": 0, "linked_followups_observed": 0,
+                   "attribution_complete": False, "unverified_origin_journeys": 0,
+                   "ambiguous_link_events": 0})
     summary = {**summary, "proposals": len(found), "questions_read": len(kept), "suggestions_drafted": drafted,
                "supplemental_signals": extra, "current": current}
     if not improvement_store.create_once(proposals, f"batches/{summary['batch_id']}.json",

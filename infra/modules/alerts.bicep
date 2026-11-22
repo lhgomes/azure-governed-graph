@@ -7,6 +7,8 @@ param serviceBusId string
 param onCallEmail string
 @description('Enable scheduled gap-review freshness monitoring only with the admin review job.')
 param monitorGapReview bool = false
+@description('Monitor P3 owner-approved-content reconciliation and publication backlog only when administration is enabled.')
+param monitorPublication bool = false
 @minValue(1)
 param promptShieldsFailureThreshold int = 3
 
@@ -59,7 +61,7 @@ union isfuzzy=true ContainerAppConsoleLogs_CL, ContainerAppConsoleLogs
 | extend Raw=tostring(column_ifexists("Log_s", column_ifexists("Log", "")))
 | extend signal=parse_json(Raw)
 '''
-var rules = [
+var rules = concat([
   {
     name: 'escalation-age'
     severity: 1
@@ -95,7 +97,29 @@ var rules = [
     filter: '| where tostring(signal.event) in ("strategy_frozen", "strategy_freeze") or (tostring(signal.event) == "strategy_static_fallback" and tostring(signal.arm) != "control")'
     threshold: 1
   }
-]
+], monitorPublication ? [
+  {
+    name: 'publication-reconciliation-failed'
+    severity: 2
+    description: 'The approved-content reconciliation failed; approval alone does not publish a passage.'
+    filter: '| where tostring(signal.event) == "publication_reconciliation_failed"'
+    threshold: 1
+  }
+  {
+    name: 'publication-content-refused'
+    severity: 2
+    description: 'Owner-approved passage refused due to live content/version conflict; owner decision required.'
+    filter: '| where tostring(signal.event) == "publication_content_refused"'
+    threshold: 1
+  }
+  {
+    name: 'publication-backlog-stale'
+    severity: 2
+    description: 'Owner-approved passages remain unpublished or unrefused for longer than 26 hours.'
+    filter: '| where tostring(signal.event) == "publication_backlog_stale"'
+    threshold: 1
+  }
+] : [])
 
 resource signals 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = [for rule in rules: {
   name: 'alert-gg-${rule.name}-${token}'
@@ -151,6 +175,47 @@ let latest = toscalar(
   union isfuzzy=true ContainerAppConsoleLogs_CL, ContainerAppConsoleLogs
   | extend Raw=tostring(column_ifexists("Log_s", column_ifexists("Log", "")))
   | where tostring(parse_json(Raw).event) == "gap_review_completed"
+  | summarize max(TimeGenerated)
+);
+print TimeGenerated=now(), missed=iif(isnull(latest) or latest < ago(36h), 1, 0)
+| where missed == 1
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 1
+          failingPeriods: { numberOfEvaluationPeriods: 1, minFailingPeriodsToAlert: 1 }
+        }
+      ]
+    }
+    actions: { actionGroups: [ onCall.id ] }
+  }
+}
+
+// The completion event comes only from the scheduled P3 reconciler, not from a
+// manual operator invocation; a missed job cannot be masked by manual publishing.
+resource publicationFreshness 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = if (monitorPublication) {
+  name: 'alert-gg-publication-reconciliation-stale-${token}'
+  location: location
+  tags: tags
+  kind: 'LogAlert'
+  properties: {
+    displayName: 'GovernedGraph approved-content reconciliation freshness'
+    description: 'No completed scheduled P3 content reconciliation for 36 hours.'
+    severity: 2
+    enabled: true
+    scopes: [ logAnalyticsId ]
+    evaluationFrequency: 'PT1H'
+    windowSize: 'PT48H'
+    autoMitigate: true
+    skipQueryValidation: true
+    criteria: {
+      allOf: [
+        {
+          query: '''
+let latest = toscalar(
+  union isfuzzy=true ContainerAppConsoleLogs_CL, ContainerAppConsoleLogs
+  | extend Raw=tostring(column_ifexists("Log_s", column_ifexists("Log", "")))
+  | where tostring(parse_json(Raw).event) == "publication_reconciliation_completed"
   | summarize max(TimeGenerated)
 );
 print TimeGenerated=now(), missed=iif(isnull(latest) or latest < ago(36h), 1, 0)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 
 from governedgraph.common.config import DATA_DIR
@@ -16,6 +17,8 @@ from governedgraph.learning import improvement_store
 from governedgraph.learning.gap_review import version_key
 from governedgraph.search.corpus import ContentDocument, load_corpus
 from governedgraph.search.ingest import AzureContentPublisher
+
+log = logging.getLogger("governedgraph.search.publication")
 
 
 def parse_candidates(payload) -> list[ContentDocument]:
@@ -40,6 +43,10 @@ def publish_approvals(container, journal, seed, publisher, execution: str) -> in
     for item in pending:
         improvement_store.verify_decision(journal, item)
     applied, refused = publisher.publish_owner_approved(seed, [(item.content, item.base_id) for item in pending])
+    if refused:
+        # A refusal is an owner action item, not a successful publication;
+        # only report the count, never content or journal references.
+        log.warning("publication_content_refused", extra={"refused_count": len(refused)})
     for item in pending:
         if item.content.id in applied:
             improvement_store.mark_published(container, item, execution)
@@ -61,16 +68,36 @@ def main() -> None:
         from azure.storage.blob import BlobServiceClient
 
         from governedgraph.common.config import settings
+        from governedgraph.common.operational_logging import configure_operational_logging
+        from governedgraph.search.publication_monitor import backlog
 
-        if not settings.explainability_account_url:
-            parser.error("EXPLAINABILITY_STORAGE_URL is required")
-        with DefaultAzureCredential() as credential:
-            account = BlobServiceClient(settings.explainability_account_url, credential=credential)
-            seed = load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text())
-            count = publish_approvals(
-                account.get_container_client(settings.approvals_container),
-                account.get_container_client(settings.admin_actions_container), seed, AzureContentPublisher(),
-                os.getenv("CONTAINER_APP_JOB_EXECUTION_NAME", ""))
+        scheduled = os.getenv("GOVERNEDGRAPH_CONTENT_RECONCILER") == "true"
+        if scheduled:
+            configure_operational_logging()
+        try:
+            if not settings.explainability_account_url:
+                raise ValueError("protected owner approval storage is required")
+            with DefaultAzureCredential() as credential:
+                account = BlobServiceClient(settings.explainability_account_url, credential=credential)
+                approvals = account.get_container_client(settings.approvals_container)
+                journal = account.get_container_client(settings.admin_actions_container)
+                seed = load_corpus((DATA_DIR / "content" / "approved_content.jsonl").read_text())
+                count = publish_approvals(
+                    approvals, journal, seed, AzureContentPublisher(),
+                    os.getenv("CONTAINER_APP_JOB_EXECUTION_NAME", ""))
+                if scheduled:
+                    status = backlog(approvals)
+                    log.info("publication_reconciliation_completed", extra={
+                        "published_count": count, "pending_records": status["pending_records"],
+                        "age_seconds": status["age_seconds"]})
+                    if status["stale"]:
+                        log.warning("publication_backlog_stale", extra={
+                            "pending_records": status["pending_records"], "age_seconds": status["age_seconds"]})
+        except Exception as error:
+            if scheduled:
+                # Failures must be visible without logging source, proposal or member content.
+                log.error("publication_reconciliation_failed", extra={"error_type": type(error).__name__})
+            raise
         print(f"published {count} owner-approved passages", flush=True)
         return
     if args.from_env:

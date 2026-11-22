@@ -8,7 +8,30 @@ The input is a private JSON object with the exact keys `decision_ref`, `proposal
 
 Never pass raw questions, utterances, customer IDs, model drafts or demographic attributes. Count unknown, skipped, and repeat contacts separately in the governed outcome projection; those cases do not imply resolution.
 
-Run an operator-created evidence package in the approved Azure environment:
+The legacy operator-created counts mode remains descriptive, but it does **not** independently verify the source values. For source-verified evaluation, supply only the decision reference, situation and two dates-only windows (no counts or member data), for example:
+```json
+{
+  "decision_ref": "GB-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "situation": {
+    "journey_state": "first_contact",
+    "topic": "payment_continuity",
+    "channel": "chat",
+    "accessibility_mode": "standard",
+    "language": "en"
+  },
+  "before": {"start": "2026-10-01T00:00:00+00:00", "end": "2026-10-31T00:00:00+00:00"},
+  "after": {"start": "2026-11-02T00:00:00+00:00", "end": "2026-11-21T00:00:00+00:00"}
+}
+```
+These dates are **illustrative**, not actual results. The real before/after windows must bracket the owner-approved passage's recorded publication.
+
+```bash
+python -m governedgraph.learning.improvement_effectiveness --azure-scope /secure/scope.json
+```
+
+This read-only Azure mode verifies the owner's immutable journal, approved passage and create-only published marker, plus that the exact approved version is still active in the authoritative content feed. It rederives eligible and declined counts directly from protected Azure response audits and matching non-test journey states, validates the source identities and emits a non-reversible audit digest (no member text). Missing records, owner approval, marker, or live version fail closed. **It supports owner-approved content, not catalogue strategy releases.** It must be invoked by a separately authorized operator with read access to P1 and P3 sources; no new cross-boundary runtime identity or model permissions are added.
+
+For the previous operator-supplied **unverified** aggregate mode, use:
 
 ```bash
 python -m governedgraph.learning.improvement_effectiveness /secure/closed-windows.json

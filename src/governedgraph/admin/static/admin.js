@@ -643,7 +643,9 @@ function improvementNote() {
     : "No review has run yet.";
   const extra = last?.supplemental_signals;
   const supplemental = extra?.status === "synthetic_gg_dev_observational"
-    ? ` Synthetic-only feedback: ${extra.reported_no} reported-no responses and ${extra.linked_followups_observed} linked follow-ups in inspected stored journeys (not comprehensive).`
+    ? ` Synthetic-only feedback: ${extra.reported_no} reported-no responses and ${extra.linked_followups_observed} distinct cross-journey linked answers. ${extra.attribution_complete
+      ? "All referenced originating journeys were verified within the scanned storage."
+      : `Attribution incomplete: ${extra.unverified_origin_journeys} missing or excluded originating journeys.`} ${extra.ambiguous_link_events} unverified cross-member/invalid links. Not a population-wide rate.`
     : "";
   return base + supplemental + (improvements.truncated ? " There are more ideas than this page can hold." : "");
 }
