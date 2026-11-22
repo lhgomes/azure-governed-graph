@@ -24,7 +24,7 @@ REASON = "payment_continuity"
 
 
 def record(index, *, journey=None, state="first_contact", channel="chat", mode="standard", reason=REASON, language="en",
-           kind="acknowledgment", strategy="S6", content=(), issues=None):
+           kind="acknowledgment", strategy="S6", content=(), issues=None, decline=""):
     evidence = [DecisionEvidence("intent", "offline-fixture-intent", "fixture-1", asdict(IntentDecision(
         "explanation", "transition_impact_question", reason, language)))]
     if issues is not None:
@@ -38,7 +38,7 @@ def record(index, *, journey=None, state="first_contact", channel="chat", mode="
         request_key={"journey_state": state, "intent": "transition_impact_question", "channel": channel,
                      "accessibility_mode": mode},
         numeric_fidelity_passed=True, created_at=(NOW - timedelta(days=1, minutes=index)).isoformat(timespec="seconds"),
-        contract_version="1.3", response_id=f"{index:032x}", response_kind=kind, decision_evidence=evidence)
+        contract_version="1.3", response_id=f"{index:032x}", response_kind=kind, decision_evidence=evidence, decline_reason=decline)
 
 
 def run(records, **options):
@@ -326,3 +326,32 @@ def test_b4_the_review_logic_imports_no_azure_sdk_model_agent_or_prompt_code(mod
     assert not {name for name in toplevel if name.split(".")[0] == "azure"}
     assert not {name for name in imported if name.startswith(("governedgraph.agents", "governedgraph.orchestrator",
                                                                 "governedgraph.voice", "governedgraph.explainability"))}
+
+
+def test_a_closed_decline_reason_separates_missing_styles_from_protective_escalations():
+    styled = {"kind": "escalation", "content": ["C-001-v1.3"], "state": "first_contact"}
+    assert gap_review.signal_for(record(1, **styled, decline="no_eligible_style")).outcome == "no_style"
+    for reason in ("content_safety", "advice_question", "member_request", "component_failure", ""):
+        assert gap_review.signal_for(record(2, **styled, decline=reason)).outcome == "escalated"
+    assert len(Catalogue.load().rankable_for(gap_review.RequestKey("first_contact", "x", "chat", "standard"))) > 1
+    proposals, _ = run([record(i, **styled, decline="no_eligible_style") for i in range(6)])
+    (proposal,) = [item for item in proposals if item.kind == "strategy_gap"]
+    assert proposal.evidence["no_style"] == 6 and proposal.evidence["decline_reasons"] == {"no_eligible_style": 6}
+    assert "no eligible style was left" in proposal.rationale
+    protective = [record(i, **styled, decline="content_safety") for i in range(8)]
+    assert run(protective)[0] == []
+
+
+def test_b4_the_decline_reason_is_closed_and_absent_records_stay_byte_identical():
+    from governedgraph.explainability.store import encoded
+
+    plain = record(1)
+    assert "decline_reason" not in json.loads(encoded(plain))
+    declined = record(2, decline="answer_review")
+    assert json.loads(encoded(declined))["decline_reason"] == "answer_review"
+    assert ExplainabilityRecord.from_dict(json.loads(encoded(declined))) == declined
+    assert ExplainabilityRecord.from_dict(json.loads(encoded(plain))) == plain
+    with pytest.raises(ContractError, match="decline"):
+        record(3, decline="the member asked about my pension")
+    with pytest.raises(ContractError, match="decline"):
+        record(4, kind="explanation", strategy="S1", content=["C-001-v1.3"], decline="output_gate")

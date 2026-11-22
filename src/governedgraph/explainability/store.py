@@ -32,6 +32,9 @@ def encoded(record: ExplainabilityRecord) -> str:
     payload = asdict(record)
     if record.contract_version not in {"1.2", "1.3"}:
         payload.pop("decision_evidence")
+    if not record.decline_reason:
+        # Records without a decline reason stay byte-identical, so earlier readers and stored digests are unaffected.
+        payload.pop("decline_reason")
     return json.dumps(payload, sort_keys=True)
 
 

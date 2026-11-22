@@ -31,7 +31,8 @@ window.AdminImprovements = {
     const facts = make("dl", undefined, "facts");
     const add = (key, value) => { if (value !== undefined && value !== "") facts.append(make("dt", key), make("dd", value)); };
     add("Status", proposal.status.label);
-    add("Declined answers", `${evidence.declined} from ${evidence.journeys} journeys (${evidence.unanswered} not answered, ${evidence.review_flagged} flagged by the answer check)`);
+    add("Declined answers", `${evidence.declined} from ${evidence.journeys} journeys (${evidence.unanswered} not answered, ${evidence.review_flagged} flagged by the answer check, ${evidence.no_style || 0} with no style able to explain)`);
+    add("Why they were declined", Object.entries(evidence.decline_reasons || {}).map(([key, count]) => `${words(key)}: ${count}`).join("\n"));
     add("Also handed to a person", evidence.escalated ? String(evidence.escalated) : "");
     add("Approved passage found", `${Math.round(evidence.content_retrieved_share * 100)}% of the time`);
     add("Styles that can explain here", evidence.eligible_styles.length ? evidence.eligible_styles.join(", ") : "None");

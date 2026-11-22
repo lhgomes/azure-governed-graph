@@ -83,6 +83,11 @@ UNDERSTANDING_DECISIONS = {
 }
 RESPONSE_LANGUAGES = _VOCABULARY["response_languages"]
 EXPLANATION_CONCEPTS = _VOCABULARY["explanation_concepts"]
+# Why a turn ended without an explanation. Closed codes only, never text from the member or the model.
+DECLINE_REASONS = frozenset({
+    "output_gate", "answer_review", "no_safe_answer", "no_eligible_style", "teach_back_failed", "content_safety",
+    "model_requested_advisor", "advice_question", "member_request", "component_failure", "conversation_limit",
+})
 REVIEW_ISSUES = frozenset({
     "relevance", "language", "grounding", "uncertainty", "strategy", "advice", "document_context",
 })
@@ -358,8 +363,12 @@ class ExplainabilityRecord:
     response_id: str = ""
     response_kind: str = "legacy"
     decision_evidence: list[DecisionEvidence] = field(default_factory=list)
+    decline_reason: str = ""
 
     def __post_init__(self):
+        if (not isinstance(self.decline_reason, str) or (self.decline_reason and (
+                self.decline_reason not in DECLINE_REASONS or self.response_kind not in {"acknowledgment", "escalation"}))):
+            raise ContractError("invalid closed decline reason")
         if not isinstance(self.decision_evidence, list) or len(self.decision_evidence) > 4:
             raise ContractError("invalid decision evidence")
         self.decision_evidence = [

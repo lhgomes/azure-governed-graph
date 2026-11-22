@@ -82,6 +82,13 @@ def dependency(domain, operation, *args):
 INSTRUCTIONS = domain_prompt("counsellor")
 
 
+# Default decline reason for each host escalation code; a call site that knows better passes its own.
+ESCALATION_DECLINES = {
+    "safety": "content_safety", "teach_back_failed": "teach_back_failed", "advice_intent": "advice_question",
+    "member_request": "member_request", "component_failure": "component_failure", "conversation_limit": "conversation_limit",
+}
+
+
 def _quality_only(review: AnswerReview) -> bool:
     """Only relevance/style defects remain; every safety check (grounding, advice, document, language) passed."""
     return review.verdict == "revise" and bool(review.issues) and set(review.issues) <= {"relevance", "strategy"}
@@ -242,6 +249,7 @@ class Counsellor:
         self.tools.trace.decision_evidence = []
         self.tools.trace.turn_trace = []
         self.tools.trace.rate_limit_wait = 0.0
+        self.tools.trace.decline_reason = ""
         self.tools.conversation_screened = False
         self._turn_exclusions: set[str] = set()
         self._prefetched = False
@@ -343,7 +351,7 @@ class Counsellor:
         if not ranked:
             return self._escalate("selected test style is not currently eligible or available"
                                   if self.journey.test_strategy_id else "no eligible approved strategy left",
-                                  "teach_back_failed")
+                                  "teach_back_failed", decline_reason="no_eligible_style")
         strategy = self.catalogue.get(ranked[0].strategy_id)
         t.explanation_pattern = self._pattern_for(strategy)
         t.template_version = strategy.template_version
@@ -359,7 +367,8 @@ class Counsellor:
         except ToolUnavailable as error:
             raise DependencyFailure("journey-bound component unavailable") from error
         if len(t.trace.escalations) > escalation_count:
-            return self._escalate("model requested a human advisor", "advice_intent")
+            return self._escalate("model requested a human advisor", "advice_intent",
+                                  decline_reason="model_requested_advisor")
         if strategy.strategy_id not in {r.strategy_id for r in t.trace.ranked.ranked}:
             raise DependencyFailure("selected strategy no longer served")
         with t.trace.measure("post_processing"):
@@ -385,7 +394,7 @@ class Counsellor:
             with t.trace.measure("post_processing"):
                 text, fid, reason = self._post_process(draft, strategy)
             if reason:
-                return self._unanswered(reason)
+                return self._unanswered(reason, "answer_review" if review.verdict != "pass" else "output_gate")
             intent = next((item.decision for item in reversed(t.trace.decision_evidence)
                            if item.role == "intent" and item.decision["route"] == "explanation"), None)
             focus = intent["reason"] if intent else (
@@ -557,7 +566,7 @@ class Counsellor:
             self.tools.trace.note("output_gate", "no_approved_fallback")
         return "", numeric_fidelity.FidelityResult(False, [], ["<blocked>"]), failure_reason
 
-    def _unanswered(self, reason: str) -> TurnResult:
+    def _unanswered(self, reason: str, decline_reason: str = "output_gate") -> TurnResult:
         """A failed answer is a host failure, not a request for the member to repeat their question."""
         log.warning("answer_unavailable_without_relevant_fallback",
                     extra={"journey_id": self.journey.journey_id, "failure_domain": reason})
@@ -565,18 +574,21 @@ class Counsellor:
         text = message("answer_unavailable") + offer
         fidelity = numeric_fidelity.check(text, None, [])
         if not offer or not fidelity.passed or response_steers_choice(text) or "{{" in text or "}}" in text:
-            return self._escalate("no safe answer or advisor offer available", "safety")
+            return self._escalate("no safe answer or advisor offer available", "safety", decline_reason="no_safe_answer")
         self.journey.unanswered_streak = min(self.journey.unanswered_streak + 1, 100)
         self.tools.trace.note("outcome", "advisor_offer")
         self.tools.trace.composition_source = "unanswered"
+        self.tools.trace.decline_reason = decline_reason
         self.tools.write_explainability_record(ESCALATION_STRATEGY, response_kind="acknowledgment")
         self.journey.last_explanation = None
         return TurnResult(text, self.journey.state.value, fidelity=fidelity)
 
-    def _escalate(self, summary: str, reason_code: str, already_requested: bool = False) -> TurnResult:
+    def _escalate(self, summary: str, reason_code: str, already_requested: bool = False,
+                  decline_reason: str = "") -> TurnResult:
         if not already_requested:
             self.journey.fire(Event.ESCALATE, event_id=f"esc-{uuid.uuid4().hex[:6]}")
         self.tools.escalate_to_advisor(reason_code, summary)
+        self.tools.trace.decline_reason = decline_reason or ESCALATION_DECLINES.get(reason_code, "")
         self.tools.write_explainability_record(ESCALATION_STRATEGY, response_kind="escalation")
         self.tools.trace.note("outcome", "escalated", [reason_code])
         msg = message("advice_declined") if reason_code == "advice_intent" else ""

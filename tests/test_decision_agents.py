@@ -357,6 +357,7 @@ def test_b4_legacy_audit_outbox_retries_remain_byte_exact_without_rewriting_hist
     counsellor.handle("Will the transition change what I receive?")
     old = counsellor.tools.store.read_all()[-1]
     old["contract_version"] = version
+    old.pop("decline_reason")  # legacy records predate the field and were stored without it
     if version == "1.1":
         old.pop("decision_evidence")
     else:

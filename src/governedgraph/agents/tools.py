@@ -52,6 +52,7 @@ class Trace:
     review_feedback: list[dict[str, str]] = field(default_factory=list)
     turn_trace: list[dict] = field(default_factory=list)
     rate_limit_wait: float = 0.0
+    decline_reason: str = ""
 
     def note(self, stage: str, result: str, issues: list[str] | tuple[str, ...] = ()) -> None:
         """Content-free turn evidence: closed codes only, never member or answer text."""
@@ -187,6 +188,7 @@ class CounsellorTools:
             request_key=self.journey.request_key(), numeric_fidelity_passed=numeric_fidelity_passed,
             response_id=self.response_id or uuid.uuid4().hex, response_kind=response_kind,
             decision_evidence=list(self.trace.decision_evidence),
+            decline_reason=self.trace.decline_reason if response_kind in {"acknowledgment", "escalation"} else "",
         )
         try:
             self.store.append(rec)

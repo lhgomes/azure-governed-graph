@@ -170,6 +170,7 @@ def assert_unanswered(counsellor, result):
     record = counsellor.tools.store.read_all()[-1]
     assert record["strategy_id"] == "S6" and record["response_kind"] == "acknowledgment"
     assert record["escalation_offered"] and "advisor" in result.text
+    assert record["decline_reason"] in {"output_gate", "answer_review"}
 
 
 def install_responses(monkeypatch, client):
@@ -1087,6 +1088,7 @@ def test_b3_judge_nonpass_is_explicit_fallback_not_semantic_success(counsellor, 
     # Only a "revise" verdict earns the single repair; an unassessable draft fails closed straight away.
     assert len(client.calls) == (4 if verdict == "revise" else 2) and len(counsellor.tools.store.read_all()) == 1
     assert counsellor.tools.store.read_all()[0]["decision_evidence"][-1]["decision"]["verdict"] == verdict
+    assert counsellor.tools.store.read_all()[0]["decline_reason"] == "answer_review"
 
 
 def test_b3_style_only_rejection_delivers_gated_answer_without_teach_back(counsellor, monkeypatch, caplog):

@@ -22,7 +22,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 
 from governedgraph.common.contracts import (
-    ACCESSIBILITY_MODES, CHANNELS, RESPONSE_LANGUAGES, REVIEW_ISSUES, ContractError, ExplainabilityRecord, RequestKey, _strict,
+    ACCESSIBILITY_MODES, CHANNELS, DECLINE_REASONS, RESPONSE_LANGUAGES, REVIEW_ISSUES, ContractError, ExplainabilityRecord,
+    RequestKey, _strict,
 )
 from governedgraph.common.io import canonical_json
 from governedgraph.guardrails.advice_intent import response_steers_choice
@@ -33,7 +34,7 @@ from governedgraph.strategy_service.catalogue_release import StyleChange, patter
 WATERMARK = "ILLUSTRATIVE - synthetic data"
 RULES_VERSION = "1.0"
 KINDS = ("content_gap", "content_revision", "strategy_gap", "false_negative_review")
-OUTCOMES = ("unanswered", "review_flagged", "escalated")
+OUTCOMES = ("unanswered", "review_flagged", "no_style", "escalated")
 # Review findings that say the approved passage itself is incomplete or missing, versus a style or relevance defect.
 CONTENT_ISSUES = frozenset({"grounding", "document_context", "uncertainty"})
 QUALITY_ISSUES = frozenset({"relevance", "strategy"})
@@ -66,6 +67,7 @@ class Signal:
     outcome: str
     review_issues: tuple[str, ...]
     content_versions: tuple[str, ...]
+    decline_reason: str = ""
 
     @property
     def situation(self) -> tuple[str, str, str, str, str]:
@@ -82,7 +84,8 @@ def signal_for(record: ExplainabilityRecord) -> Signal | None:
     if record.response_kind == "acknowledgment" and record.strategy_id == ESCALATION_STRATEGY:
         outcome = "unanswered"
     elif record.response_kind == "escalation":
-        outcome = "escalated"
+        # Only "no eligible style" says the approved styles could not explain; other escalations are context.
+        outcome = "no_style" if record.decline_reason == "no_eligible_style" else "escalated"
     elif record.response_kind == "explanation" and issues:
         outcome = "review_flagged"
     else:
@@ -90,7 +93,7 @@ def signal_for(record: ExplainabilityRecord) -> Signal | None:
     key = record.request_key
     return Signal(record.journey_id, record.created_at, key["journey_state"], intent["reason"], key["channel"],
                   key["accessibility_mode"], intent["response_language"], outcome, tuple(issues),
-                  tuple(sorted(set(record.content_versions))))
+                  tuple(sorted(set(record.content_versions))), record.decline_reason)
 
 
 def signals(records: list[ExplainabilityRecord], *, excluded_journeys: set[str] = frozenset(),
@@ -126,22 +129,26 @@ class Evidence:
     declined: int
     unanswered: int
     review_flagged: int
+    no_style: int
     escalated: int
     journeys: int
     content_retrieved_share: float
     review_issues: dict
+    decline_reasons: dict
     content_versions: dict
     eligible_styles: list
     sample_journey_ids: list
 
     def __post_init__(self):
-        counts = (self.declined, self.unanswered, self.review_flagged, self.escalated, self.journeys)
+        counts = (self.declined, self.unanswered, self.review_flagged, self.no_style, self.escalated, self.journeys)
         if (any(type(item) is not int or item < 0 for item in counts)
-                or self.declined != self.unanswered + self.review_flagged or self.journeys > self.declined + self.escalated
+                or self.declined != self.unanswered + self.review_flagged + self.no_style
+                or self.journeys > self.declined + self.escalated
                 or not isinstance(self.content_retrieved_share, float) or not 0 <= self.content_retrieved_share <= 1
                 or any(not isinstance(item, str) or len(item) > 40 for item in (self.window_start, self.window_end))):
             raise ContractError("invalid evidence counts")
         _count_map(self.review_issues, set(REVIEW_ISSUES))
+        _count_map(self.decline_reasons, set(DECLINE_REASONS))
         _count_map(self.content_versions, limit=TOP_CONTENT)
         if (not isinstance(self.eligible_styles, list) or len(self.eligible_styles) > 50
                 or any(not isinstance(item, str) or not CONTENT_REF.fullmatch(item) for item in self.eligible_styles)
@@ -345,15 +352,18 @@ def _share(part: int, whole: int) -> float:
 def _evidence(items: list[Signal], escalated: list[Signal], eligible: list[str], window: tuple[str, str]) -> Evidence:
     declined = len(items)
     unanswered = sum(item.outcome == "unanswered" for item in items)
+    no_style = sum(item.outcome == "no_style" for item in items)
     versions = Counter(version for item in items for version in item.content_versions)
     issues = Counter(issue for item in items for issue in item.review_issues)
+    reasons = Counter(item.decline_reason for item in (*items, *escalated) if item.decline_reason)
     journeys = {item.journey_id for item in (*items, *escalated)}
     sample = sorted({item.journey_id: item.created_at for item in items}.items(), key=lambda row: (row[1], row[0]), reverse=True)
     return Evidence(
         window_start=window[0], window_end=window[1], declined=declined, unanswered=unanswered,
-        review_flagged=declined - unanswered, escalated=len(escalated), journeys=len(journeys),
+        review_flagged=declined - unanswered - no_style, no_style=no_style, escalated=len(escalated),
+        journeys=len(journeys),
         content_retrieved_share=_share(sum(bool(item.content_versions) for item in items), declined),
-        review_issues=dict(sorted(issues.items())),
+        review_issues=dict(sorted(issues.items())), decline_reasons=dict(sorted(reasons.items())),
         content_versions=dict(sorted(versions.most_common(TOP_CONTENT), key=lambda row: (-row[1], row[0]))),
         eligible_styles=eligible, sample_journey_ids=[row[0] for row in sample[:SAMPLE_JOURNEYS]])
 
@@ -416,7 +426,8 @@ def review(records: list[ExplainabilityRecord], *, catalogue: Catalogue, corpus:
         evidence = _evidence(declined, escalated, eligible, window)
         where = f"{humanize(topic)} questions at {humanize(state)} over {humanize(channel)} ({humanize(mode)}, {language})"
         counts = (f"{evidence.declined} declined interactions from {evidence.journeys} journeys "
-                  f"({evidence.unanswered} unanswered, {evidence.review_flagged} flagged by the answer review)")
+                  f"({evidence.unanswered} unanswered, {evidence.review_flagged} flagged by the answer review, "
+                  f"{evidence.no_style} with no style able to explain)")
         description = descriptions.get(topic, humanize(topic))
         without_content = 1 - evidence.content_retrieved_share
         if without_content >= MAJORITY:
@@ -427,10 +438,12 @@ def review(records: list[ExplainabilityRecord], *, catalogue: Catalogue, corpus:
                  "answers": f"Questions about: {description}",
                  "related_content_ids": related_content(corpus, state, language, description)})
             continue
-        if len(eligible) <= 1 and (draft := _strategy_draft(catalogue, state, channel, mode)) is not None:
+        if (len(eligible) <= 1 or evidence.no_style / len(declined) >= MAJORITY) and (
+                draft := _strategy_draft(catalogue, state, channel, mode)) is not None:
+            reason = (f"In {evidence.no_style} no eligible style was left to explain." if evidence.no_style / len(declined) >= MAJORITY
+                      else f"Only {len(eligible)} approved style can explain here, so one refused draft leaves no alternative.")
             add("strategy_gap", situation, evidence,
-                f"{counts} for {where}. Only {len(eligible)} approved style can explain here, so one refused draft leaves "
-                "no alternative. A new style on an approved pattern would add cover.", draft)
+                f"{counts} for {where}. {reason} A new style on an approved pattern would add cover.", draft)
         content_flagged = sum(bool(CONTENT_ISSUES & set(item.review_issues)) for item in declined)
         if content_flagged / len(declined) >= MAJORITY:
             base = next((doc for version_id, _ in evidence.content_versions.items() for doc in corpus
@@ -444,7 +457,8 @@ def review(records: list[ExplainabilityRecord], *, catalogue: Catalogue, corpus:
                      "answers": base.answers})
                 continue
         quality = sum(bool(item.review_issues) and set(item.review_issues) <= QUALITY_ISSUES for item in declined)
-        gate_blocked = sum(item.outcome == "unanswered" and not item.review_issues for item in declined)
+        gate_blocked = sum(item.outcome == "unanswered" and not item.review_issues
+                           and item.decline_reason in {"", "output_gate"} for item in declined)
         if (quality + gate_blocked) / len(declined) >= MAJORITY:
             focus = "answer_review" if quality >= gate_blocked else "output_gate"
             issues = sorted(evidence.review_issues)
