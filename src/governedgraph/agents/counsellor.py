@@ -17,7 +17,7 @@ import time
 import os
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 from governedgraph.agents.clients import default_strategy_client, default_values_client
 from governedgraph.agents.tools import CounsellorTools
@@ -25,7 +25,8 @@ from governedgraph.common.config import DATA_DIR, settings
 from governedgraph.common.contracts import (
     AnswerDraft, AnswerReview, ExplanationContext, IntentDecision, UnderstandingDecision, event_timestamp,
 )
-from governedgraph.common.domain import mentions_own_sources, message, prompt as domain_prompt
+from governedgraph.common.domain import (
+    mentions_own_sources, message, prompt as domain_prompt, without_source_talk)
 from governedgraph.common.io import load_json
 from governedgraph.explainability.declined_questions import (
     CAPTURED_REASONS, MAX_CHARS, DeclinedQuestion, default_question_store,
@@ -183,6 +184,10 @@ def _release_after_failed_review(c, raw_draft: str, draft: AnswerDraft, review: 
     if _quality_only(review):
         log.warning("answer_review_quality_waived", extra={"journey_id": c.journey.journey_id, "issues": review.issues})
         trace.composition_source = "foundry"
+        # No teach-back is claimed, so the member is not asked one: the journey does not wait for a restatement.
+        if draft.closing_question and draft.text.endswith(draft.closing_question):
+            draft = AnswerDraft(draft.text[:-len(draft.closing_question)].rstrip(), draft.content_ids)
+            raw_draft = json.dumps(asdict(draft))
         return raw_draft, review
     passages = c._passage_fallback(draft, review)
     if passages:
@@ -467,7 +472,7 @@ class Counsellor:
         trace = self.tools.trace
         with trace.measure("post_processing"):
             text, fidelity, reason = self._post_process(draft, strategy)
-        repaired = reason in {"placeholder_contract", "source_talk"}
+        repaired = reason == "placeholder_contract"
         if repaired:
             log.warning("answer_output_repair", extra={"journey_id": self.journey.journey_id, "failure_domain": reason})
             with trace.measure("foundry_review"):
@@ -621,7 +626,12 @@ class Counsellor:
             if (not references <= available or not set(answer.content_ids) <= set(trace.content_versions)
                     or (not references and not answer.content_ids)):
                 raise ValueError("answer has no approved grounding")
-            return answer.text
+            text = without_source_talk(answer.text)
+            if not text:
+                raise ValueError("answer only talks about its own sources")
+            if text != answer.text:
+                log.warning("model_source_talk_removed", extra={"journey_id": self.journey.journey_id})
+            return text
         except (ValueError, TypeError) as error:
             log.warning("model_grounding_contract_blocked", extra={
                 "journey_id": self.journey.journey_id, "error_type": type(error).__name__})
@@ -629,11 +639,7 @@ class Counsellor:
             return ""
 
     def _contract_breach(self, text: str) -> str | None:
-        """What a model draft breaks before binding: talking about its own sources, or a literal figure."""
-        if mentions_own_sources(text):
-            log.warning("model_source_talk_blocked", extra={"journey_id": self.journey.journey_id})
-            self.tools.trace.note("output_gate", "blocked", ["source_talk"])
-            return "source_talk"
+        """What a model draft breaks before binding: a literal figure."""
         unbound = re.sub(r"\{\{(?:value|asof):[^{}]+\}\}", "", text)
         if re.search(r"\d", numeric_fidelity.ORDINAL.sub("", unbound)):
             log.warning("model_placeholder_contract_blocked", extra={"journey_id": self.journey.journey_id})

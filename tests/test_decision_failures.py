@@ -140,7 +140,7 @@ def test_optional_unclear_answer_is_none_while_a_required_one_still_fails_closed
             "answers": {
                 "required": {"type": "choice", "choice": "a", "probabilities": {"a": 0.9, "b": 0.1}},
                 "optional": {"type": "choice", "choice": "taught",
-                             "probabilities": {"taught": 0.297, "absent": 0.296, "checked": 0.28}},
+                             "probabilities": {"taught": 0.55, "absent": 0.3, "checked": 0.15}},
             }}
     response = httpx.Response(200, json=body, request=httpx.Request("POST", "https://synthetic.example/"))
     monkeypatch.setattr(decision_model, "settings", SimpleNamespace(
@@ -156,8 +156,14 @@ def test_optional_unclear_answer_is_none_while_a_required_one_still_fails_closed
                  "optional": {"type": "choice", "criteria": {"taught": "T", "absent": "N", "checked": "C"}}}
     assert decision_model.choose(turn, "state", questions, frozenset({"optional"})) == {
         "required": "a", "optional": None}
+    # 0.55 would pass the 0.3 gate of a required answer; an optional reading needs more than 0.6.
     record = next(r for r in caplog.records if r.getMessage() == "decision_choice_unclear")
     assert (record.decision_question, record.top_choice, record.runner_up) == ("optional", "taught", "absent")
+    # The same weak reading of a required answer is above the 0.3 gate; a weaker one is not.
+    assert decision_model.choose(turn, "state", questions)["optional"] == "taught"
+    body["answers"]["optional"]["probabilities"] = {"taught": 0.28, "absent": 0.27, "checked": 0.2}
+    weak = httpx.Response(200, json=body, request=httpx.Request("POST", "https://synthetic.example/"))
+    monkeypatch.setattr(decision_model.connections, "http_client", lambda: SimpleNamespace(post=lambda *_a, **_k: weak))
     with pytest.raises(decision_model.DecisionModelAbstained):
         decision_model.choose(turn, "state", questions)
 

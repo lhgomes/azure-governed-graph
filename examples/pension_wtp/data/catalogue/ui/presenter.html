@@ -3,41 +3,62 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>GovernedGraph | Demo</title>
 <style>
-:root{color-scheme:light;--ink:#172e50;--blue:#254b82;--paper:#f5f7fc;--line:#cbd5e6;--lilac:#e8eef9;--quiet:#50617b}
-*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.6 "Segoe UI",Candara,sans-serif}
-header,main{max-width:1040px;margin:auto;padding:20px 32px}header{display:flex;align-items:center;justify-content:space-between;gap:20px}
-.label{margin:0;font-size:12px;color:var(--quiet)}button,input,textarea,select{font:inherit}
-button{border:1px solid var(--line);border-radius:8px;padding:12px 20px;background:white;color:var(--ink);cursor:pointer}
+:root{color-scheme:light;--ink:#14243f;--blue:#1f4a8a;--blue-deep:#16376a;--paper:#eef1f7;--surface:#fff;--line:#d3dae8;--lilac:#e8eef9;--guide:#f4f6fb;--quiet:#4b5b75;--alert:#ad334b;
+--sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;--serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 var(--sans)}
+header,main{max-width:1040px;margin:auto;padding:12px 24px}header{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.label{margin:0;padding:2px 10px;font-size:12px;color:var(--quiet);background:var(--surface);border:1px solid var(--line);border-radius:999px}button,input,textarea,select{font:inherit}
+button{border:1px solid var(--line);border-radius:8px;padding:8px 14px;background:white;color:var(--ink);cursor:pointer;transition:background-color .15s}
 button:hover:not(:disabled){background:var(--lilac)}button:disabled{opacity:.5;cursor:default}button:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid #6c4ac2;outline-offset:4px}
-.primary{background:var(--blue);color:white;border-color:var(--blue)}.primary:hover:not(:disabled){background:#183c70}
-main{padding-top:0}h2{font-size:21px;margin:0 0 8px}p{max-width:72ch}
-.workspace{background:white;border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.demo-toolbar{display:flex;align-items:center;gap:12px;padding:20px 24px;border-bottom:1px solid var(--line);flex-wrap:wrap}
-.demo-toolbar .story-picker{flex:1;min-width:180px;display:flex;align-items:center;gap:8px}
-.story-picker select{width:100%;min-width:0;border:1px solid var(--line);border-radius:8px;padding:12px;background:white;color:var(--ink)}
+.primary{background:var(--blue);color:white;border-color:var(--blue)}.primary:hover:not(:disabled){background:var(--blue-deep)}
+main{padding-top:0}h2{font-size:18px;margin:0 0 6px}p{max-width:72ch}
+.workspace{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(20,36,63,.06),0 12px 28px -16px rgba(20,36,63,.28)}
+.demo-toolbar{display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:var(--guide)}
+.setup-group{display:flex;align-items:flex-end;align-content:flex-start;gap:8px;flex-wrap:wrap}.sample{flex:1;min-width:300px;padding:8px 12px 12px;background:var(--surface);border:1px dashed var(--line);border-radius:10px}
+.group-title{flex-basis:100%;margin:0;font-size:13px;font-weight:600}.channels{flex:0 0 18rem;padding:8px 0 12px}
+.channels button{min-width:80px;background:var(--blue);color:white;border-color:var(--blue)}.channels button:hover:not(:disabled){background:var(--blue-deep)}
+.story-picker{display:grid;gap:2px;min-width:0}.story-picker label{font-size:12px;color:var(--quiet)}.sample .story-picker:nth-of-type(2){flex:1 1 150px;min-width:150px}
+.story-picker select{width:100%;min-width:0;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:white;color:var(--ink)}
 .demo-toolbar button,.story-picker select{min-height:48px;line-height:1.4}.demo-toolbar button{flex:0 0 auto;white-space:nowrap}
-#status{margin:0;padding:12px 24px 0;color:var(--quiet);font-size:14px}.controls{display:flex;gap:12px;flex-wrap:wrap}
-.privacy{padding: 12px 24px 0; font-size:13px;color:var(--quiet);margin:12px 0 0}.disclosure{font-size:15px;max-width:78ch;color:var(--quiet)}
-.conversation{padding:20px 24px}#conversation{list-style:none;padding:0;margin:0;max-height:36dvh;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}#conversation li{padding:12px 16px;margin:8px 0;background:#f5f7fc;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}
-#conversation li.member{background:#e8eef9;margin-left:10%}#conversation strong{display:block;font-size:13px;color:var(--quiet);margin-bottom:4px}
-.session-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line);padding:12px 24px}
-.evidence p{font-size:15px;color:var(--quiet)}dl{margin:24px 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px}dl div{padding:12px 0;border-bottom:1px solid var(--line)}dt{font-size:13px;color:var(--quiet)}dd{margin:2px 0;overflow-wrap:anywhere}
-.analysis{margin-top:20px;padding:20px 24px;background:white;border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:12px}
-.analysis-summary{font-weight:600;margin:0 0 6px}.analysis-why{margin:0 0 6px}
-#conversation li.has-info{position:relative;padding-right:56px}
-.info-badge{position:absolute;top:10px;right:12px;width:28px;height:28px;padding:0;border-radius:50%;border-color:var(--blue);color:var(--blue);font:italic 700 15px/26px Georgia,serif;text-align:center}
-.turn-info{margin-top:10px;padding:12px 14px;background:white;border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:8px;white-space:normal;font-size:15px}
-.turn-info h4{margin:10px 0 4px;font-size:14px;color:var(--quiet)}.turn-info ol,.turn-info ul{margin:0;padding-left:22px}
+#status{display:flex;align-items:center;gap:8px;margin:0;padding:10px 16px 0;color:var(--quiet);font-size:13px}
+#status::before{content:"";flex:none;width:8px;height:8px;border-radius:50%;background:var(--line)}
+[data-state=thinking] #status::before{background:#b7791f;animation:pulse 1.2s ease-in-out infinite}[data-state=typing] #status::before{background:var(--blue)}
+[data-state=listening] #status::before{background:#c2410c;animation:pulse 1.2s ease-in-out infinite}[data-state=speaking] #status::before{background:var(--blue);animation:pulse 1.2s ease-in-out infinite}
+[data-state=complete] #status::before{background:#1f7a54}[data-state=error] #status::before{background:var(--alert)}
+@keyframes pulse{50%{opacity:.35;transform:scale(.8)}}
+.controls{display:flex;gap:8px;flex-wrap:wrap}.privacy{padding:8px 16px 0;font-size:12px;color:var(--quiet);margin:8px 0 0}
+.notice{margin:10px 16px 0;padding:6px 12px;font-size:13px;color:var(--ink);background:var(--lilac);border-radius:8px}
+.disclosure{margin:0 0 8px;padding:8px 12px;font-size:13px;max-width:78ch;color:var(--ink);background:var(--lilac);border-radius:8px}
+.conversation{padding:10px 16px 6px}#conversation{list-style:none;padding:0;margin:0;max-height:50dvh;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;display:flex;flex-direction:column;gap:8px}#conversation:empty{display:none}
+#conversation li{align-self:flex-start;max-width:min(44rem,92%);padding:8px 12px;margin:0;background:var(--guide);border:1px solid var(--line);border-radius:4px 12px 12px 12px;font:16px/1.5 var(--serif);white-space:pre-wrap;overflow-wrap:anywhere}
+#conversation li.member{align-self:flex-end;background:var(--blue);border-color:var(--blue);border-radius:12px 4px 12px 12px;color:white;font:14px/1.45 var(--sans)}
+#conversation li.persona{align-self:flex-end;background:var(--lilac);border:1px dashed var(--blue);border-radius:12px 4px 12px 12px;font:14px/1.45 var(--sans)}
+#conversation li.system{align-self:center;max-width:100%;background:none;border:0;color:var(--quiet);font:12px/1.4 var(--sans);text-align:center}
+#conversation strong{display:block;font:600 12px/1.3 var(--sans);color:var(--quiet);margin-bottom:2px}#conversation li.member strong{color:#d6e2f7}
+.session-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;border-top:1px solid var(--line);padding:8px 16px;background:var(--guide)}
+.session-actions .text-button{background:var(--surface);border-color:var(--line);text-decoration:none;padding:6px 12px}.session-actions .text-button:hover:not(:disabled){background:var(--lilac)}
+.session-actions #stop{order:-1;margin-right:auto}
+.evidence p{font-size:14px;color:var(--quiet)}dl{margin:16px 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px}dl div{padding:8px 0;border-bottom:1px solid var(--line)}dt{font-size:12px;color:var(--quiet)}dd{margin:2px 0;overflow-wrap:anywhere}
+.analysis{margin-top:12px;padding:14px 16px;background:white;border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:10px}
+.analysis-summary{font-weight:600;margin:0 0 4px}.analysis-why{margin:0 0 4px}
+#conversation li.has-info{position:relative;padding-right:44px}
+.info-badge{position:absolute;top:8px;right:10px;width:24px;height:24px;padding:0;border-radius:50%;border-color:var(--blue);color:var(--blue);font:italic 700 13px/22px Georgia,serif;text-align:center}
+.turn-info{font-family:var(--sans);color:var(--ink);margin-top:8px;padding:8px 12px;background:white;border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:8px;white-space:normal;font-size:13px}
+.turn-info h4{margin:8px 0 2px;font-size:12px;color:var(--quiet)}.turn-info ol,.turn-info ul{margin:0;padding-left:22px}
 .turn-list{list-style:none;padding:0;margin:12px 0}.turn-list>li{border-top:1px solid var(--line)}.turn-list details{border:0;padding:10px 0;margin:0}
-.learning-note{background:var(--lilac);padding:18px;border-radius:8px;font-size:14px}details{border-top:1px solid var(--line);padding:20px 0;margin-top:20px}summary{cursor:pointer;font-weight:600}
-textarea{display:block;width:100%;min-height:80px;max-height:18dvh;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:12px;background:white;color:var(--ink);margin:0}
-#chat-form{display:grid;gap:12px;border-top:1px solid var(--line);padding-top:16px;margin-top:16px}#chat-form button{justify-self:start}
-[hidden]{display:none!important}.text-button{background:transparent;border-color:transparent;text-decoration:underline;font-size:15px}
-.empty{color:var(--quiet);font-size:15px}
+.learning-note{background:var(--lilac);padding:12px;border-radius:8px;font-size:13px}details{border-top:1px solid var(--line);padding:12px 0;margin-top:12px}summary{cursor:pointer;font-weight:600}
+textarea{display:block;width:100%;min-height:56px;max-height:18dvh;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:white;color:var(--ink);margin:0}
+textarea:focus{border-color:var(--blue)}
+#chat-form{display:grid;gap:4px;border-top:1px solid var(--line);padding-top:10px;margin-top:10px}#chat-form label{font-size:13px;font-weight:600}
+.composer-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}.hint{font-size:12px;color:var(--quiet)}
+[hidden]{display:none!important}.text-button{background:transparent;border-color:transparent;text-decoration:underline;font-size:13px}
+.empty{color:var(--quiet);font-size:13px}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
-#conversation-error{padding:12px 16px;border-left:3px solid #ad334b;background:#fff0f3;color:#852139}
-@media(max-width:800px){header,main{padding:16px}main{padding-top:0}.demo-toolbar,.conversation{padding:16px}.session-actions{padding:12px}dl{grid-template-columns:1fr}}
-@media(max-width:600px){.demo-toolbar{gap:8px}.demo-toolbar .story-picker{flex-basis:calc(100% - 90px);min-width:0;order:1}#simulate{order:2}}
+#conversation-error{padding:8px 12px;border-left:3px solid #ad334b;border-radius:0 8px 8px 0;background:#fff0f3;color:#852139;font-size:13px}
+#outcome-controls{margin-top:8px}
+@media(pointer:fine){.demo-toolbar button,.story-picker select{min-height:36px}}
+@media(max-width:800px){header,main{padding:12px}main{padding-top:0}.demo-toolbar,.conversation{padding:12px}.notice{margin:8px 12px 0}#status{padding:10px 12px 0}.session-actions{padding:8px 12px}dl{grid-template-columns:1fr}}
+@media(max-width:600px){.setup-group,.sample{flex:1 1 100%;min-width:0}.channels button{flex:1}.channels .story-picker{flex:1 1 100%}.sample .story-picker{flex:1 1 100%}.sample #simulate{flex:1 1 100%}.hint{display:none}#chat-form button{flex:1}#conversation li{max-width:100%}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 <body>
@@ -47,13 +68,15 @@ textarea{display:block;width:100%;min-height:80px;max-height:18dvh;resize:vertic
 <div class="workspace" id="voice-stage" data-state="ready">
 <section aria-label="Your conversation">
 <div class="demo-toolbar" id="demo-controls" role="group" aria-label="Demo controls">
+<div class="setup-group channels" role="group" aria-labelledby="channels-title"><p class="group-title" id="channels-title">Talk to the guide</p>
 <button id="present" class="primary" disabled>Voice</button><button id="chat" disabled>Chat</button>
 <div class="story-picker"><label for="language">Chat language</label><select id="language" disabled></select></div>
+<button id="speak" class="primary" disabled hidden>Speak</button><button id="finish" class="primary" disabled hidden>Send recording</button></div>
+<div class="setup-group sample" role="group" aria-labelledby="sample-title"><p class="group-title" id="sample-title">Or play a sample conversation</p>
 <div class="story-picker"><label for="contact-type">Contact</label><select id="contact-type" disabled><option value="first_contact">First contact</option><option value="second_contact">Second contact</option></select></div>
-<div class="story-picker"><label class="sr-only" for="simulation">Story</label><select id="simulation" disabled></select></div><button id="simulate" disabled>Play</button>
-<button id="speak" class="primary" disabled hidden>Speak</button><button id="finish" class="primary" disabled hidden>Send recording</button>
+<div class="story-picker"><label class="sr-only" for="simulation">Story</label><select id="simulation" disabled></select></div><button id="simulate" disabled>Play</button></div>
 </div>
-<p id="contact-context" class="privacy" hidden>Follow-up support. The guide checks this verified synthetic member's saved conversation before greeting. Selecting Second contact does not create previous history.</p>
+<p id="contact-context" class="notice" hidden>Follow-up support. The guide checks this verified synthetic member's saved conversation before greeting. Selecting Second contact does not create previous history.</p>
 <p id="status" role="status" aria-live="polite">Sign in to try the conversation.</p>
 <section class="conversation" id="conversation-panel" aria-label="Conversation">
 <div class="disclosure" id="disclosure">{{AI_DISCLOSURE}}</div>
@@ -63,7 +86,7 @@ textarea{display:block;width:100%;min-height:80px;max-height:18dvh;resize:vertic
 <div class="controls"><button id="outcome-yes" disabled>Yes</button><button id="outcome-no" disabled>No</button><button id="outcome-skip" disabled>Skip</button></div>
 </div>
 <p id="conversation-error" role="alert" hidden></p>
-<form id="chat-form" hidden><label for="chat-text">Your message</label><textarea id="chat-text" maxlength="4000" rows="2" placeholder="What would you like to understand?" disabled></textarea><button id="send" class="primary" disabled>Send message</button></form>
+<form id="chat-form" hidden><label for="chat-text">Your message</label><textarea id="chat-text" maxlength="4000" rows="2" placeholder="What would you like to understand?" disabled></textarea><div class="composer-actions"><span class="hint">Enter sends. Shift+Enter adds a line.</span><button id="send" class="primary" disabled>Send message</button></div></form>
 </section>
 <div class="session-actions"><button id="takeover" class="text-button" hidden disabled>Take over as the member</button><button id="stop" class="text-button" disabled>Talk to a person</button><button id="end-session" class="text-button" disabled hidden>End conversation</button></div>
 </section>
@@ -525,6 +548,9 @@ for(const choice of ["yes","no","skip"])$("outcome-"+choice).onclick=()=>{
     outcome:{response_id:currentOffer.response_id,choice}}));
   waitingForInput=false;$("chat-text").disabled=true;$("send").disabled=true;$("speak").disabled=true;
   setFeedbackAvailability();if(sessionMode==="chat")awaitChatReply();activity("thinking");status("Recording your feedback.");
+};
+$("chat-text").onkeydown=event=>{
+  if(event.key==="Enter"&&!event.shiftKey&&!event.isComposing){event.preventDefault();$("chat-form").requestSubmit();}
 };
 $("chat-form").onsubmit=event=>{
   event.preventDefault();const text=$("chat-text").value;

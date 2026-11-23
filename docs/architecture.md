@@ -82,10 +82,11 @@ failures are service failures.
   (a restatement offered for confirmation, with or without a question
   mark, is `asks_information` and is answered; only plain thanks or agreement is
   `only_acknowledges`; while a teach-back check is pending, a restatement answers
-  that check and is `only_acknowledges`). The review verdict and the
+  that check and is `only_acknowledges`; in every state, a restatement of an explanation whose last message asked
+  the member to say it in their own words answers that question). The review verdict and the
   concept checks are likewise separate requests.
 - **Confidence gate.** A reason or verdict is accepted only above a
-  30% confidence. Transport, response-contract and low-confidence
+  30% confidence; an optional reading (the concept checks, which can veto a draft) only above 60%. Transport, response-contract and low-confidence
   failures are distinguished in content-free operational logs. Unavailable
   intent or review evidence (transport or contract failure) fails closed to a
   human handover (B9). There are no per-label margin exceptions.
@@ -160,11 +161,11 @@ B1-B10, channel authorization, catalogue approval or learning.
 6. Verify the signed ranking against active catalogue versions; apply eligibility,
    suspensions and protective state. The control arm retains approved expert order.
 7. Compose a question-specific draft with `{{value:<id>}}` references. Bind only
-   authorized official display strings; reject literal invented figures and steering, and a reply that talks about its own
-   passages or sources (a closed, per-language phrase list in the domain pack).
+   authorized official display strings; reject literal invented figures and steering; a reply that talks about its own
+   passages or sources (a closed, per-language phrase list in the domain pack) loses that clause, with no model call.
 8. The Decision model's answer review checks support, relevance and language.
    At most one evidence-preserving repair is allowed across the deterministic output
-   gate and answer review. A literal-digit or source-talk contract failure without a usable
+   gate and answer review. A literal-digit contract failure without a usable
    approved fallback can use that repair before review; all deterministic gates
    and the answer review must then pass. When the review still says the draft is
    unsupported (grounding is the only defect, never advice, an excluded concept or an unclear

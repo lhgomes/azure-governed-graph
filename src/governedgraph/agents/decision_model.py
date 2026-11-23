@@ -16,6 +16,11 @@ from governedgraph.observability import emit, headers
 
 log = logging.getLogger(__name__)
 
+# A required answer is accepted above MIN_CONFIDENCE. An optional answer (the concept readings, which can veto a
+# draft) needs a clearer reading: a weak one is treated as unclear, not as evidence.
+MIN_CONFIDENCE = 0.3
+OPTIONAL_MIN_CONFIDENCE = 0.6
+
 
 class DecisionModelUnavailable(RuntimeError):
     pass
@@ -108,7 +113,7 @@ def _read_choices(tools, body: dict, questions: dict, optional: frozenset[str], 
         if type(probability) not in (int, float) or not 0 <= probability <= 1:
             raise ValueError("invalid Decision probability")
         call.stage = "low_confidence"
-        if probability > 0.3:
+        if probability > (OPTIONAL_MIN_CONFIDENCE if key in optional else MIN_CONFIDENCE):
             selected[key] = label
             continue
         ranked = sorted(answer["probabilities"].items(), key=lambda item: -item[1])[:2]

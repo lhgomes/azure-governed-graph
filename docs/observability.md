@@ -46,7 +46,7 @@ each model call emits `llm_call` events with its `journey_id`, a `call_id`, the 
 `text`, plus an `outcome` (`ok`, or the failure domain). Join the parts of one `call_id` in order to read the
 full payload. Headers are never recorded and credential-like text is withheld. This is the one deliberate
 exception to the content-free log, it is read from the container console or `ContainerAppConsoleLogs`, and it
-must be switched off before real data is used. `answer_passage_fallback` (journey ID only) marks an answer given as the cited approved passages after two ungrounded drafts. `model_source_talk_blocked` (journey ID only) marks a draft that mentioned its own passages or sources and went to the one repair. `output_gate_blocked` names the gate that blocked a draft or
+must be switched off before real data is used. `answer_passage_fallback` (journey ID only) marks an answer given as the cited approved passages after two ungrounded drafts. `model_source_talk_removed` (journey ID only) marks a draft whose clause about its own passages or sources the host removed. `output_gate_blocked` names the gate that blocked a draft or
 the approved template, using closed `draft:`/`template:` reasons only.
 APIM captures **zero body bytes**, no Authorization header and no client IP.
 Suppressing both bodies is stronger than attempting to redact arbitrary

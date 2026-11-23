@@ -307,8 +307,26 @@ def test_b9_a_question_after_an_accepted_answer_is_never_read_as_an_acknowledgem
     turn.conversation_context = lambda: []
     decision_agents.run_decision(
         "intent", turn, "So it stays the same, right?", DecisionContext("resolved", "unclassified", None))
-    assert "Any question, including \"is that right?\", is asks_information" in (
+    assert "Any other question, including \"is that right?\", is asks_information" in (
         seen["route"]["route"]["instructions"])
+
+
+@pytest.mark.parametrize("state", ["resolved", "comprehension_check", "explaining"])
+def test_a_restatement_answering_the_previous_check_question_is_an_acknowledgement_in_every_state(monkeypatch, state):
+    # Observed in gg-dev: the journey was "resolved" although the previous answer ended by asking the member to
+    # restate it, so the restatement was read as a new question and the same explanation was given twice.
+    from governedgraph.agents import decision_model
+
+    seen = {}
+    monkeypatch.setattr(decision_model, "choose", lambda _t, state, questions: (
+        seen.__setitem__(next(iter(questions)), questions),
+        {"route": "only_acknowledges"} if "route" in questions else {"topic": "payment_continuity"})[1])
+    turn = tools()
+    turn.trace.note = lambda *_: None
+    turn.conversation_context = lambda: [{"role": "assistant", "text": "... In your own words, what changes?"}]
+    decision_agents.run_decision("intent", turn, "So it can go up or down. Is that right?",
+                                 DecisionContext(state, "unclassified", None))
+    assert decision_agents.ANSWERED_CHECK in seen["route"]["route"]["instructions"]
 
 
 def test_b9_a_restatement_offered_for_confirmation_is_a_request_for_information_even_without_a_question_mark():

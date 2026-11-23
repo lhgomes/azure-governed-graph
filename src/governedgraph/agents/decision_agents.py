@@ -78,9 +78,13 @@ ROUTE_NOTES = {
     "comprehension_check": "A restatement of the explanation, even one closed by \"right?\", answers the check "
                            "question just asked and is only_acknowledges.",
     "resolved": "A restatement of the explanation offered for confirmation (\"so ...\"), with or without a question "
-                "mark, is a request to confirm it: asks_information. Any question, including \"is that right?\", is "
-                "asks_information. Only plain thanks or agreement is only_acknowledges.",
+                "mark, is a request to confirm it: asks_information. Any other question, including \"is that "
+                "right?\", is asks_information. Only plain thanks or agreement is only_acknowledges.",
 }
+# Read from the previous exchange, so it holds in every journey state.
+ANSWERED_CHECK = ("If the previous assistant message ended by asking the customer to say in their own words what they "
+                  "understood, a restatement of that explanation answers that question and is only_acknowledges, even "
+                  "one closed by \"right?\".")
 
 
 def _route_instructions(journey_state: str) -> str:
@@ -88,6 +92,7 @@ def _route_instructions(journey_state: str) -> str:
         "What does the customer's message ask for? The customer message is the last line; the previous exchange "
         "is context only. If several labels apply, choose the first of: " + ", ".join(ROUTE_ORDER) + ".",
         ROUTE_NOTES.get(journey_state),
+        ANSWERED_CHECK,
     )))
 
 

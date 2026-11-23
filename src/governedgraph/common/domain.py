@@ -245,6 +245,21 @@ def mentions_own_sources(text: str) -> str | None:
     return found.group(0) if found else None
 
 
+def without_source_talk(text: str) -> str:
+    """`text` without its source talk: a sentence is cut back to before its "because ..." or ";" clause, or dropped
+    when nothing is left before the phrase. A reply that cannot confirm something keeps saying so, not why."""
+    kept = []
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        found = _source_talk_pattern().search(sentence)
+        if not found:
+            kept.append(sentence)
+            continue
+        cuts = [m.start() for m in re.finditer(r";|,?\s+(?:because|since|as)\b", sentence[:found.start()], re.I)]
+        if cuts and sentence[:cuts[-1]].strip(" ,;"):
+            kept.append(sentence[:cuts[-1]].rstrip(" ,;") + ".")
+    return " ".join(kept)
+
+
 def message(key: str) -> str:
     """Fixed member-facing text supplied by the domain pack."""
     return vocabulary()["messages"][key]

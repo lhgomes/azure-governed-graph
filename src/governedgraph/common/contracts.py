@@ -186,9 +186,10 @@ class UnderstandingDecision:
 class AnswerDraft:
     text: str
     content_ids: list[str]
+    closing_question: str = ""  # the meaning-check question already inside `text`, so it can be withheld
 
     def __post_init__(self):
-        if (not isinstance(self.text, str) or not self.text.strip()
+        if (not isinstance(self.text, str) or not self.text.strip() or not isinstance(self.closing_question, str)
                 or not isinstance(self.content_ids, list)
                 or any(not isinstance(value, str) or not value for value in self.content_ids)):
             raise ContractError("invalid grounded answer draft")

@@ -234,8 +234,9 @@ def test_b3_host_applies_teach_back_structure_to_generated_components(counsellor
     raw = FoundryComposer("test instructions", client=client).draft(
         counsellor.tools, "Who calculates the official figures?", strategy)
     answer = json.loads(raw)
-    assert answer == {"text": (f"First: {explanation} Finally: {question}" if strategy.teach_back else explanation),
-                      "content_ids": ["C-001-v1.3"]}
+    closing = f"Finally: {question}" if strategy.teach_back else ""
+    assert answer == {"text": f"First: {explanation} {closing}".strip() if strategy.teach_back else explanation,
+                      "content_ids": ["C-001-v1.3"], "closing_question": closing}
     assert len(client.calls) == 1
 
 
@@ -590,25 +591,23 @@ def test_b2_the_passage_fallback_never_covers_advice_or_an_unclear_review(
 
 
 @pytest.mark.parametrize("channel", ["chat", "voice"])
-@pytest.mark.parametrize("repair", [
-    "I cannot confirm what the reserve means. I can arrange for a fund advisor to explain it.",
-    "I cannot confirm what the reserve means; the supplied passages do not define it.",
+@pytest.mark.parametrize("leaky,kept", [
+    ("I cannot confirm what the reserve means, because no official explanation is available in the supplied passages.",
+     "I cannot confirm what the reserve means."),
+    ("I cannot confirm what the reserve means; the supplied passages do not define it.",
+     "I cannot confirm what the reserve means."),
 ])
-def test_b2_a_reply_that_mentions_its_own_passages_is_repaired_once_and_never_delivered_as_written(
-        contextual_answer, monkeypatch, repair):
-    # Observed in gg-dev: "... because no official explanation is available in the supplied passages".
+def test_b2_a_reply_that_mentions_its_own_passages_loses_that_clause_without_another_model_call(
+        contextual_answer, monkeypatch, caplog, leaky, kept):
+    # Observed in gg-dev: the writer said "... in the supplied passages", then repeated it in its repair, and the member
+    # was handed over. The host now removes the clause itself.
     case = contextual_answer
-    leaky = response("I cannot confirm what the reserve means, because no official explanation is available in "
-                     "the supplied passages.", content_ids=["C-001-v1.3"], question="What would you like to know?")
-    client = FakeResponses(leaky, reviews=[response(repair, content_ids=["C-001-v1.3"],
-                                                    question="What remains to be confirmed about the reserve?")],
+    client = FakeResponses(response(leaky, content_ids=["C-001-v1.3"], question="What would you like to know?"),
                            judgments=[review_response()])
     install_responses(monkeypatch, client)
     result = case.explain("What does the reserve mean in simpler words?", "official_value_details")
-    assert "passages" not in result.text and len(client.calls) == 2
-    assert "source_talk" in client.calls[1]["input"][0]["content"]
-    assert {"stage": "output_gate", "result": "blocked", "issues": ["source_talk"]} in (
-        case.counsellor.tools.trace.turn_trace)
+    assert kept in result.text and "passages" not in result.text and len(client.calls) == 1
+    assert "model_source_talk_removed" in caplog.text
 
 
 @pytest.mark.parametrize("channel", ["chat", "voice"])
@@ -1232,6 +1231,9 @@ def test_b3_style_only_rejection_delivers_gated_answer_without_teach_back(counse
     assert counsellor.journey.last_explanation is None
     assert "answer_review_quality_waived" in caplog.text
     assert counsellor.journey.unanswered_streak == 0 and len(counsellor.tools.store.read_all()) == 1
+    # Observed in gg-dev: the answer still ended with the meaning-check question while the journey was already
+    # "resolved", so the member's restatement was explained again. No teach-back is claimed, so none is asked.
+    assert "?" not in result.text and counsellor.journey.state.value == "resolved"
 
 
 def test_b3_revision_is_bounded_even_when_second_judgment_requests_another(counsellor, monkeypatch, caplog):

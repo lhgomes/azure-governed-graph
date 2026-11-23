@@ -109,6 +109,7 @@ def _assemble_answer(result: str, *, teach_back: bool, step_by_step: bool = Fals
     question = payload.pop("meaning_check_question")
     if not isinstance(question, str) or (teach_back and "?" not in question):
         raise ValueError("invalid meaning-check question")
+    closing = ""
     if step_by_step:
         labels = domain.vocabulary()["step_labels"]
         if response_language not in labels:
@@ -117,10 +118,12 @@ def _assemble_answer(result: str, *, teach_back: bool, step_by_step: bool = Fals
         parts = [f"{first if index == 0 else next_step}: {part.strip()}"
                  for index, part in enumerate(parts)]
         if teach_back and question.strip():
-            parts.append(f"{last}: {question.strip()}")
+            closing = f"{last}: {question.strip()}"
     elif teach_back and question.strip():
-        parts.append(question.strip())
-    return AnswerDraft.from_dict({"text": " ".join(parts), **payload})
+        closing = question.strip()
+    if closing:
+        parts.append(closing)
+    return AnswerDraft.from_dict({"text": " ".join(parts), "closing_question": closing, **payload})
 
 
 def task_context(tools, strategy) -> dict:
@@ -315,9 +318,6 @@ class FoundryComposer:
                 "A feedback entry with an excluded_concept means the draft taught that out-of-scope concept: "
                 "delete every clause that conveys it, including a trailing attribution or provenance phrase, "
                 "and keep the rest. "
-                'The issue "source_talk" means the draft told the member about its own passages, sources or '
-                "supplied material: delete that clause and state only what cannot be confirmed, never why or where "
-                "you looked. "
                 'The issue "grounding" means a statement in the draft is not stated by the supplied approved '
                 "material, and the host cannot say which one. Rebuild the answer from the material's own wording "
                 'and leave out every addition of yours: any reason or cause ("because", "as it depends on", who '

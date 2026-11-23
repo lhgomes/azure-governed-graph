@@ -441,7 +441,7 @@ def test_executive_demo_keeps_conversation_primary_and_technical_evidence_collap
     for identity in ("speak", "finish", "end-session", "screen"):
         assert "hidden" in layout.elements[identity][0]
     assert "hidden" not in layout.elements["conversation-panel"][0]
-    assert "max-height:36dvh;overflow:auto" in html
+    assert "max-height:50dvh;overflow:auto" in html
     assert 'id="disclosure">{{AI_DISCLOSURE}}' in html
     assert "<aside" not in html
 

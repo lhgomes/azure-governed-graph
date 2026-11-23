@@ -93,3 +93,17 @@ def test_a_reply_that_talks_about_its_own_sources_is_recognised_in_every_languag
     from governedgraph.common.domain import mentions_own_sources
 
     assert mentions_own_sources(text) == found
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("I cannot confirm what it means, because no explanation is available in the supplied passages. "
+     "Your yearly statement shows the adjustment.",
+     "I cannot confirm what it means. Your yearly statement shows the adjustment."),
+    ("I cannot confirm that; the supplied passages do not define it.", "I cannot confirm that."),
+    ("The supplied passages do not define it.", ""),
+    ("Your yearly statement shows the adjustment.", "Your yearly statement shows the adjustment."),
+])
+def test_source_talk_is_cut_back_to_what_cannot_be_confirmed(text, expected):
+    from governedgraph.common.domain import without_source_talk
+
+    assert without_source_talk(text) == expected
