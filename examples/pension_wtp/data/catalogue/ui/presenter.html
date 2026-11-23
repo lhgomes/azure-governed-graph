@@ -48,7 +48,7 @@ textarea{display:block;width:100%;min-height:80px;max-height:18dvh;resize:vertic
 <section aria-label="Your conversation">
 <div class="demo-toolbar" id="demo-controls" role="group" aria-label="Demo controls">
 <button id="present" class="primary" disabled>Voice</button><button id="chat" disabled>Chat</button>
-<div class="story-picker"><label for="language">Language</label><select id="language" disabled></select></div>
+<div class="story-picker"><label for="language">Chat language</label><select id="language" disabled></select></div>
 <div class="story-picker"><label for="contact-type">Contact</label><select id="contact-type" disabled><option value="first_contact">First contact</option><option value="second_contact">Second contact</option></select></div>
 <div class="story-picker"><label class="sr-only" for="simulation">Story</label><select id="simulation" disabled></select></div><button id="simulate" disabled>Play</button>
 <button id="speak" class="primary" disabled hidden>Speak</button><button id="finish" class="primary" disabled hidden>Send recording</button>
@@ -363,7 +363,7 @@ async function connect(mode, handover=false){
   socket=new WebSocket(origin.replace("https:","wss:")+"/demo-stream");socket.binaryType="arraybuffer";
   socket.onopen=()=>{
     if(mode==="simulator")startRecording();
-    socket.send(JSON.stringify(mode==="simulator"?{mode,simulation_id:simulationId,contact_type:$("contact-type").value}:{mode,language:$("language").value}));activity("thinking");status("Starting your conversation...");
+    socket.send(JSON.stringify(mode==="simulator"?{mode,simulation_id:simulationId,contact_type:$("contact-type").value}:mode==="chat"?{mode,language:$("language").value}:{mode}));activity("thinking");status("Starting your conversation...");
   };
   socket.onmessage=async event=>{
     try{

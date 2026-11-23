@@ -317,9 +317,12 @@ def test_b9_a_restatement_offered_for_confirmation_is_a_request_for_information_
     # is an acknowledgement and speech carries no question mark.
     from governedgraph.common.domain import vocabulary
 
+    # Observed in gg-dev (second contact): a restatement closed by "Is that right?" answering a pending teach-back
+    # check was routed as a new question and the same explanation was given twice, because the label text said a
+    # restatement is a question while the context note said the opposite. Only the context note decides it now.
     criteria = vocabulary()["decision_criteria"]["route"]
-    assert "restatement" in criteria["asks_information"] and "without a question mark" in criteria["asks_information"]
-    assert "Restating what was explained in order to check it is not this label" in criteria["only_acknowledges"]
+    assert not any("is that right" in text.lower() for text in criteria.values())
+    assert all("context note" in criteria[label] for label in ("asks_information", "only_acknowledges"))
     note = decision_agents.ROUTE_NOTES["resolved"]
     assert "with or without a question mark" in note and "asks_information" in note
 

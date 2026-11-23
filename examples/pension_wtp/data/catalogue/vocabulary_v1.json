@@ -45,10 +45,10 @@
   "historical_reasons": ["official_transition_information", "combined_transition_question"],
   "decision_criteria": {
     "route": {
-      "asks_information": "The message asks for an explanation or information. That includes a question about the explanation just given (for example \"is that right?\"), a restatement of that explanation offered for the assistant to confirm (\"so ...\", \"if I understand correctly ...\"), even when spoken without a question mark, and a request to focus on something else.",
+      "asks_information": "The message asks for an explanation or information, including a question about the explanation just given and a request to focus on something else. Whether a restatement of the explanation counts depends on the context note.",
       "asks_person": "Explicitly asks to speak to a person. Mentioning an advisor or declining one is not a request.",
       "asks_choice": "Asks the assistant to decide or recommend: which option to choose, a comparison, or whether the customer should take an action such as objecting, or not. A worried tone or a question about payment impact is not a request to decide.",
-      "only_acknowledges": "Only thanks, agrees or closes the conversation, and asks nothing. Restating what was explained in order to check it is not this label."
+      "only_acknowledges": "Only thanks, agrees or closes the conversation, and asks nothing. Whether a restatement of the explanation counts depends on the context note."
     },
     "intent": {
       "transition_overview": "General question about what the move to the new pension system means in practice",

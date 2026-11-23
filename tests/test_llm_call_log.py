@@ -87,7 +87,7 @@ def test_the_decision_call_records_the_exact_request_and_response_without_any_he
 def test_a_rejected_decision_is_recorded_with_its_failure_domain(on, monkeypatch, caplog):
     caplog.set_level(logging.INFO, logger="governedgraph.llm_calls")
     body = {"model": "microsoft-decision-1.1", "usage": {"input_tokens": 12, "output_tokens": 1},
-            "answers": {"reason": {"type": "choice", "choice": "a", "probabilities": {"a": 0.4, "b": 0.38}}}}
+            "answers": {"reason": {"type": "choice", "choice": "a", "probabilities": {"a": 0.28, "b": 0.26}}}}
     response = httpx.Response(200, json=body, request=httpx.Request("POST", "https://synthetic.example/"))
     monkeypatch.setattr(decision_model, "settings", SimpleNamespace(
         project_endpoint="https://synthetic.services.ai.azure.com/api/projects/synthetic",

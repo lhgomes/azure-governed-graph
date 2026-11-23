@@ -167,8 +167,9 @@ def test_presenter_b7_closed_contracts_reject_unknown_demographic_and_invalid_fi
 
 @pytest.mark.parametrize("body", [
     {"mode": "chat", "language": "de"}, {"mode": "simulator", "simulation_id": "annelies", "language": "nl"},
+    {"mode": "presenter", "language": "nl"}, {"mode": "benchmark", "language": "nl"},
 ])
-def test_the_language_selector_is_for_chat_and_microphone_sessions_only(body):
+def test_the_language_selector_is_for_chat_sessions_only(body):
     with pytest.raises(ContractError):
         presenter.SessionRequest.from_dict(body)
 

@@ -49,12 +49,12 @@ class SessionRequest:
     benchmark_model: str = "gpt-counsellor"
     simulation_id: str | None = None
     contact_type: str = "first_contact"
-    language: str | None = None  # the member's choice for chat and microphone sessions; a persona brings its own
+    language: str | None = None  # the member's choice, for chat sessions only; voice and personas use the default or their own
 
     def __post_init__(self):
         if not isinstance(self.contact_type, str) or self.contact_type not in CONTACT_TYPES:
             raise ContractError("unsupported contact type")
-        if self.language is not None and (self.mode == "simulator" or self.language not in RESPONSE_LANGUAGES):
+        if self.language is not None and (self.mode != "chat" or self.language not in RESPONSE_LANGUAGES):
             raise ContractError("unsupported language selection")
         if self.mode not in ("presenter", "simulator", "benchmark", "chat"):
             raise ContractError("unknown voice mode")

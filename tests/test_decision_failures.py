@@ -140,7 +140,7 @@ def test_optional_unclear_answer_is_none_while_a_required_one_still_fails_closed
             "answers": {
                 "required": {"type": "choice", "choice": "a", "probabilities": {"a": 0.9, "b": 0.1}},
                 "optional": {"type": "choice", "choice": "taught",
-                             "probabilities": {"taught": 0.497, "absent": 0.336, "checked": 0.167}},
+                             "probabilities": {"taught": 0.297, "absent": 0.296, "checked": 0.28}},
             }}
     response = httpx.Response(200, json=body, request=httpx.Request("POST", "https://synthetic.example/"))
     monkeypatch.setattr(decision_model, "settings", SimpleNamespace(
