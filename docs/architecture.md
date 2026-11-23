@@ -85,7 +85,7 @@ failures are service failures.
   that check and is `only_acknowledges`). The review verdict and the
   concept checks are likewise separate requests.
 - **Confidence gate.** A reason or verdict is accepted only above a
-  greater-than 30% confidence. Transport, response-contract and low-confidence
+  30% confidence. Transport, response-contract and low-confidence
   failures are distinguished in content-free operational logs. Unavailable
   intent or review evidence (transport or contract failure) fails closed to a
   human handover (B9). There are no per-label margin exceptions.

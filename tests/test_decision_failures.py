@@ -66,7 +66,7 @@ def test_decision_failure_diagnostics_preserve_usage_without_payload(monkeypatch
         assert "synthetic-private" not in json.dumps(record)
         if failure == "low_confidence":
             # The closed label and its score are content-free and show how close the decision was to the gate.
-            assert (record["top_choice"], record["top_probability"]) == ("pass_draft", 0.5)
+            assert (record["top_choice"], record["top_probability"]) == ("pass_draft", 0.3)
             assert "runner_up" not in record
         else:
             assert "pass_draft" not in json.dumps(record)
@@ -258,7 +258,7 @@ def test_decision_criteria_must_describe_exactly_the_closed_reason_set(monkeypat
 
 
 def test_a_routing_reading_at_or_below_the_gate_abstains_whatever_its_margin(monkeypatch):
-    # A clear but sub-0.5 lead used to be accepted by a margin rule that only routing had; there is one gate now.
+    # A clear but sub-gate lead used to be accepted by a margin rule that only routing had; there is one gate now.
     body = {"model": "microsoft-decision-1.1", "usage": {"input_tokens": 12, "output_tokens": 1},
             "answers": {"route": {"type": "choice", "choice": "asks_information", "probabilities": {
                 "asks_information": 0.25, "only_acknowledges": 0.2, "asks_choice": 0.02, "asks_person": 0.0004}}}}
