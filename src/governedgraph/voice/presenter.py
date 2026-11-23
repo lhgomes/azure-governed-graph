@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from governedgraph.common import domain
 from governedgraph.common.config import DATA_DIR
-from governedgraph.common.contracts import CONTACT_TYPES, ContractError, OutcomeSubmission, _strict
+from governedgraph.common.contracts import CONTACT_TYPES, RESPONSE_LANGUAGES, ContractError, OutcomeSubmission, _strict
 from governedgraph.voice.voice_demo import run_live_simulator, run_simulator
 from governedgraph.agents.live_persona import connect_live_persona
 from governedgraph.agents.persona_simulator import ScriptedPersona
@@ -49,10 +49,13 @@ class SessionRequest:
     benchmark_model: str = "gpt-counsellor"
     simulation_id: str | None = None
     contact_type: str = "first_contact"
+    language: str | None = None  # the member's choice for chat and microphone sessions; a persona brings its own
 
     def __post_init__(self):
         if not isinstance(self.contact_type, str) or self.contact_type not in CONTACT_TYPES:
             raise ContractError("unsupported contact type")
+        if self.language is not None and (self.mode == "simulator" or self.language not in RESPONSE_LANGUAGES):
+            raise ContractError("unsupported language selection")
         if self.mode not in ("presenter", "simulator", "benchmark", "chat"):
             raise ContractError("unknown voice mode")
         if self.mode == "benchmark" and self.contact_type != "first_contact":
@@ -126,10 +129,12 @@ def reply_metadata(reply) -> dict:
             **({"learning_feedback": reply.learning_feedback} if reply.learning_feedback is not None else {})}
 
 
-async def serve_chat(socket: WebSocket, channel: OrchestratorChannel, *, contact_type: str = "first_contact"):
+async def serve_chat(socket: WebSocket, channel: OrchestratorChannel, *, contact_type: str = "first_contact",
+                     language: str | None = None):
     """Same authorized endpoints, without opening a microphone or speech connection."""
     started = await channel.start(channel="chat",
-                                  **({"contact_type": contact_type} if contact_type != "first_contact" else {}))
+                                  **({"contact_type": contact_type} if contact_type != "first_contact" else {}),
+                                  **({"language": language} if language else {}))
     await socket.send_json({"kind": "caption", "role": "counsellor", "text": started.text})
     await socket.send_json({"kind": "chat_ready", "journey_id": started.journey_id})
     seen: dict[str, ChatMessage] = {}
@@ -205,6 +210,7 @@ def config():
     return JSONResponse({"client_id": os.environ["VOICE_DEMO_CLIENT_ID"],
                          "tenant": os.environ["STRATEGY_TENANT_ID"],
                          "origin": os.environ["VOICE_DEMO_ORIGIN"],
+                         "languages": sorted(RESPONSE_LANGUAGES),
                          "simulations": [item.summary() for item in load_simulations()]},
                         headers={"Cache-Control": "no-store"})
 
@@ -487,7 +493,7 @@ async def serve(socket: WebSocket, claims: dict, *, request: SessionRequest | No
                     async with httpx.AsyncClient(base_url=os.environ["GOVERNEDGRAPH_ORCHESTRATOR_URL"].rstrip("/") + "/",
                                                  timeout=120, follow_redirects=False) as channel:
                         await serve_chat(socket, channel_factory(channel, lambda: token),
-                                         contact_type=request.contact_type)
+                                         contact_type=request.contact_type, language=request.language)
                     return
                 if request.mode == "benchmark":
                     from governedgraph.voice.benchmark import run_benchmark
@@ -549,7 +555,7 @@ async def serve(socket: WebSocket, claims: dict, *, request: SessionRequest | No
                                         await run_voice_turns(bridge, audio, replies)
                             else:
                                 replies = []
-                                await bridge.start(contact_type=request.contact_type)
+                                await bridge.start(contact_type=request.contact_type, language=request.language)
                                 await run_voice_turns(bridge, audio, replies)
                             if audio.handover_requested and not any(reply.escalated for reply in replies):
                                 reply = await bridge.channel.turn(bridge.journey_id, "I want a human advisor",

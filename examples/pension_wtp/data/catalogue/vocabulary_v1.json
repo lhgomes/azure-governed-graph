@@ -1,12 +1,19 @@
 {
   "vocabulary_version": "1.3",
-  "approval_ref": "IMP-ANSWER-REVIEW-REDESIGN-2026-11-23-user-approval",
+  "approval_ref": "IMP-ROUTE-RESTATEMENT-2026-11-23-user-approval",
   "watermark": "ILLUSTRATIVE - synthetic data. Closed domain vocabulary; changing it is a Tier 2 material change (B8).",
   "response_languages": ["en", "nl"],
   "default_language": "nl",
   "step_labels": {
     "en": ["First", "Next", "Finally"],
     "nl": ["Eerst", "Vervolgens", "Tot slot"]
+  },
+  "source_talk": {
+    "en": ["passage", "passages", "supplied material", "supplied information", "supplied sources", "approved source",
+           "approved sources", "the references", "reference material", "information provided to me",
+           "information i was given", "information available to me"],
+    "nl": ["passage", "passages", "aangeleverde passages", "aangeleverde informatie", "aangeleverde bronnen",
+           "goedgekeurde bron", "goedgekeurde bronnen", "referentiemateriaal", "informatie die mij is verstrekt"]
   },
   "outcome_check": {
     "en": {
@@ -35,8 +42,14 @@
     ["transition_impact_question", "combined_transition_question"],
     ["general_question", "approved_fund_information"]
   ],
-  "historical_reasons": ["official_transition_information"],
+  "historical_reasons": ["official_transition_information", "combined_transition_question"],
   "decision_criteria": {
+    "route": {
+      "asks_information": "The message asks for an explanation or information. That includes a question about the explanation just given (for example \"is that right?\"), a restatement of that explanation offered for the assistant to confirm (\"so ...\", \"if I understand correctly ...\"), even when spoken without a question mark, and a request to focus on something else.",
+      "asks_person": "Explicitly asks to speak to a person. Mentioning an advisor or declining one is not a request.",
+      "asks_choice": "Asks the assistant to decide or recommend: which option to choose, a comparison, or whether the customer should take an action such as objecting, or not. A worried tone or a question about payment impact is not a request to decide.",
+      "only_acknowledges": "Only thanks, agrees or closes the conversation, and asks nothing. Restating what was explained in order to check it is not this label."
+    },
     "intent": {
       "transition_overview": "General question about what the move to the new pension system means in practice",
       "payment_continuity": "Whether the monthly pension payment changes or stays the same after the transition",
@@ -45,12 +58,7 @@
       "personal_letter_context": "A broad request for help with an unseen personal transition letter, with no specific term, passage or substantive question supplied. Mentioning a letter or quoting a term is not enough: classify a question about that term or an official figure by its specific topic instead",
       "transition_information_gap": "Factual question whether it is possible to object, cancel or opt out, or how to do so (not whether the customer should)",
       "official_value_details": "Asks what a specific official date, capital or other value is or means. A question such as what 'personal pension capital after the transition' means belongs here, including when the term is quoted from a letter. Asking what a term means is not asking to inspect an unseen letter",
-      "combined_transition_question": "A question that clearly spans several transition topics",
-      "approved_fund_information": "Factual question about the fund unrelated to the transition, such as contact details or opening hours",
-      "personal_choice_or_comparison": "Asks the assistant to decide or recommend: which option to choose, a comparison, or whether the customer should take an action such as objecting, or not. A worried tone or a question about payment impact is not a request to decide",
-      "explicit_human_request": "Explicitly asks to speak to a person. Mentioning an advisor or declining one is not a request",
-      "restating_previous_explanation": "Replies to the assistant's last question or comment: restates, agrees, thanks, or recaps the last explanation, with nothing new asked. A message that also asks a new question, asks for confirmation or more detail, or asks to focus on something else is not restating, even when it begins by recapping or says it understood",
-      "more_context_needed": "The topic cannot be identified from the message"
+      "approved_fund_information": "Factual question about the fund unrelated to the transition, such as contact details or opening hours"
     },
     "concepts": {
       "rights_transfer": "Built-up pension rights transfer into the new scheme",
@@ -105,10 +113,6 @@
     "official_value_details": {
       "goal": "Explain only the explicitly requested official term or value using authorized evidence. For a meaning question, explain the term first; do not quote a personal figure unless the member requests it. Do not invent comparisons, add calculation provenance or ask for a term or passage already supplied.",
       "excluded": ["official_source"]
-    },
-    "combined_transition_question": {
-      "goal": "Answer each explicitly requested topic using authorized evidence, without adding other topics.",
-      "excluded": []
     }
   },
   "p2_acceptance_request_key": ["first_contact", "transition_impact_question", "voice", "standard"],

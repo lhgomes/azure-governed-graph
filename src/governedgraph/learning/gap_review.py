@@ -27,7 +27,7 @@ from datetime import datetime, timedelta, timezone
 
 from governedgraph.common.contracts import (
     ACCESSIBILITY_MODES, CHANNELS, DECLINE_REASONS, RESPONSE_LANGUAGES, REVIEW_ISSUES, ContractError, ExplainabilityRecord,
-    RequestKey, _strict,
+    RETIRED_REVIEW_ISSUES, RequestKey, _strict, current_review_issues,
 )
 from governedgraph.common.io import canonical_json
 from governedgraph.guardrails.advice_intent import response_steers_choice
@@ -40,7 +40,7 @@ RULES_VERSION = "1.0"
 KINDS = ("content_gap", "content_revision", "strategy_gap", "false_negative_review")
 OUTCOMES = ("unanswered", "review_flagged", "no_style", "escalated")
 # Review findings that say the approved passage itself is incomplete or missing, versus a style or relevance defect.
-CONTENT_ISSUES = frozenset({"grounding", "document_context", "uncertainty"})
+CONTENT_ISSUES = frozenset({"grounding"})
 QUALITY_ISSUES = frozenset({"relevance", "strategy"})
 MIN_DECLINED = 5
 MIN_JOURNEYS = 3
@@ -48,6 +48,8 @@ MAJORITY = 0.5
 SAMPLE_JOURNEYS = 5
 SAMPLE_QUESTIONS = 5
 SAMPLE_CASES = 10
+# Proposals stored before the review redesign still carry the retired labels; they stay readable.
+STORED_REVIEW_ISSUES = frozenset(REVIEW_ISSUES | set(RETIRED_REVIEW_ISSUES))
 CASE_FIELDS = {"journey_id", "created_at", "outcome", "decline_reason", "review_issues", "passages", "question"}
 QUESTION_CHARS = 300
 QUESTION_RETENTION_DAYS = 30  # the lifecycle rule on the declined-questions container
@@ -93,7 +95,8 @@ def signal_for(record: ExplainabilityRecord) -> Signal | None:
     reviews = [item.decision for item in record.decision_evidence if item.role == "answer-review"]
     # A delivered answer counts only by its final review; findings on a draft that was repaired and then passed do not.
     judged = reviews[-1:] if record.response_kind == "explanation" else reviews
-    issues = sorted({issue for review in judged if review["verdict"] != "pass" for issue in review["issues"]})
+    issues = sorted({issue for review in judged if review["verdict"] != "pass"
+                     for issue in current_review_issues(review["issues"])})
     if record.response_kind == "acknowledgment" and record.strategy_id == ESCALATION_STRATEGY:
         outcome = "unanswered"
     elif record.response_kind == "escalation":
@@ -166,7 +169,7 @@ class Evidence:
                 or any(not isinstance(item, str) or len(item) > 40
                        for item in (self.window_start, self.window_end, self.questions_expire_at))):
             raise ContractError("invalid evidence counts")
-        _count_map(self.review_issues, set(REVIEW_ISSUES))
+        _count_map(self.review_issues, set(STORED_REVIEW_ISSUES))
         _count_map(self.decline_reasons, set(DECLINE_REASONS))
         _count_map(self.content_versions, limit=TOP_CONTENT)
         if (not isinstance(self.eligible_styles, list) or len(self.eligible_styles) > 50
@@ -183,7 +186,7 @@ class Evidence:
             if (not isinstance(case, dict) or set(case) != CASE_FIELDS or not JOURNEY_ID.fullmatch(str(case["journey_id"]))
                     or case["outcome"] not in OUTCOMES or not isinstance(case["created_at"], str) or len(case["created_at"]) > 40
                     or (case["decline_reason"] and case["decline_reason"] not in DECLINE_REASONS)
-                    or not isinstance(case["review_issues"], list) or not set(case["review_issues"]) <= set(REVIEW_ISSUES)
+                    or not isinstance(case["review_issues"], list) or not set(case["review_issues"]) <= STORED_REVIEW_ISSUES
                     or not isinstance(case["passages"], list) or len(case["passages"]) > TOP_CONTENT
                     or any(not isinstance(item, str) or not CONTENT_REF.fullmatch(item) for item in case["passages"])
                     or not isinstance(case["question"], str) or len(case["question"]) > QUESTION_CHARS):
@@ -235,7 +238,7 @@ def validate_draft(kind: str, draft) -> dict:
         StyleChange.from_dict({key: value for key, value in draft.items() if key != "suggested"})
     elif kind == "false_negative_review":
         if (draft["action"] != "review" or draft["focus"] not in {"output_gate", "answer_review"}
-                or not isinstance(draft["issues"], list) or not set(draft["issues"]) <= set(REVIEW_ISSUES)):
+                or not isinstance(draft["issues"], list) or not set(draft["issues"]) <= STORED_REVIEW_ISSUES):
             raise ContractError("invalid review draft")
     else:
         _text(draft["title"], 200)

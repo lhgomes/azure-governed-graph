@@ -9,10 +9,14 @@ import sys
 from pathlib import Path
 from urllib.request import urlopen
 
-from scripts.delivery import ROOT, Composition, DeliveryError, Runner, build, provision, run_job, save_json
-from scripts.azd_env import EnvError, derived
+from scripts.delivery import (ROOT, Composition, DeliveryError, Runner, build, build_together, environment_values, provision,
+                              run_job, run_together, save_json)
+from scripts import redeploy
+from scripts.azd_env import EnvError, derived, load
 from scripts.deployment_target import new_target, read_inputs, same_scope, select_target
-from scripts.delivery_evidence import Evidence, admin_readiness, network_snapshot, readiness_observation, stage
+from scripts.p2_schedules import paused
+from scripts.delivery_evidence import (Evidence, admin_readiness, network_snapshot, readiness_observation, require_images,
+                                       stage)
 
 ISSUER = "https://gg-dev.synthetic.invalid"
 SEQUENCE = ("foundation", "immutable images", "bounded bootstrap", "complete workloads", "readiness")
@@ -21,33 +25,32 @@ SEQUENCE = ("foundation", "immutable images", "bounded bootstrap", "complete wor
 def image_artifacts(runner, foundation: dict, composition, *, subscription: str) -> dict:
     registry = foundation["compute"]["registryName"]
     core = [ROOT / "src", ROOT / "requirements.txt"]
-    framework = {
-        "runtime": build(runner, registry, "runtime", "Dockerfile", core + [ROOT / "requirements-azure.txt"], {},
-                         subscription=subscription),
-        "p2": build(runner, registry, "p2", "Dockerfile.p2", core + [ROOT / "requirements-p2.txt"], {},
-                    subscription=subscription),
-    }
+    framework = build_together({
+        "runtime": lambda: build(runner, registry, "runtime", "Dockerfile", core + [ROOT / "requirements-azure.txt"], {},
+                                 subscription=subscription),
+        "p2": lambda: build(runner, registry, "p2", "Dockerfile.p2", core + [ROOT / "requirements-p2.txt"], {},
+                            subscription=subscription),
+    })
     args = {"FRAMEWORK_RUNTIME": framework["runtime"]["image"]}
     p2_args = {"FRAMEWORK_P2": framework["p2"]["image"]}
     data = composition.data_directory
     domain = [data / "catalogue", data / "content", data / "fairness/thresholds_v1.json",
               data.parent / "__init__.py"]
-    images = {
-        "framework-runtime": framework["runtime"], "framework-p2": framework["p2"],
-        "runtime": build(runner, registry, "runtime", composition.dockerfile,
-                         domain + [data / "synthetic/members.json", data.parent / "member_values_api",
-                                   data / "personas/personas.json", data.parent / "demo/build_simulations.py"], args,
-                         subscription=subscription),
-        "p2": build(runner, registry, "p2", composition.p2_dockerfile, domain, p2_args,
-                    subscription=subscription),
-        "fixtures": build(runner, registry, "fixtures", composition.p2_dockerfile, domain + [
+    runtime_sources = [data / "synthetic/members.json", data.parent / "member_values_api",
+                       data / "personas/personas.json", data.parent / "demo/build_simulations.py"]
+    derived = build_together({
+        "runtime": lambda: build(runner, registry, "runtime", composition.dockerfile, domain + runtime_sources, args,
+                                 subscription=subscription),
+        "p2": lambda: build(runner, registry, "p2", composition.p2_dockerfile, domain, p2_args,
+                            subscription=subscription),
+        "fixtures": lambda: build(runner, registry, "fixtures", composition.p2_dockerfile, domain + [
             data / "synthetic/outcome_aggregates_illustrative.csv", data / "synthetic/uplift_window_illustrative.json",
             data / "fairness/cohort_aggregates_illustrative.csv"], p2_args, subscription=subscription),
-        "probe": build(runner, registry, "probe", composition.dockerfile, domain + [
-            data / "synthetic/members.json", data.parent / "member_values_api", data / "personas/personas.json",
-            data.parent / "demo/build_simulations.py",             data.parent / "evaluation/datasets"], args, subscription=subscription),
-    }
-    return images
+        "probe": lambda: build(runner, registry, "probe", composition.dockerfile,
+                               domain + runtime_sources + [data.parent / "evaluation/datasets"], args,
+                               subscription=subscription),
+    })
+    return {"framework-runtime": framework["runtime"], "framework-p2": framework["p2"], **derived}
 
 
 def environment(runner, inputs, composition) -> None:
@@ -56,19 +59,11 @@ def environment(runner, inputs, composition) -> None:
         runner.run(["azd", "env", "new", inputs.environment, "--subscription", inputs.subscription,
                     "--location", inputs.location, "--no-prompt"])
     else:
-        from scripts.azd_env import load
-
         env_file = directory / ".env"
         if not env_file.is_file() or not same_scope(load(env_file=str(env_file)), inputs):
             raise DeliveryError("saved azd environment scope differs; select the deployment target again "
                                 "with --reuse RESOURCE_GROUP or --new")
-    values = {
-        "AZURE_ENV_NAME": inputs.environment, "AZURE_SUBSCRIPTION_ID": inputs.subscription,
-        "AZURE_LOCATION": inputs.location, "AZURE_SEARCH_LOCATION": inputs.search_location,
-        "AZURE_RESOURCE_GROUP": inputs.resource_group, "GOVERNEDGRAPH_NAMING_SEED": inputs.naming_seed,
-        "AZURE_PRINCIPAL_ID": inputs.operator_id, "GOVERNEDGRAPH_ON_CALL_EMAIL": inputs.on_call_email,
-        "GOVERNEDGRAPH_SAMPLE": composition.name, "GOVERNEDGRAPH_DATA_DIR": str(composition.data_directory),
-    }
+    values = environment_values(inputs, composition)
     for key, value in values.items():
         runner.run(["azd", "env", "set", key, value, "--environment", inputs.environment])
     os.environ.update(values)
@@ -94,7 +89,8 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
                 f"sign in as a user or supply operator_id explicitly. {error}"
             ) from None
     environment(runner, inputs, composition)
-    from scripts.bootstrap import agents, approve_search_link, gap_review_agent, persona_agent, release_approval, entra, initial_priors, member_public_jwk
+    from scripts.bootstrap import (approve_search_link, initial_priors, member_public_jwk, publish_agents,
+                                   register_identities, release_approval)
 
     approval = release_approval(composition)
     if catalogue_upgrade:
@@ -121,32 +117,34 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
     print("Running bounded bootstrap...", flush=True)
     stage(runner, "bounded bootstrap", images=images)
     os.environ["AZURE_AI_PROJECT_ENDPOINT"] = foundation["ai"]["projectEndpoint"]
-    try:
-        registrations = entra(inputs, foundation)
-    except GraphError as error:
-        guidance = ""
-        if "AADSTS53003" in error.detail:
-            guidance = (" Entra Conditional Access blocked this operation; it was not retried. "
-                        "Have a tenant administrator review the corresponding Entra sign-in event, "
-                        "then rerun from an approved sign-in context using the same resource group.")
-        raise DeliveryError(f"Entra bootstrap failed: {error}.{guidance}") from None
-    pins = agents(foundation["ai"]["projectEndpoint"], subscription=inputs.subscription)
-    if inputs.voice_demo:
-        persona_agent(foundation["ai"]["projectEndpoint"], subscription=inputs.subscription)
-    gap_review_agent(foundation["ai"]["projectEndpoint"], subscription=inputs.subscription)
-    approve_search_link(runner, inputs, foundation)
-    jobs = provision(runner, inputs, "infra/bootstrap.bicep", {
-        "resourceGroupName": inputs.resource_group, "location": inputs.location, "foundation": foundation,
-        "runtimeImage": images["runtime"]["image"], "probeImage": images["probe"]["image"],
-        "fixturesImage": images["fixtures"]["image"], "domainEnv": composition.domain_environment,
-        "memberTokenIssuer": ISSUER, "deployDevIssuer": True, "deployAdminConsole": True,
-    })
-    public_key = member_public_jwk(runner, inputs, jobs["issuerJob"], run_job(runner, inputs, jobs["issuerJob"]))
-    initial = None
-    if not catalogue_upgrade:
-        initial = initial_priors(runner, inputs, composition, foundation, images)
-    executions = {"content": run_job(runner, inputs, jobs["contentJob"])}
-    executions["fixtures"] = run_job(runner, inputs, jobs["fixturesJob"])
+
+    def jobs() -> tuple:
+        created = provision(runner, inputs, "infra/bootstrap.bicep", {
+            "resourceGroupName": inputs.resource_group, "location": inputs.location, "foundation": foundation,
+            "runtimeImage": images["runtime"]["image"], "probeImage": images["probe"]["image"],
+            "fixturesImage": images["fixtures"]["image"], "domainEnv": composition.domain_environment,
+            "memberTokenIssuer": ISSUER, "deployDevIssuer": True, "deployAdminConsole": True,
+        })
+
+        def ingest() -> str:
+            approve_search_link(runner, inputs, foundation)
+            return run_job(runner, inputs, created["contentJob"])
+
+        done = run_together({
+            "key": lambda: member_public_jwk(runner, inputs, created["issuerJob"],
+                                             run_job(runner, inputs, created["issuerJob"])),
+            "content": ingest, "fixtures": lambda: run_job(runner, inputs, created["fixturesJob"])})
+        return done["key"], {"content": done["content"], "fixtures": done["fixtures"]}
+
+    # Only the content job waits for bootstrap.bicep and the Search link; the initial priors need neither, and
+    # the workloads below need every result.
+    first = run_together({
+        "identities": lambda: register_identities(inputs, foundation),
+        "agents": lambda: publish_agents(inputs, foundation["ai"]["projectEndpoint"]),
+        "priors": lambda: None if catalogue_upgrade else initial_priors(runner, inputs, composition, foundation, images),
+        "jobs": jobs})
+    registrations, pins, initial = first["identities"], first["agents"], first["priors"]
+    public_key, executions = first["jobs"]
     workload = {
         **base, **registrations, "foundation": foundation, "domainEnv": composition.domain_environment,
         "memberValuesModule": composition.member_values_module,
@@ -191,23 +189,26 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
     receipt = {"label": "ILLUSTRATIVE - synthetic data", "environment": inputs.environment,
                "subscription": inputs.subscription, "resource_group": inputs.resource_group, "naming_seed": inputs.naming_seed,
                "images": images, "agents": pins, "bootstrap": {"priors": initial, "executions": executions},
-               "outputs": outputs, "readiness": "passed", "evaluation": "not_run"}
+               "outputs": outputs, "readiness": "passed", "evaluation": "not_run",
+               "fingerprint": redeploy.fingerprint(composition, inputs, root=ROOT)}
     evidence = getattr(runner, "evidence", None)
     if evidence is not None:
-        receipt.update(run_id=evidence.run_id, evidence_path=str(evidence.path))
+        receipt.update(run_id=evidence.run_id, evidence_path=str(evidence.path),
+                       baseline=redeploy.baselines(evidence.data, composition))
     save_json(ROOT / ".run/delivery.json", receipt)
     return receipt
 
 
-def readiness(runner, inputs, outputs) -> None:
+def readiness(runner, inputs, outputs, *, images: dict | None = None) -> None:
     apps = json.loads(runner.run(["az", "containerapp", "list", "-g", inputs.resource_group,
                                  "--subscription", inputs.subscription, "-o", "json"]))
     readiness_observation(runner, "apps", apps)
-    required = {"orchestrator", "strategy-service", "member-values", "contact-centre", "admin"}
+    required = set(redeploy.REQUIRED_APPS)
     ready = {app.get("tags", {}).get("azd-service-name") for app in apps
              if app["properties"]["provisioningState"] == "Succeeded" and app["properties"].get("runningStatus") == "Running"}
     if not required <= ready:
         raise DeliveryError("complete workloads are not ready: " + ", ".join(sorted(required - ready)))
+    require_images(apps, images or {})
     jobs = json.loads(runner.run(["az", "containerapp", "job", "list", "-g", inputs.resource_group,
                                  "--subscription", inputs.subscription, "-o", "json"]))
     readiness_observation(runner, "jobs", jobs)
@@ -221,6 +222,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inputs", required=True, type=Path, help="explicit private delivery inputs JSON")
     parser.add_argument("--plan", action="store_true", help="local contract/sequence only; no cloud commands")
+    parser.add_argument("--full", action="store_true", help=(
+        "always run the full deployment; by default, when only application images changed, only they are rolled out"))
     target = parser.add_mutually_exclusive_group()
     target.add_argument("--reuse", metavar="RESOURCE_GROUP", help="reuse a discovered GovernedGraph gg-dev deployment")
     target.add_argument("--new", action="store_true", help="generate and save a fresh seed and deployment target")
@@ -239,7 +242,14 @@ def main(argv=None) -> int:
         evidence.write()
         runner = Runner(evidence=evidence)
         inputs = select_target(runner, args.inputs, raw, inputs, reuse=args.reuse, create_new=args.new)
-        receipt = deploy(runner, inputs, composition)
+        receipt = None
+        if not (args.full or args.new):
+            from scripts.apps_only import redeploy_images
+
+            receipt = redeploy_images(runner, inputs, composition)
+        if not receipt:
+            with paused(runner, inputs):
+                receipt = deploy(runner, inputs, composition)
         evidence.finish("succeeded")
         demo_url = derived(receipt["outputs"])["PRESENTER_URL"] if inputs.voice_demo else "disabled"
         admin_url = receipt["outputs"]["ADMIN_CONSOLE_URL"]

@@ -80,3 +80,16 @@ def test_missing_or_empty_prompts_fail_closed(pack):
         domain.prompt("counsellor", pack)
     with pytest.raises(domain.DomainPackError):
         domain.prompt("not-a-prompt", pack)
+
+
+@pytest.mark.parametrize("text,found", [
+    ("I cannot confirm that, because no official explanation is available in the supplied passages.", "passages"),
+    ("Dat staat niet in de aangeleverde bronnen.", "aangeleverde bronnen"),
+    ("Based on the Approved Sources, nothing is stated.", "Approved Sources"),
+    ("The administrator supplies the official calculations. Your yearly statement shows the adjustment.", None),
+    ("I cannot confirm what the Solidarity Reserve means. I can arrange for an advisor to explain it.", None),
+])
+def test_a_reply_that_talks_about_its_own_sources_is_recognised_in_every_language(text, found):
+    from governedgraph.common.domain import mentions_own_sources
+
+    assert mentions_own_sources(text) == found

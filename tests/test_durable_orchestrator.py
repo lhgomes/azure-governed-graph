@@ -146,6 +146,18 @@ def test_b9_duplicate_command_and_delivery_create_one_handover(setup):
     assert len(queued(setup, "escalations")) == 1
 
 
+def test_the_reply_language_is_chosen_once_at_session_start_and_unsupported_languages_are_refused(setup):
+    from governedgraph.common.contracts import ContractError
+
+    runtime = setup.runtime()
+    chosen = runtime.start(IDENTITY, "chat", "standard", language="nl")["journey_id"]
+    assert load_record(setup, chosen).journey.response_language == "nl"
+    default = runtime.start(IDENTITY, "chat", "standard")["journey_id"]
+    assert load_record(setup, default).journey.response_language == "en"
+    with pytest.raises(ContractError, match="unsupported response language"):
+        runtime.start(IDENTITY, "chat", "standard", language="de")
+
+
 def test_b4_b7_restart_restores_closed_language_and_taught_concepts_not_raw_conversation(setup):
     from governedgraph.common.contracts import ExplanationContext, IntentDecision
 

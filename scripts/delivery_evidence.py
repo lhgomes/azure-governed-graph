@@ -5,6 +5,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -17,6 +18,7 @@ from scripts.delivery import DeliveryError, save_json
 class Evidence:
     def __init__(self, root: Path):
         self.run_id = uuid4().hex[:12]
+        self._lock = threading.RLock()  # image builds record commands from several threads
         self.directory = root / ".run" / "deliveries" / self.run_id
         self.directory.mkdir(mode=0o700, parents=True)
         self.path = self.directory / "receipt.json"
@@ -41,25 +43,35 @@ class Evidence:
         return datetime.now(UTC).isoformat()
 
     def write(self) -> None:
-        save_json(self.path, self.data)
+        with self._lock:
+            save_json(self.path, self.data)
 
     def begin(self, section: str, **facts) -> dict:
-        record = {"started_at": self.now(), "status": "running", **facts}
-        self.data.setdefault(section, []).append(record)
-        self.write()
-        return record
+        with self._lock:
+            record = {"started_at": self.now(), "status": "running", **facts}
+            self.data.setdefault(section, []).append(record)
+            self.write()
+            return record
+
+    def begin_numbered(self, section: str, facts) -> tuple[int, dict]:
+        """Start a record whose name and files embed its number; concurrent callers never share a number."""
+        with self._lock:
+            number = len(self.data.setdefault(section, [])) + 1
+            return number, self.begin(section, **facts(number))
 
     def end(self, record: dict, status: str, **facts) -> None:
-        record.update(status=status, ended_at=self.now(), **facts)
-        record["elapsed_seconds"] = (datetime.fromisoformat(record["ended_at"])
-                                     - datetime.fromisoformat(record["started_at"])).total_seconds()
-        self.write()
+        with self._lock:
+            record.update(status=status, ended_at=self.now(), **facts)
+            record["elapsed_seconds"] = (datetime.fromisoformat(record["ended_at"])
+                                         - datetime.fromisoformat(record["started_at"])).total_seconds()
+            self.write()
 
     def stage(self, name: str, **facts) -> None:
-        if self.data["stages"]:
-            self.end(self.data["stages"][-1], "succeeded")
-        self.data.update(stage=name, **facts)
-        self.begin("stages", name=name)
+        with self._lock:
+            if self.data["stages"]:
+                self.end(self.data["stages"][-1], "succeeded")
+            self.data.update(stage=name, **facts)
+            self.begin("stages", name=name)
 
     def finish(self, status: str, error: BaseException | None = None) -> None:
         if self.data["stages"]:
@@ -158,6 +170,15 @@ def network_snapshot(runner, inputs, foundation: dict, when: str) -> None:
                         "--ids", nic, "--query",
                         "{id:id,state:provisioningState,addresses:ipConfigurations[].privateIPAddress}",
                         "--only-show-errors", "-o", "json"])
+
+
+def require_images(apps: list[dict], expected: dict[str, str]) -> None:
+    """Each listed service's latest template must run exactly the image just deployed."""
+    stale = sorted(service for app in apps
+                   if (service := app.get("tags", {}).get("azd-service-name")) in expected
+                   and expected[service] not in {item.get("image") for item in app["properties"]["template"]["containers"]})
+    if stale:
+        raise DeliveryError("workloads are not running the new image: " + ", ".join(stale))
 
 
 def readiness_observation(runner, kind: str, rows: list[dict]) -> None:

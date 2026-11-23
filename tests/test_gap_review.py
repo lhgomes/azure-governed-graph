@@ -819,3 +819,10 @@ def test_b3_a_style_that_reuses_a_pattern_already_explaining_here_is_not_offered
         gap_review.accept_style_suggestion(duplicate, request, "gg-gap-review:4")
     as_new = {**duplicate, "fit": "new", "name": "", "new_style_name": "Side by side view", "new_style_idea": "Two timelines."}
     assert gap_review.accept_style_suggestion(as_new, request, "gg-gap-review:4")["fit"] == "new"
+
+
+def test_proposals_stored_with_retired_review_labels_stay_readable_but_unknown_labels_do_not():
+    draft = {"action": "review", "focus": "answer_review", "issues": ["document_context", "uncertainty"]}
+    assert gap_review.validate_draft("false_negative_review", draft)
+    with pytest.raises(gap_review.ContractError):
+        gap_review.validate_draft("false_negative_review", {**draft, "issues": ["invented"]})

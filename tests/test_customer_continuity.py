@@ -24,7 +24,7 @@ OTHER = MemberIdentity("SYNTHETIC-OTHER", True)
 
 @pytest.fixture(autouse=True)
 def isolated_observation(monkeypatch):
-    for module in ("orchestrator.service", "agents.tools", "agents.decision_agents"):
+    for module in ("orchestrator.service", "agents.tools"):
         monkeypatch.setattr(f"governedgraph.{module}.operation", lambda *args, **kwargs: nullcontext(None))
     monkeypatch.setattr("governedgraph.orchestrator.service.emit", Mock())
     monkeypatch.setattr("governedgraph.agents.foundry_tracing.record_synthetic_conversation", Mock())
@@ -144,6 +144,17 @@ def begin(case, identity=MEMBER, *, channel="chat", contact_type="first_contact"
 
 def say(case, journey, request, identity=MEMBER, text="Please explain this remaining concern.", **kwargs):
     return case.runtime().turn(journey, request, identity, "synthetic-token-never-retained", text, **kwargs)
+
+
+def test_b4_the_optional_feedback_prompt_is_not_stored_as_part_of_the_answer(continuity_runtime, monkeypatch):
+    def offer(self, counsellor, result, record):
+        result.text += "\n\nDid this answer your question?"
+
+    monkeypatch.setattr(OrchestratorService, "_offer_outcome", offer)
+    case = continuity_runtime
+    result = say(case, begin(case), "first")
+    assert result["text"].endswith("Did this answer your question?")
+    assert case.foundry.messages() == [["Please explain this remaining concern.", "The current approved explanation."]]
 
 
 @pytest.mark.parametrize("contact_type", ["first_contact", "second_contact"])
@@ -498,7 +509,7 @@ def test_semantic_routing_receives_customer_history_but_no_historical_figures(mo
 
     def choose(_tools, state, questions):
         requests.append(state)
-        return {"reason": "payment_continuity"} if "reason" in questions else {"response_language": "en"}
+        return {"route": "asks_information"} if "route" in questions else {"topic": "payment_continuity"}
 
     monkeypatch.setattr(decision_model, "choose", choose)
     decision = decision_agents.run_decision(

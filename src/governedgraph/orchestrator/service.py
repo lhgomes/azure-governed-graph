@@ -1,7 +1,7 @@
 """Durable orchestration of request-scoped counsellors and a transactional outbox."""
 from __future__ import annotations
 
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import logging
@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from governedgraph.agents.counsellor import DISCLOSURE, START_GREETINGS, TEMPLATES, Counsellor, TurnResult
 from governedgraph.common.contracts import (
-    CONTACT_TYPES, INTENT_DECISIONS, ContractError, EscalationRequest, ExplainabilityRecord, ExplanationContext,
+    CONTACT_TYPES, INTENT_DECISIONS, RESPONSE_LANGUAGES, ContractError, EscalationRequest, ExplainabilityRecord, ExplanationContext,
     OutcomeOffer, OutcomeSubmission, RequestKey, ResponseReference,
 )
 from governedgraph.common import domain
@@ -71,6 +71,17 @@ class InvalidAnswerReference(ValueError):
 
 class OutcomeConflict(ValueError):
     pass
+
+
+@dataclass
+class _Handled:
+    """What one counsellor run produced: the result and the parts the commit and the reply still need."""
+
+    result: TurnResult
+    counsellor: object
+    offer: object
+    answer_text: str
+    escalations: list
 
 
 class OrchestratorService:
@@ -135,13 +146,15 @@ class OrchestratorService:
             record.pending.append(Delivery("journey-events", f"{event.journey_id}:{event.event_id}", asdict(event)))
 
     def start(self, identity: MemberIdentity, channel: str, accessibility_mode: str, *,
-              test_strategy_id: str = "", contact_type: str = "first_contact") -> dict:
+              test_strategy_id: str = "", contact_type: str = "first_contact", language: str | None = None) -> dict:
         if not isinstance(contact_type, str) or contact_type not in CONTACT_TYPES:
             raise ContractError("unsupported contact type")
+        if language is not None and language not in RESPONSE_LANGUAGES:
+            raise ContractError("unsupported response language")
         RequestKey(contact_type, "unclassified", channel, accessibility_mode)
         journey = Journey(f"J-{uuid4().hex}", identity.member_ref, channel=channel,
                           accessibility_mode=accessibility_mode, test_strategy_id=test_strategy_id,
-                          stage=contact_type)
+                          stage=contact_type, **({"response_language": language} if language else {}))
         with operation(journey.journey_id, "governedgraph.orchestrator.start",
                       agent_name="gg-orchestrator", server=True):
             with self.continuity.session(identity, journey.journey_id, "disclosure",
@@ -429,143 +442,189 @@ class OrchestratorService:
             if record is None:
                 raise KeyError(journey_id)
             journey = record.journey
-            if journey.test_strategy_id and not allow_admin_test:
-                log.warning("admin_test_access_denied", extra={"journey_id": journey_id})
-                raise MemberScopeViolation(journey_id)
-            if journey.member_ref != identity.member_ref:
-                log.error("member_scope_violation", extra={"journey_id": journey_id})
-                raise MemberScopeViolation(journey_id)
-            if request_id in record.processed_requests:
-                if request_id in record.outcome_requests or request_id in record.playback_requests:
-                    raise OutcomeConflict("idempotency key already used for an evidence event")
-                self._flush(transaction, record)
-                return {"journey_id": journey_id, "state": journey.state.value,
-                        "request_id": request_id, "duplicate": True}
-            if journey.state in (State.ESCALATION_REQUESTED, State.HANDED_OVER, State.CLOSED):
-                count = len(journey.events)
-                response_id = response_reference(journey_id, request_id)
-                self._audit(transaction, record, system_record(journey, response_id, "acknowledgment"))
-                journey.record_response(response_id, count)
-                self._events(record, count)
-                record.processed_requests.append(request_id)
-                transaction.save(record)
-                self._flush(transaction, record)
-                return {"journey_id": journey_id, "state": journey.state.value,
-                        "text": message("journey_closed"),
-                        "escalated": journey.state != State.CLOSED}
+            self._authorize(journey, identity, allow_admin_test)
+            early = self._early_reply(transaction, record, request_id)
+            if early is not None:
+                return early
             count = len(journey.events)
-            selected_audit = None
-            if related_answer is not None:
-                selected_audit = self._linked_answer(record, related_answer, identity, before=received_at)
-                journey.record_linked_contact(related_answer, response_reference(journey_id, f"link:{request_id}"),
-                                              received_at=received_at.isoformat(timespec="microseconds"))
-            was_resolved = journey.state == State.RESOLVED
-            # A new in-scope question after an answer follows that answer; the member never has to say so.
-            followed = related_answer or self._latest_answer(record, identity, before=received_at)
-            if was_resolved:
-                emit("journey_contact", event_id=f"{journey_id}:contact:{request_id}", journey_id=journey_id,
-                     contact_key=contact_key(identity.member_ref), agent_name="gg-orchestrator",
-                     occurred_at=received_at.isoformat())
-            requests: list[EscalationRequest] = []
-            counsellor = None
-            offer = None
-            try:
-                if conversation is None:
-                    raise ContinuityUnavailable("customer context unavailable; human help required")
-                counsellor = self.counsellor_factory(
-                    journey, identity.member_ref, member_token=token,
-                    step_up_verified=identity.step_up_verified,
-                    audit_enqueue=lambda item: enqueue_in_transaction(transaction, record, item),
-                    audit_store=self.audit_store,
-                    **({"voice_model": voice_model} if voice_model else {}),
-                )
-                counsellor.tools.response_id = response_reference(journey_id, request_id)
-                counsellor.tools.trace_parent = traceparent(trace_parent)
-                counsellor.tools.conversation_history = conversation.messages
-                if selected_audit is not None:
-                    counsellor.tools.related_answer_context = self._answer_context(journey, selected_audit)
-                counsellor._current_strategy = journey.strategies_tried[-1] if journey.strategies_tried else None
-                loaded = perf_counter()
-                result = counsellor.handle(utterance)
-                if followed is not None:
-                    for index in range(count, len(journey.events)):
-                        if journey.events[index].event == Event.INTENT_IN_SCOPE.value:
-                            journey.events[index] = replace(
-                                journey.events[index], related_journey_id=followed.journey_id,
-                                related_response_id=followed.response_id,
-                            )
-                            break
-                offer = self._offer_outcome(counsellor, result, record)
-                result.stage_ms["durable_load"] = (loaded - started) * 1000
-                requests = counsellor.tools.trace.escalations
-            except Exception as error:
-                log.error("orchestrator_turn_failed",
-                          extra={"journey_id": journey_id, "error_type": type(error).__name__})
-                journey.fire(Event.ESCALATE)
-                result = TurnResult("A service is unavailable. I'm requesting help from a human advisor.",
-                                    journey.state.value, "S6", escalated=True)
-                response_id = response_reference(journey_id, request_id + ":failure")
-                try:
-                    self._audit(transaction, record, system_record(journey, response_id, "escalation"))
-                    journey.record_response(response_id, count)
-                except AuditUnavailable:
-                    journey.withhold_response()
-                    result.audit_status = "unavailable"
+            selected_audit, followed = self._link_follow_up(record, identity, request_id, related_answer, received_at)
+            handled = self._handle(transaction, record, identity, request_id, token, utterance, trace_parent,
+                                   voice_model, conversation, selected_audit, followed, count, started)
+            result = handled.result
             if journey.state == State.ESCALATION_REQUESTED:
-                reason = requests[-1].reason_code if requests else "component_failure"
-                if reason not in {"advice_intent", "member_request", "teach_back_failed", "component_failure",
-                                  "conversation_limit", "safety"}:
-                    reason = "safety"
-                record.escalation_sequence += 1
-                escalation_id = f"{journey_id}:escalation:{record.escalation_sequence}"
-                escalation = EscalationRequest(
-                    journey_id, reason, HANDOVER_SUMMARY,
-                    [value.value_id for value in counsellor.tools.trace.values.values]
-                    if counsellor is not None and counsellor.tools.trace.values else [],
-                    escalation_id=escalation_id,
-                )
-                record.pending.append(Delivery("escalations", escalation.escalation_id, asdict(escalation)))
+                self._queue_escalation(record, handled.counsellor, handled.escalations)
             committing = perf_counter()
-            released_response = journey.events[-1].response_id
-            if released_response is not None:
-                # The answer is not eligible as earlier evidence until all final response gates pass.
-                journey.record_response(released_response, count)
-            self._events(record, count)
-            record.processed_requests.append(request_id)
-            if (result.audit_status in {"committed", "queued"} and result.numeric_fidelity_passed
-                    and result.no_option_recommendation and not result.escalated
-                    and released_response is not None and not journey.events[-1].response_withheld):
-                conversation.prepare(utterance, result.text)
-            transaction.save(record)
-            self._flush(transaction, record)
+            released_response = self._commit(transaction, record, request_id, utterance, handled, count, conversation)
             result.stage_ms["durable_commit"] = (perf_counter() - committing) * 1000
             if result.audit_status == "unavailable":
                 raise AuditUnavailable("response withheld; human escalation requested")
-            out = asdict(result)
-            out.pop("fidelity", None)
-            out["journey_id"] = journey_id
-            out["request_id"] = request_id
-            if (counsellor is not None and counsellor.tools.trace.audit_record is not None
-                    and counsellor.tools.trace.audit_record.response_kind == "explanation"
-                    and not result.escalated and released_response is not None):
-                out["response_id"] = released_response
-            if offer is not None:
-                out["outcome_offer"] = asdict(offer)
-            if self.feedback_manifest is not None:
-                out["learning_feedback"] = asdict(self.feedback_manifest)
-            emit("journey_turn_delivered", event_id=f"{journey_id}:{request_id}", journey_id=journey_id,
-                 request_id=request_id, contact_key=contact_key(identity.member_ref),
-                 agent_name="gg-counsellor", state=journey.state.value,
-                 arm=result.arm or "n/a", duration_ms=(perf_counter() - started) * 1000,
-                 escalated=result.escalated, numeric_fidelity_passed=result.numeric_fidelity_passed,
-                 strategy_id=result.strategy_id or "none")
-            if (result.audit_status in {"committed", "queued"}
-                    and result.numeric_fidelity_passed and result.no_option_recommendation):
-                from governedgraph.agents.foundry_tracing import record_synthetic_conversation
+            return self._reply(journey, identity, request_id, utterance, handled, released_response, started)
 
-                record_synthetic_conversation(journey_id, identity.member_ref, utterance,
-                                              result.text, response_reference(journey_id, request_id))
-            return out
+    @staticmethod
+    def _authorize(journey: Journey, identity: MemberIdentity, allow_admin_test: bool) -> None:
+        if journey.test_strategy_id and not allow_admin_test:
+            log.warning("admin_test_access_denied", extra={"journey_id": journey.journey_id})
+            raise MemberScopeViolation(journey.journey_id)
+        if journey.member_ref != identity.member_ref:
+            log.error("member_scope_violation", extra={"journey_id": journey.journey_id})
+            raise MemberScopeViolation(journey.journey_id)
+
+    def _early_reply(self, transaction, record: JourneyRecord, request_id: str) -> dict | None:
+        """A repeated request and a journey that is already closed or handed over never reach the counsellor."""
+        journey = record.journey
+        journey_id = journey.journey_id
+        if request_id in record.processed_requests:
+            if request_id in record.outcome_requests or request_id in record.playback_requests:
+                raise OutcomeConflict("idempotency key already used for an evidence event")
+            self._flush(transaction, record)
+            return {"journey_id": journey_id, "state": journey.state.value,
+                    "request_id": request_id, "duplicate": True}
+        if journey.state not in (State.ESCALATION_REQUESTED, State.HANDED_OVER, State.CLOSED):
+            return None
+        count = len(journey.events)
+        response_id = response_reference(journey_id, request_id)
+        self._audit(transaction, record, system_record(journey, response_id, "acknowledgment"))
+        journey.record_response(response_id, count)
+        self._events(record, count)
+        record.processed_requests.append(request_id)
+        transaction.save(record)
+        self._flush(transaction, record)
+        return {"journey_id": journey_id, "state": journey.state.value, "text": message("journey_closed"),
+                "escalated": journey.state != State.CLOSED}
+
+    def _link_follow_up(self, record: JourneyRecord, identity: MemberIdentity, request_id: str,
+                        related_answer: ResponseReference | None, received_at: datetime):
+        """The answer this contact follows: (selected audit record, earlier answer). Also notes a contact after a resolution."""
+        journey = record.journey
+        selected_audit = None
+        if related_answer is not None:
+            selected_audit = self._linked_answer(record, related_answer, identity, before=received_at)
+            journey.record_linked_contact(related_answer, response_reference(journey.journey_id, f"link:{request_id}"),
+                                          received_at=received_at.isoformat(timespec="microseconds"))
+        was_resolved = journey.state == State.RESOLVED
+        # A new in-scope question after an answer follows that answer; the member never has to say so.
+        followed = related_answer or self._latest_answer(record, identity, before=received_at)
+        if was_resolved:
+            emit("journey_contact", event_id=f"{journey.journey_id}:contact:{request_id}",
+                 journey_id=journey.journey_id, contact_key=contact_key(identity.member_ref),
+                 agent_name="gg-orchestrator", occurred_at=received_at.isoformat())
+        return selected_audit, followed
+
+    def _handle(self, transaction, record: JourneyRecord, identity: MemberIdentity, request_id: str, token: str,
+                utterance: str, trace_parent: str, voice_model: str, conversation, selected_audit, followed,
+                count: int, started: float) -> "_Handled":
+        """Run the counsellor for this turn; any failure becomes an audited human handover, never a silent error."""
+        journey = record.journey
+        journey_id = journey.journey_id
+        try:
+            if conversation is None:
+                raise ContinuityUnavailable("customer context unavailable; human help required")
+            counsellor = self.counsellor_factory(
+                journey, identity.member_ref, member_token=token,
+                step_up_verified=identity.step_up_verified,
+                audit_enqueue=lambda item: enqueue_in_transaction(transaction, record, item),
+                audit_store=self.audit_store,
+                **({"voice_model": voice_model} if voice_model else {}),
+            )
+            counsellor.tools.response_id = response_reference(journey_id, request_id)
+            counsellor.tools.trace_parent = traceparent(trace_parent)
+            counsellor.tools.conversation_history = conversation.messages
+            if selected_audit is not None:
+                counsellor.tools.related_answer_context = self._answer_context(journey, selected_audit)
+            counsellor._current_strategy = journey.strategies_tried[-1] if journey.strategies_tried else None
+            loaded = perf_counter()
+            result = counsellor.handle(utterance)
+            self._link_intent_event(journey, followed, count)
+            answer_text = result.text  # before the optional feedback prompt is appended
+            offer = self._offer_outcome(counsellor, result, record)
+            result.stage_ms["durable_load"] = (loaded - started) * 1000
+            return _Handled(result, counsellor, offer, answer_text, counsellor.tools.trace.escalations)
+        except Exception as error:
+            log.error("orchestrator_turn_failed", extra={"journey_id": journey_id, "error_type": type(error).__name__})
+            journey.fire(Event.ESCALATE)
+            result = TurnResult("A service is unavailable. I'm requesting help from a human advisor.",
+                                journey.state.value, "S6", escalated=True)
+            try:
+                self._audit(transaction, record, system_record(
+                    journey, response_reference(journey_id, request_id + ":failure"), "escalation"))
+                journey.record_response(response_reference(journey_id, request_id + ":failure"), count)
+            except AuditUnavailable:
+                journey.withhold_response()
+                result.audit_status = "unavailable"
+            return _Handled(result, None, None, "", [])
+
+    @staticmethod
+    def _link_intent_event(journey: Journey, followed: ResponseReference | None, count: int) -> None:
+        """The in-scope intent event of this turn records which earlier answer it follows."""
+        if followed is None:
+            return
+        for index in range(count, len(journey.events)):
+            if journey.events[index].event == Event.INTENT_IN_SCOPE.value:
+                journey.events[index] = replace(journey.events[index], related_journey_id=followed.journey_id,
+                                                related_response_id=followed.response_id)
+                return
+
+    @staticmethod
+    def _queue_escalation(record: JourneyRecord, counsellor, requests: list[EscalationRequest]) -> None:
+        journey_id = record.journey.journey_id
+        reason = requests[-1].reason_code if requests else "component_failure"
+        if reason not in {"advice_intent", "member_request", "teach_back_failed", "component_failure",
+                          "conversation_limit", "safety"}:
+            reason = "safety"
+        record.escalation_sequence += 1
+        values = counsellor.tools.trace.values if counsellor is not None else None
+        escalation = EscalationRequest(
+            journey_id, reason, HANDOVER_SUMMARY, [value.value_id for value in values.values] if values else [],
+            escalation_id=f"{journey_id}:escalation:{record.escalation_sequence}")
+        record.pending.append(Delivery("escalations", escalation.escalation_id, asdict(escalation)))
+
+    def _commit(self, transaction, record: JourneyRecord, request_id: str, utterance: str, handled: "_Handled",
+                count: int, conversation) -> str | None:
+        """Persist the journey and its outbox together; returns the id of the released response, if any."""
+        journey, result = record.journey, handled.result
+        released_response = journey.events[-1].response_id
+        if released_response is not None:
+            # The answer is not eligible as earlier evidence until all final response gates pass.
+            journey.record_response(released_response, count)
+        self._events(record, count)
+        record.processed_requests.append(request_id)
+        if (result.audit_status in {"committed", "queued"} and result.numeric_fidelity_passed
+                and result.no_option_recommendation and not result.escalated
+                and released_response is not None and not journey.events[-1].response_withheld):
+            # The optional feedback prompt is not part of the answer the member received and understood.
+            conversation.prepare(utterance, handled.answer_text)
+        transaction.save(record)
+        self._flush(transaction, record)
+        return released_response
+
+    def _reply(self, journey: Journey, identity: MemberIdentity, request_id: str, utterance: str,
+               handled: "_Handled", released_response: str | None, started: float) -> dict:
+        result, counsellor, journey_id = handled.result, handled.counsellor, journey.journey_id
+        out = asdict(result)
+        out.pop("fidelity", None)
+        out["journey_id"] = journey_id
+        out["request_id"] = request_id
+        if (counsellor is not None and counsellor.tools.trace.audit_record is not None
+                and counsellor.tools.trace.audit_record.response_kind == "explanation"
+                and not result.escalated and released_response is not None):
+            out["response_id"] = released_response
+        if handled.offer is not None:
+            out["outcome_offer"] = asdict(handled.offer)
+        if self.feedback_manifest is not None:
+            out["learning_feedback"] = asdict(self.feedback_manifest)
+        emit("journey_turn_delivered", event_id=f"{journey_id}:{request_id}", journey_id=journey_id,
+             request_id=request_id, contact_key=contact_key(identity.member_ref),
+             agent_name="gg-counsellor", state=journey.state.value,
+             arm=result.arm or "n/a", duration_ms=(perf_counter() - started) * 1000,
+             escalated=result.escalated, numeric_fidelity_passed=result.numeric_fidelity_passed,
+             strategy_id=result.strategy_id or "none")
+        if (result.audit_status in {"committed", "queued"}
+                and result.numeric_fidelity_passed and result.no_option_recommendation):
+            from governedgraph.agents.foundry_tracing import record_synthetic_conversation
+
+            record_synthetic_conversation(journey_id, identity.member_ref, utterance,
+                                          result.text, response_reference(journey_id, request_id))
+        return out
 
     def explainability_report(self, member_ref: str, identity: MemberIdentity) -> dict:
         from governedgraph.agents.fairness_explainability import assemble_explainability_report

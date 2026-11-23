@@ -65,6 +65,15 @@ def gap_review_agent(endpoint: str, *, subscription: str) -> None:
         raise DeliveryError("Foundry returned no published version for the gap-review agent")
 
 
+def publish_agents(inputs, endpoint: str) -> dict:
+    """The counsellor-side agents, then the demo persona (when enabled) and the gap-review drafting agent."""
+    published = agents(endpoint, subscription=inputs.subscription)
+    if inputs.voice_demo:
+        persona_agent(endpoint, subscription=inputs.subscription)
+    gap_review_agent(endpoint, subscription=inputs.subscription)
+    return published
+
+
 def entra(inputs, foundation: dict) -> dict:
     if os.environ.get("AZURE_SUBSCRIPTION_ID") != inputs.subscription:
         raise DeliveryError("Entra bootstrap requires the selected delivery subscription in AZURE_SUBSCRIPTION_ID")
@@ -95,6 +104,20 @@ def entra(inputs, foundation: dict) -> dict:
             "adminOperatorGroupId": console["operator_group_id"],
             "adminOwnerGroupId": console["owner_group_id"],
             "voiceDemoClientId": presenter.get("client_id", ""), "voiceDemoOperatorId": inputs.operator_id}
+
+
+def register_identities(inputs, foundation: dict) -> dict:
+    from governedgraph.strategy_service.provision_auth import GraphError
+
+    try:
+        return entra(inputs, foundation)
+    except GraphError as error:
+        guidance = ""
+        if "AADSTS53003" in error.detail:
+            guidance = (" Entra Conditional Access blocked this operation; it was not retried. "
+                        "Have a tenant administrator review the corresponding Entra sign-in event, "
+                        "then rerun from an approved sign-in context using the same resource group.")
+        raise DeliveryError(f"Entra bootstrap failed: {error}.{guidance}") from None
 
 
 def approve_search_link(runner, inputs, foundation: dict) -> None:

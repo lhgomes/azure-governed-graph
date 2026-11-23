@@ -9,6 +9,7 @@ import signal
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -272,11 +273,15 @@ def provision(runner, inputs: Inputs, template: str, values: dict, *, group: boo
         name += "-" + hashlib.sha256(inputs.resource_group.casefold().encode()).hexdigest()[:12]
     path = ROOT / ".run/delivery-parameters" / (Path(template).stem + ".json")
     if evidence is not None:
-        ordinal = len(evidence.data["deployments"]) + 1
-        name = f"{name[:40]}-{evidence.run_id}-{ordinal:02d}"
-        path = evidence.directory / f"{ordinal:02d}-parameters.json"
-        record = evidence.begin("deployments", name=name, scope="group" if group else "subscription",
-                                source_template=template, parameters_file=str(path), submission_attempted=False)
+        prefix = name[:40]
+
+        def facts(number: int) -> dict:
+            return {"name": f"{prefix}-{evidence.run_id}-{number:02d}", "scope": "group" if group else "subscription",
+                    "source_template": template, "submission_attempted": False,
+                    "parameters_file": str(evidence.directory / f"{number:02d}-parameters.json")}
+
+        ordinal, record = evidence.begin_numbered("deployments", facts)
+        name, path = record["name"], Path(record["parameters_file"])
     save_json(path, parameters(values))
     submitted_template = template
     if evidence is not None and record is not None:
@@ -346,6 +351,28 @@ def source_digest(paths: list[Path], metadata: dict) -> str:
     for path in sorted(files):
         digest.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes() + b"\0")
     return digest.hexdigest()
+
+
+def environment_values(inputs: Inputs, composition: Composition) -> dict:
+    return {
+        "AZURE_ENV_NAME": inputs.environment, "AZURE_SUBSCRIPTION_ID": inputs.subscription,
+        "AZURE_LOCATION": inputs.location, "AZURE_SEARCH_LOCATION": inputs.search_location,
+        "AZURE_RESOURCE_GROUP": inputs.resource_group, "GOVERNEDGRAPH_NAMING_SEED": inputs.naming_seed,
+        "AZURE_PRINCIPAL_ID": inputs.operator_id, "GOVERNEDGRAPH_ON_CALL_EMAIL": inputs.on_call_email,
+        "GOVERNEDGRAPH_SAMPLE": composition.name, "GOVERNEDGRAPH_DATA_DIR": str(composition.data_directory),
+    }
+
+
+def run_together(tasks: dict) -> dict:
+    """Run independent steps side by side; the first failure in listed order is raised after all settle.
+
+    Nothing is cancelled when one step fails: a started Azure operation is left to finish, never abandoned midway."""
+    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
+        futures = {name: pool.submit(task) for name, task in tasks.items()}
+    return {name: future.result() for name, future in futures.items()}
+
+
+build_together = run_together
 
 
 def build(runner, registry: str, target: str, dockerfile: str, paths: list[Path], args: dict, *,

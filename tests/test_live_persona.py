@@ -318,6 +318,7 @@ def confirmation_workflow(monkeypatch):
     from governedgraph.agents.counsellor import TurnResult
     from governedgraph.agents.tools import Trace
     from governedgraph.common.contracts import ExplanationContext, IntentDecision, UnderstandingDecision
+    from governedgraph.common.domain import message
     from governedgraph.orchestrator.state_machine import Event, Journey, State
     from governedgraph.orchestrator import workflow
 
@@ -356,6 +357,7 @@ def confirmation_workflow(monkeypatch):
         _turn_exclusions=set(),
         _complete_turn=Mock(side_effect=lambda result, count: result),
         _explain=Mock(side_effect=explain),
+        _clarify=Mock(side_effect=lambda text: TurnResult(message("clarify_question"), journey.state.value)),
         _escalate=Mock(side_effect=escalate),
     )
     return counsellor
@@ -394,13 +396,12 @@ def test_customer_history_is_screened_before_semantic_routing(confirmation_workf
 ])
 def test_confirmation_after_a_resolved_answer_closes_naturally_without_claiming_comprehension(
         confirmation_workflow, language, utterance, closing):
-    from dataclasses import replace
     from governedgraph.guardrails.advice_intent import response_steers_choice
     from governedgraph.guardrails.numeric_fidelity import check
     from governedgraph.orchestrator.workflow import member_turn
 
     c = confirmation_workflow
-    c.decisions["intent"] = replace(c.decisions["intent"], response_language=language)
+    c.journey.response_language = language  # chosen at session start
     result = asyncio.run(member_turn(c, utterance))
     assert result.text == closing and result.state == "resolved" and not result.escalated
     assert check(result.text, None, []).passed and not response_steers_choice(result.text)
@@ -422,21 +423,18 @@ def test_confirmation_after_a_resolved_answer_closes_naturally_without_claiming_
 ])
 def test_b2_b5_b9_resolved_confirmation_questions_get_an_answer_not_a_closing(
         confirmation_workflow, language, utterance):
-    from dataclasses import replace
-
     from governedgraph.common.contracts import IntentDecision
     from governedgraph.orchestrator.workflow import member_turn
 
     c = confirmation_workflow
-    c.decisions["intent"] = replace(c.decisions["intent"], response_language=language)
-    c.decisions["follow_up_intent"] = IntentDecision(
-        "explanation", "transition_impact_question", "payment_continuity", language)
+    # The router reads a confirmation question as a request for information, so it is answered, not closed.
+    c.decisions["intent"] = IntentDecision("explanation", "transition_impact_question", "payment_continuity", language)
     result = asyncio.run(member_turn(c, utterance))
     assert result.text == "An approved explanation." and result.state == "resolved" and not result.escalated
     assert result.workflow_steps == [
         "screen-input", "intent-agent", "explain-with-approved-tools", "commit-checked-evidence",
     ]
-    assert [call.args[0] for call in c.decide.call_args_list] == ["intent", "follow_up_intent"]
+    assert [call.args[0] for call in c.decide.call_args_list] == ["intent"]
     assert c.journey.intent == "transition_impact_question"
     c._explain.assert_called_once_with(utterance, exclude=set())
     assert not any(event.event in {"teach_back_passed", "teach_back_failed"} for event in c.journey.events)

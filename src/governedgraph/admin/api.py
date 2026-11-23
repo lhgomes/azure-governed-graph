@@ -61,72 +61,86 @@ class ActionRequest:
         return result
 
 
+class _Admin:
+    """What every route shares: the access policy, the operator session and the evidence sources."""
+
+    def __init__(self, trace_reader: SyntheticTraceReader | None, access: AccessPolicy | None,
+                 sources: AzureSources | None):
+        self.policy = access or AccessPolicy.from_env()
+        self.public_origin = os.getenv("GOVERNEDGRAPH_ADMIN_PUBLIC_ORIGIN", "").strip().rstrip("/")
+        self.base_path = os.getenv("GOVERNEDGRAPH_ADMIN_BASE_PATH", "/").strip() or "/"
+        if not BASE_PATH.fullmatch(self.base_path):
+            raise ValueError("GOVERNEDGRAPH_ADMIN_BASE_PATH must start and end with '/'")
+        self.session = secrets.token_urlsafe(32)
+        self.lock = RLock()
+        trace_lookup = os.getenv("GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP", "").lower() == "true"
+        workspace = os.getenv("GOVERNEDGRAPH_ADMIN_TRACE_WORKSPACE") or (
+            os.getenv("LOG_ANALYTICS_WORKSPACE_ID", "") if trace_lookup else "")
+        project = os.getenv("GOVERNEDGRAPH_ADMIN_TRACE_PROJECT") or (
+            settings.project_resource_id if trace_lookup else "")
+        trace_environment = os.getenv("GOVERNEDGRAPH_ADMIN_TRACE_ENVIRONMENT") or settings.environment_name
+        self.reader = trace_reader or SyntheticTraceReader(
+            workspace, project, trace_environment, runner=monitor_runner(workspace) if workspace else None)
+        self._sources = sources
+
+    def enabled(self) -> None:
+        if os.getenv("GOVERNEDGRAPH_ADMIN_ENABLED") != "true" or not self.public_origin.startswith("https://"):
+            raise HTTPException(404, "administration is disabled")
+
+    def backend(self) -> AzureSources:
+        if self._sources is None:
+            self._sources = AzureSources.from_settings()
+        return self._sources
+
+    def operator(self, request: Request) -> None:
+        self.enabled()
+        if not hmac.compare_digest(request.headers.get("x-admin-session", ""), self.session):
+            raise HTTPException(403, "reload the console to authorize this session")
+
+    def require_read(self, request: Request) -> Identity:
+        self.operator(request)
+        return self.policy.require(request.headers.get("authorization", ""), act=False)
+
+    def require_act(self, request: Request) -> Identity:
+        self.operator(request)
+        return self.policy.require(request.headers.get("authorization", ""), act=True)
+
+    def require_owner(self, request: Request) -> Identity:
+        self.operator(request)
+        return self.policy.require_owner(request.headers.get("authorization", ""))
+
+
 def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessPolicy | None = None,
                sources: AzureSources | None = None) -> FastAPI:
     application = FastAPI(title="GovernedGraph Administration", docs_url=None, redoc_url=None, openapi_url=None)
-    policy = access or AccessPolicy.from_env()
-    public_origin = os.getenv("GOVERNEDGRAPH_ADMIN_PUBLIC_ORIGIN", "").strip().rstrip("/")
-    base_path = os.getenv("GOVERNEDGRAPH_ADMIN_BASE_PATH", "/").strip() or "/"
-    if not BASE_PATH.fullmatch(base_path):
-        raise ValueError("GOVERNEDGRAPH_ADMIN_BASE_PATH must start and end with '/'")
-    session = secrets.token_urlsafe(32)
-    lock = RLock()
-    trace_lookup = os.getenv("GOVERNEDGRAPH_ADMIN_TRACE_LOOKUP", "").lower() == "true"
-    workspace = os.getenv("GOVERNEDGRAPH_ADMIN_TRACE_WORKSPACE") or (
-        os.getenv("LOG_ANALYTICS_WORKSPACE_ID", "") if trace_lookup else "")
-    project = os.getenv("GOVERNEDGRAPH_ADMIN_TRACE_PROJECT") or (
-        settings.project_resource_id if trace_lookup else "")
-    trace_environment = os.getenv("GOVERNEDGRAPH_ADMIN_TRACE_ENVIRONMENT") or settings.environment_name
-    reader = trace_reader or SyntheticTraceReader(
-        workspace, project, trace_environment,
-        runner=monitor_runner(workspace) if workspace else None,
-    )
+    admin = _Admin(trace_reader, access, sources)
+    _protect(application, admin)
+    _evidence_routes(application, admin)
+    _action_routes(application, admin)
+    _proposal_routes(application, admin)
+    return application
 
-    def enabled() -> None:
-        if os.getenv("GOVERNEDGRAPH_ADMIN_ENABLED") != "true" or not public_origin.startswith("https://"):
-            raise HTTPException(404, "administration is disabled")
 
-    def backend() -> AzureSources:
-        nonlocal sources
-        if sources is None:
-            sources = AzureSources.from_settings()
-        return sources
-
-    sign_in = " https://login.microsoftonline.com" if policy.mode == "enabled" else ""
+def _protect(application: FastAPI, admin: _Admin) -> None:
+    """Same-origin enforcement, security headers and the single 'administration data unavailable' answer."""
+    sign_in = " https://login.microsoftonline.com" if admin.policy.mode == "enabled" else ""
 
     @application.middleware("http")
     async def protect(request: Request, call_next):
         origin = request.headers.get("origin")
         # The app is reachable only through the APIM gateway inside the virtual network.
-        if origin is not None and origin != public_origin:
+        if origin is not None and origin != admin.public_origin:
             return JSONResponse({"detail": "same-origin administration required"}, status_code=403)
         response = await call_next(request)
         response.headers.update({
             "Cache-Control": "no-store", "Pragma": "no-cache", "Referrer-Policy": "no-referrer",
             "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
             "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; "
-                                       f"connect-src 'self' {public_origin.replace('https://', 'wss://', 1)}{sign_in}; img-src 'self'; base-uri 'self'; "
+                                       f"connect-src 'self' {admin.public_origin.replace('https://', 'wss://', 1)}{sign_in}; img-src 'self'; base-uri 'self'; "
                                        "frame-ancestors 'none'; form-action 'none'",
             "Permissions-Policy": "microphone=(self), camera=()",
         })
         return response
-
-    def operator(request: Request) -> None:
-        enabled()
-        if not hmac.compare_digest(request.headers.get("x-admin-session", ""), session):
-            raise HTTPException(403, "reload the console to authorize this session")
-
-    def require_read(request: Request) -> Identity:
-        operator(request)
-        return policy.require(request.headers.get("authorization", ""), act=False)
-
-    def require_act(request: Request) -> Identity:
-        operator(request)
-        return policy.require(request.headers.get("authorization", ""), act=True)
-
-    def require_owner(request: Request) -> Identity:
-        operator(request)
-        return policy.require_owner(request.headers.get("authorization", ""))
 
     @application.exception_handler(StateUnavailable)
     @application.exception_handler(TraceUnavailable)
@@ -141,39 +155,53 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
         detail = str(error) if safe else "Administration data unavailable; check operator diagnostics."
         return JSONResponse({"detail": detail}, status_code=503)
 
+
+def _journey_id(journey_id: str) -> str:
+    from governedgraph.orchestrator.store import validate_id
+
+    try:
+        validate_id(journey_id)
+    except ValueError as error:
+        raise HTTPException(400, "invalid journey identifier") from error
+    return journey_id
+
+
+def _evidence_routes(application: FastAPI, admin: _Admin) -> None:
+    """The page, its assets and the read-only evidence: overview, journeys and synthetic traces."""
+    read = Depends(admin.require_read)
+
     @application.get("/healthz")
     def healthz():
         return {"ok": True}
 
-    @application.get("/", dependencies=[Depends(enabled)])
+    @application.get("/", dependencies=[Depends(admin.enabled)])
     def index():
         page = (STATIC / "index.html").read_text()
-        return HTMLResponse(page.replace("{{ADMIN_SESSION}}", session).replace("{{ADMIN_BASE}}", base_path))
+        return HTMLResponse(page.replace("{{ADMIN_SESSION}}", admin.session).replace("{{ADMIN_BASE}}", admin.base_path))
 
-    @application.get("/assets/{name}", dependencies=[Depends(enabled)])
+    @application.get("/assets/{name}", dependencies=[Depends(admin.enabled)])
     def asset(name: str):
         if name not in {"admin.css", "admin.js", "guide.js", "testing.js", "catalogue.js", "improvements.js"}:
             raise HTTPException(404)
         return FileResponse(STATIC / name, media_type="text/css" if name.endswith(".css") else "text/javascript")
 
-    @application.get("/api/access", dependencies=[Depends(operator)])
+    @application.get("/api/access", dependencies=[Depends(admin.operator)])
     def access_state():
-        return policy.public()
+        return admin.policy.public()
 
     @application.get("/api/overview")
-    def dashboard(identity: Identity = Depends(require_read)):  # noqa: B008
-        source = backend()
-        return {**source.overview(), "source_profile": source.profile, "trace_lookup_enabled": reader.enabled,
-                "reinstatement_enabled": bool(policy.owner_group),
-                "access": {"mode": policy.mode, "user": identity.display, "can_act": identity.can_act,
-                           "can_own": identity.can_own,
-                           "open_actions": policy.allow_open_actions}}
+    def dashboard(identity: Identity = read):
+        source = admin.backend()
+        return {**source.overview(), "source_profile": source.profile, "trace_lookup_enabled": admin.reader.enabled,
+                "reinstatement_enabled": bool(admin.policy.owner_group),
+                "access": {"mode": admin.policy.mode, "user": identity.display, "can_act": identity.can_act,
+                           "can_own": identity.can_own, "open_actions": admin.policy.allow_open_actions}}
 
-    @application.get("/api/journeys", dependencies=[Depends(require_read)])
+    @application.get("/api/journeys", dependencies=[read])
     def journeys():
         grouped: dict[str, dict] = {}
         strategy_usage: dict[str, int] = {}
-        records, truncated = backend().audit_records()
+        records, truncated = admin.backend().audit_records()
         for row in records:
             if row["strategy_id"]:
                 strategy_usage[row["strategy_id"]] = strategy_usage.get(row["strategy_id"], 0) + 1
@@ -188,69 +216,105 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
         return {"journeys": sorted(grouped.values(), key=lambda row: row["last_activity"], reverse=True),
                 "truncated": truncated, "strategy_usage": strategy_usage}
 
-    @application.get("/api/journeys/{journey_id}", dependencies=[Depends(require_read)])
+    @application.get("/api/journeys/{journey_id}", dependencies=[read])
     def journey(journey_id: str):
-        from governedgraph.orchestrator.store import validate_id
-
-        try:
-            validate_id(journey_id)
-        except ValueError as error:
-            raise HTTPException(400, "invalid journey identifier") from error
-        records = [row for row in backend().audit_records()[0] if row["journey_id"] == journey_id]
+        _journey_id(journey_id)
+        records = [row for row in admin.backend().audit_records()[0] if row["journey_id"] == journey_id]
         if not records:
             raise HTTPException(404, "no audit evidence for this journey")
         return {"journey_id": journey_id, "records": sorted(records, key=lambda row: row["created_at"]),
                 "transcript_notice": "Audit records contain no conversation text. Captured synthetic turns are a separate diagnostic source."}
 
-    @application.get("/api/traces/{journey_id}", dependencies=[Depends(require_read)])
+    @application.get("/api/traces/{journey_id}", dependencies=[read])
     def traces(journey_id: str):
-        from governedgraph.orchestrator.store import validate_id
-
-        try:
-            validate_id(journey_id)
-        except ValueError as error:
-            raise HTTPException(400, "invalid journey identifier") from error
+        _journey_id(journey_id)
         log.info("admin_synthetic_trace_read", extra={"journey_id": journey_id})
-        return reader.read(journey_id)
+        return admin.reader.read(journey_id)
+
+
+def _suspension_event(context, state: dict, request: ActionRequest) -> SuspensionEvent:
+    """The validated suspension evidence of a protective `suspend` action (400 when anything is off)."""
+    try:
+        if request.suspension is None:
+            raise ContractError("suspension evidence is required")
+        event = SuspensionEvent.from_dict(request.suspension)
+        text_fields = (event.strategy_id, event.strategy_version, event.journey_state, event.audit_id,
+                       event.threshold_version, event.governance_case_id, event.created_at)
+        if not all(isinstance(value, str) and 0 < len(value) <= 150 and value == value.strip()
+                   for value in text_fields):
+            raise ContractError("suspension references must be nonempty bounded strings")
+        if type(event.gap_metric) not in {int, float} or not math.isfinite(event.gap_metric) or event.gap_metric < 0:
+            raise ContractError("gap metric must be a nonnegative finite number")
+        if event.strategy_id == ESCALATION_STRATEGY:
+            raise ContractError("human escalation cannot be suspended")
+        if not context.catalogue.is_active(event.strategy_id, event.strategy_version):
+            raise ContractError("suspension requires an active catalogue version")
+        keys = set(context.priors["rankings"]) | set(state["current"]["rankings"] if state["current"] else {})
+        if event.journey_state not in {key.split("|")[0] for key in keys} | {"*"}:
+            raise ContractError("unknown suspension journey state")
+        if event.threshold_version != context.thresholds["threshold_version"]:
+            raise ContractError("use the current threshold version")
+    except (ContractError, TypeError) as error:
+        raise HTTPException(400, str(error)) from error
+    return event
+
+
+def _submit_owner_action(admin: _Admin, payload: dict, request: Request, identity: Identity, contract,
+                         proposal: dict | None = None):
+    """Journal, apply and complete one owner decision; the console, not the caller, issues the decision reference."""
+    decision_ref = "GB-" + uuid4().hex
+    try:
+        if "decision_ref" in payload:
+            raise ContractError("the console records the owner decision reference")
+        decision = contract.from_dict({**payload, "decision_ref": decision_ref})
+    except (ContractError, ValueError, TypeError) as error:
+        raise HTTPException(400, str(error)) from error
+    source = admin.backend()
+    with admin.lock:
+        if revision(source.state()) != decision.expected_revision:
+            raise HTTPException(409, "strategy state changed; refresh and confirm the owner decision again")
+        record = {"action_id": decision_ref, "action": "owner_" + decision.action, "actor": identity.actor,
+                  "reason": decision.reason.strip(), "created_at": utcnow(), "watermark": WATERMARK,
+                  "expected_revision": decision.expected_revision,
+                  "owner_decision": {key: value for key, value in payload.items() if key != "reason"},
+                  **({"proposal": proposal} if proposal else {})}
+        source.journal({**record, "status": "requested"})
+        try:
+            result = source.apply_owner(decision, request.headers.get("authorization", ""))
+        except OwnerDecisionError as error:
+            source.journal({**record, "status": "failed"})
+            raise HTTPException(error.status_code, str(error)) from error
+        except (AdminSourceError, OSError, StateUnavailable) as error:
+            source.journal({**record, "status": "uncertain"})
+            raise HTTPException(503, f"Owner decision outcome is uncertain. Refresh and investigate {decision_ref} "
+                                "before retrying.") from error
+        try:
+            source.journal({**record, "status": result["status"], "completed_at": utcnow(),
+                            "result_revision": revision(source.state())})
+        except (AdminSourceError, OSError, StateUnavailable) as error:
+            log.error("admin_owner_completion_unavailable", extra={"action_id": decision_ref})
+            raise HTTPException(503, f"Decision may have applied but completion could not be recorded. "
+                                f"Refresh and investigate {decision_ref} before retrying.") from error
+        log.info("admin_owner_decision", extra={"action_id": decision_ref, "action": decision.action})
+        return result
+
+
+def _action_routes(application: FastAPI, admin: _Admin) -> None:
+    """Protective actions (operators) and owner decisions on strategies and the catalogue (owners)."""
 
     @application.post("/api/actions")
-    def action(payload: dict, identity: Identity = Depends(require_act)):  # noqa: B008
+    def action(payload: dict, identity: Identity = Depends(admin.require_act)):  # noqa: B008
         try:
             request = ActionRequest.from_dict(payload)
         except (ContractError, TypeError) as error:
             raise HTTPException(400, str(error)) from error
-        source = backend()
-        with lock:
+        source = admin.backend()
+        with admin.lock:
             state = source.state()
             context = source.context(state)
             if revision(state) != request.expected_revision:
                 raise HTTPException(409, "strategy state changed; refresh and review the action again")
-            event = None
-            if request.action == "suspend":
-                try:
-                    if request.suspension is None:
-                        raise ContractError("suspension evidence is required")
-                    event = SuspensionEvent.from_dict(request.suspension)
-                    text_fields = (event.strategy_id, event.strategy_version, event.journey_state, event.audit_id,
-                                   event.threshold_version, event.governance_case_id, event.created_at)
-                    if not all(isinstance(value, str) and 0 < len(value) <= 150 and value == value.strip()
-                               for value in text_fields):
-                        raise ContractError("suspension references must be nonempty bounded strings")
-                    if (type(event.gap_metric) not in {int, float} or not math.isfinite(event.gap_metric)
-                            or event.gap_metric < 0):
-                        raise ContractError("gap metric must be a nonnegative finite number")
-                    if event.strategy_id == ESCALATION_STRATEGY:
-                        raise ContractError("human escalation cannot be suspended")
-                    if not context.catalogue.is_active(event.strategy_id, event.strategy_version):
-                        raise ContractError("suspension requires an active catalogue version")
-                    keys = set(context.priors["rankings"]) | set(state["current"]["rankings"] if state["current"] else {})
-                    states = {key.split("|")[0] for key in keys}
-                    if event.journey_state not in states | {"*"}:
-                        raise ContractError("unknown suspension journey state")
-                    if event.threshold_version != context.thresholds["threshold_version"]:
-                        raise ContractError("use the current threshold version")
-                except (ContractError, TypeError) as error:
-                    raise HTTPException(400, str(error)) from error
+            event = _suspension_event(context, state, request) if request.action == "suspend" else None
             record = {"action_id": "ADMIN-" + uuid4().hex, "action": request.action, "reason": request.reason.strip(),
                       "actor": identity.actor, "created_at": utcnow(), "watermark": WATERMARK,
                       "expected_revision": request.expected_revision,
@@ -272,27 +336,102 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
             return {"action_id": record["action_id"], "status": "applied"}
 
     @application.post("/api/owner-actions")
-    def owner_action(payload: dict, request: Request, identity: Identity = Depends(require_owner)):  # noqa: B008
-        return submit_owner_action(payload, request, identity, OwnerDecision)
+    def owner_action(payload: dict, request: Request, identity: Identity = Depends(admin.require_owner)):  # noqa: B008
+        return _submit_owner_action(admin, payload, request, identity, OwnerDecision)
 
     @application.post("/api/catalogue")
-    def catalogue_action(payload: dict, request: Request, identity: Identity = Depends(require_owner)):  # noqa: B008
+    def catalogue_action(payload: dict, request: Request, identity: Identity = Depends(admin.require_owner)):  # noqa: B008
         from governedgraph.strategy_service.catalogue_release import CatalogueDecision
 
-        return submit_owner_action(payload, request, identity, CatalogueDecision)
+        return _submit_owner_action(admin, payload, request, identity, CatalogueDecision)
+
+
+def _reserved_ids(approved_names) -> set[str]:
+    """Content and document ids already named by a stored approval, whether or not it was later refused."""
+    documents = {name.rsplit("-", 1)[0] for name in approved_names}
+    return documents | {document.rsplit("-v", 1)[0] for document in documents}
+
+
+def _approve_style(admin: _Admin, proposal, decision, marker: dict, request: Request, identity: Identity):
+    """Approving a proposed explanation style is a catalogue owner decision with the owner's edits applied."""
+    from governedgraph.strategy_service.catalogue_release import CatalogueDecision
+
+    if not decision.expected_revision or decision.content is not None:
+        raise HTTPException(400, "a style approval needs the revision shown and no content")
+    allowed = {"name", "pattern_id", "eligible_journey_states", "channels", "accessibility_modes"}
+    edits = decision.style or {}
+    scaffold = {key: value for key, value in proposal.draft.items() if key != "suggested"}
+    suggested = proposal.draft.get("suggested")
+    if suggested and suggested.get("fit") == "existing":
+        # The owner saw the AI's recommended pattern and name, so those are the defaults their edits apply to.
+        scaffold = {**scaffold, "pattern_id": suggested["pattern_id"], "name": suggested["name"]}
+    if set(edits) - allowed:
+        raise HTTPException(400, "only the style name, pattern and eligibility can be edited")
+    return _submit_owner_action(admin, {"expected_revision": decision.expected_revision, "reason": decision.reason,
+                                        "confirmed": True, "change": {**scaffold, **edits}},
+                                request, identity, CatalogueDecision, proposal=marker)
+
+
+def _decide_content(admin: _Admin, proposal, decision, improvement: dict, marker: dict, identity: Identity) -> dict:
+    """Approve a passage (journalled, then published later) or acknowledge, defer or reject an idea."""
+    source = admin.backend()
+    if decision.style is not None or (decision.decision == "approve") == (decision.content is None):
+        raise HTTPException(400, "settings do not match the decision")
+    if decision.decision == "approve" and len(decision.source.strip()) < 8:
+        raise HTTPException(400, "record the source you verified the passage against (at least 8 characters)")
+    approving = decision.decision == "approve"
+    reference = ("GB-" if approving else "ADMIN-") + uuid4().hex
+    record = {"action_id": reference, "actor": identity.actor, "reason": decision.reason.strip(),
+              "created_at": utcnow(), "watermark": WATERMARK, "proposal": marker,
+              "action": proposal_review.ACTIONS["approve_content" if approving else decision.decision]}
+    approval = None
+    if approving:
+        try:
+            document = content_document(
+                draft=proposal.draft, content=decision.content, corpus=source.content_corpus(), approval_ref=reference,
+                reserved=_reserved_ids(improvement["approved"]))
+        except ContractError as error:
+            raise HTTPException(400, str(error)) from error
+        base_id = proposal.draft.get("base_id", "")
+        approval = ContentApproval.for_document(document, reference, proposal.proposal_id, base_id)
+        record.update(content_name=approval.name, document_id=document.id, source=decision.source.strip(),
+                      base_id=base_id, document_sha256=document_digest(approval.document))
+    source.journal({**record, "status": "requested"})
+    try:
+        if approval is not None:
+            source.approve_content(approval)
+    except FileExistsError as error:
+        source.journal({**record, "status": "failed"})
+        raise HTTPException(409, "this content version was approved already; refresh and review it again") from error
+    except (AdminSourceError, OSError) as error:
+        source.journal({**record, "status": "uncertain"})
+        raise HTTPException(503, f"The decision outcome is uncertain. Refresh and investigate {reference} "
+                            "before retrying.") from error
+    final = "pending_publication" if approving else "applied"
+    try:
+        source.journal({**record, "status": final, "completed_at": utcnow()})
+    except (AdminSourceError, OSError) as error:
+        raise HTTPException(503, f"The decision may have applied but its completion could not be recorded. "
+                            f"Investigate {reference} before retrying.") from error
+    log.info("admin_proposal_decision", extra={"action_id": reference, "action": record["action"]})
+    return {"decision_ref": reference, "status": final}
+
+
+def _proposal_routes(application: FastAPI, admin: _Admin) -> None:
+    """Improvement ideas: the list, one idea with its evidence, and the owner's decision on it."""
 
     @application.get("/api/proposals")
-    def proposal_list(identity: Identity = Depends(require_read)):  # noqa: B008
-        source = backend()
+    def proposal_list(identity: Identity = Depends(admin.require_read)):  # noqa: B008
+        source = admin.backend()
         return {**proposal_review.view(source.improvement(), source.proposal_decisions(), source.state(),
-                                                  owner=identity.can_own),
+                                       owner=identity.can_own),
                 "stages": sorted(stages() | {"*"}), "can_own": identity.can_own}
 
     @application.get("/api/proposals/{proposal_id}")
-    def proposal_detail(proposal_id: str, identity: Identity = Depends(require_read)):  # noqa: B008
+    def proposal_detail(proposal_id: str, identity: Identity = Depends(admin.require_read)):  # noqa: B008
         if not PROPOSAL_ID.fullmatch(proposal_id):
             raise HTTPException(400, "invalid proposal reference")
-        source = backend()
+        source = admin.backend()
         improvement = source.improvement()
         proposal = next((item for item in improvement["proposals"] if item.proposal_id == proposal_id), None)
         if proposal is None:
@@ -311,23 +450,21 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
                 "related": related}
 
     @application.post("/api/proposals/decision")
-    def proposal_decision(payload: dict, request: Request, identity: Identity = Depends(require_owner)):  # noqa: B008
-        from governedgraph.strategy_service.catalogue_release import CatalogueDecision
-
+    def proposal_decision(payload: dict, request: Request, identity: Identity = Depends(admin.require_owner)):  # noqa: B008
         try:
             decision = proposal_review.ProposalDecision.from_dict(payload)
         except (ContractError, TypeError) as error:
             raise HTTPException(400, str(error)) from error
-        source = backend()
-        with lock:
+        source = admin.backend()
+        with admin.lock:
             improvement = source.improvement()
             proposal = next((item for item in improvement["proposals"] if item.proposal_id == decision.proposal_id), None)
             if proposal is None:
                 raise HTTPException(404, "no such proposal")
             if proposal.content_digest != decision.content_digest:
                 raise HTTPException(409, "the proposal changed; refresh and review it again")
-            status = proposal_review.status_of(proposal, source.proposal_decisions(), source.state(), improvement["published"],
-                                               improvement["approved"], improvement["refused"])
+            status = proposal_review.status_of(proposal, source.proposal_decisions(), source.state(),
+                                               improvement["published"], improvement["approved"], improvement["refused"])
             if status["code"] in proposal_review.CLOSED:
                 raise HTTPException(409, "this proposal already has a decision")
             if decision.decision not in proposal_review.decisions_for(proposal):
@@ -335,104 +472,8 @@ def create_app(trace_reader: SyntheticTraceReader | None = None, access: AccessP
             marker = {"proposal_id": proposal.proposal_id, "evidence_digest": proposal.evidence_digest,
                       "content_digest": proposal.content_digest}
             if decision.decision == "approve" and proposal.kind == "strategy_gap":
-                if not decision.expected_revision or decision.content is not None:
-                    raise HTTPException(400, "a style approval needs the revision shown and no content")
-                allowed = {"name", "pattern_id", "eligible_journey_states", "channels", "accessibility_modes"}
-                edits = decision.style or {}
-                scaffold = {key: value for key, value in proposal.draft.items() if key != "suggested"}
-                suggested = proposal.draft.get("suggested")
-                if suggested and suggested.get("fit") == "existing":
-                    # The owner saw the AI's recommended pattern and name, so those are the defaults their edits apply to.
-                    scaffold = {**scaffold, "pattern_id": suggested["pattern_id"], "name": suggested["name"]}
-                if set(edits) - allowed:
-                    raise HTTPException(400, "only the style name, pattern and eligibility can be edited")
-                return submit_owner_action({"expected_revision": decision.expected_revision, "reason": decision.reason,
-                                            "confirmed": True, "change": {**scaffold, **edits}},
-                                           request, identity, CatalogueDecision, proposal=marker)
-            if decision.style is not None or (decision.decision == "approve") == (decision.content is None):
-                raise HTTPException(400, "settings do not match the decision")
-            if decision.decision == "approve" and len(decision.source.strip()) < 8:
-                raise HTTPException(400, "record the source you verified the passage against (at least 8 characters)")
-            approving = decision.decision == "approve"
-            reference = ("GB-" if approving else "ADMIN-") + uuid4().hex
-            record = {"action_id": reference, "actor": identity.actor, "reason": decision.reason.strip(),
-                      "created_at": utcnow(), "watermark": WATERMARK, "proposal": marker,
-                      "action": proposal_review.ACTIONS["approve_content" if approving else decision.decision]}
-            approval = None
-            if approving:
-                try:
-                    document = content_document(
-                        draft=proposal.draft, content=decision.content, corpus=source.content_corpus(), approval_ref=reference,
-                        reserved=reserved_ids(improvement["approved"]))
-                except ContractError as error:
-                    raise HTTPException(400, str(error)) from error
-                base_id = proposal.draft.get("base_id", "")
-                approval = ContentApproval.for_document(document, reference, proposal.proposal_id, base_id)
-                record.update(content_name=approval.name, document_id=document.id, source=decision.source.strip(),
-                              base_id=base_id, document_sha256=document_digest(approval.document))
-            source.journal({**record, "status": "requested"})
-            try:
-                if approval is not None:
-                    source.approve_content(approval)
-            except FileExistsError as error:
-                source.journal({**record, "status": "failed"})
-                raise HTTPException(409, "this content version was approved already; refresh and review it again") from error
-            except (AdminSourceError, OSError) as error:
-                source.journal({**record, "status": "uncertain"})
-                raise HTTPException(503, f"The decision outcome is uncertain. Refresh and investigate {reference} "
-                                    "before retrying.") from error
-            final = "pending_publication" if approving else "applied"
-            try:
-                source.journal({**record, "status": final, "completed_at": utcnow()})
-            except (AdminSourceError, OSError) as error:
-                raise HTTPException(503, f"The decision may have applied but its completion could not be recorded. "
-                                    f"Investigate {reference} before retrying.") from error
-            log.info("admin_proposal_decision", extra={"action_id": reference, "action": record["action"]})
-            return {"decision_ref": reference, "status": final}
-
-    def reserved_ids(approved_names) -> set[str]:
-        """Content and document ids already named by a stored approval, whether or not it was later refused."""
-        documents = {name.rsplit("-", 1)[0] for name in approved_names}
-        return documents | {document.rsplit("-v", 1)[0] for document in documents}
-
-    def submit_owner_action(payload: dict, request: Request, identity: Identity, contract, proposal: dict | None = None):
-        decision_ref = "GB-" + uuid4().hex
-        try:
-            if "decision_ref" in payload:
-                raise ContractError("the console records the owner decision reference")
-            decision = contract.from_dict({**payload, "decision_ref": decision_ref})
-        except (ContractError, ValueError, TypeError) as error:
-            raise HTTPException(400, str(error)) from error
-        source = backend()
-        with lock:
-            if revision(source.state()) != decision.expected_revision:
-                raise HTTPException(409, "strategy state changed; refresh and confirm the owner decision again")
-            record = {"action_id": decision_ref, "action": "owner_" + decision.action, "actor": identity.actor,
-                      "reason": decision.reason.strip(), "created_at": utcnow(), "watermark": WATERMARK,
-                      "expected_revision": decision.expected_revision,
-                      "owner_decision": {key: value for key, value in payload.items() if key != "reason"},
-                      **({"proposal": proposal} if proposal else {})}
-            source.journal({**record, "status": "requested"})
-            try:
-                result = source.apply_owner(decision, request.headers.get("authorization", ""))
-            except OwnerDecisionError as error:
-                source.journal({**record, "status": "failed"})
-                raise HTTPException(error.status_code, str(error)) from error
-            except (AdminSourceError, OSError, StateUnavailable) as error:
-                source.journal({**record, "status": "uncertain"})
-                raise HTTPException(503, f"Owner decision outcome is uncertain. Refresh and investigate {decision_ref} "
-                                    "before retrying.") from error
-            try:
-                source.journal({**record, "status": result["status"], "completed_at": utcnow(),
-                                "result_revision": revision(source.state())})
-            except (AdminSourceError, OSError, StateUnavailable) as error:
-                log.error("admin_owner_completion_unavailable", extra={"action_id": decision_ref})
-                raise HTTPException(503, f"Decision may have applied but completion could not be recorded. "
-                                    f"Refresh and investigate {decision_ref} before retrying.") from error
-            log.info("admin_owner_decision", extra={"action_id": decision_ref, "action": decision.action})
-            return result
-
-    return application
+                return _approve_style(admin, proposal, decision, marker, request, identity)
+            return _decide_content(admin, proposal, decision, improvement, marker, identity)
 
 
 app = create_app()

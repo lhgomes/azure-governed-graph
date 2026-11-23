@@ -60,6 +60,14 @@ class JourneyStart:
         return _strict(cls, body)
 
 
+# The closed set of timing stages a spoken reply may report; every `trace.measure(...)` name must be one of these.
+TIMING_STAGES = frozenset({
+    "screening", "intent_routing", "understanding_assessment", "values_lookup", "strategy_lookup", "content_lookup",
+    "document_screening", "foundry_draft", "foundry_requests", "foundry_tools", "foundry_review", "post_processing",
+    "audit_commit", "durable_load", "durable_commit",
+})
+
+
 @dataclass(frozen=True)
 class VoiceReply:
     text: str = ""
@@ -119,10 +127,7 @@ class VoiceReply:
                        for step in self.workflow_steps)):
             raise ContractError("invalid closed workflow evidence")
         self._validate_turn_trace()
-        allowed_stages = {"screening", "intent_routing", "understanding_assessment", "values_lookup", "strategy_lookup",
-                          "content_lookup", "document_screening", "foundry_draft", "foundry_requests",
-                          "foundry_tools", "foundry_review", "post_processing", "audit_commit", "durable_load", "durable_commit"}
-        if (not isinstance(self.stage_ms, dict) or set(self.stage_ms) - allowed_stages
+        if (not isinstance(self.stage_ms, dict) or set(self.stage_ms) - TIMING_STAGES
                 or any(type(v) not in (int, float) or not math.isfinite(v) or v < 0 for v in self.stage_ms.values())
                 or type(self.model_rounds) is not int or self.model_rounds < 0):
             raise ContractError("invalid closed voice timing metadata")
@@ -204,7 +209,7 @@ class OrchestratorChannel:
         return {"Authorization": "Bearer " + token}
 
     async def start(self, accessibility_mode: str = "standard", *, channel: str = "voice",
-                    contact_type: str = "first_contact") -> JourneyStart:
+                    contact_type: str = "first_contact", language: str | None = None) -> JourneyStart:
         from governedgraph.common.contracts import CONTACT_TYPES
 
         if channel not in ("voice", "chat"):
@@ -214,7 +219,8 @@ class OrchestratorChannel:
         result = await self.client.post("journeys", headers=self._headers(),
                                         json={"channel": channel, "accessibility_mode": accessibility_mode,
                                               **({"contact_type": contact_type}
-                                                 if contact_type != "first_contact" else {})})
+                                                 if contact_type != "first_contact" else {}),
+                                              **({"language": language} if language else {})})
         result.raise_for_status()
         return JourneyStart.from_dict(result.json())
 
@@ -322,14 +328,15 @@ class VoiceBridge:
         self.channel_kind = ""
 
     async def start(self, accessibility_mode: str = "standard", *, channel: str = "voice",
-                    contact_type: str = "first_contact") -> None:
+                    contact_type: str = "first_contact", language: str | None = None) -> None:
         if self.started or self.failed:
             raise VoiceError("voice session cannot be restarted or reused after failure")
         self.started = True
         try:
             started = await self.channel.start(
                 accessibility_mode, channel=channel,
-                **({"contact_type": contact_type} if contact_type != "first_contact" else {}))
+                **({"contact_type": contact_type} if contact_type != "first_contact" else {}),
+                **({"language": language} if language else {}))
             self.journey_id = started.journey_id
             self.channel_kind = channel
             if self.spoken_acknowledgement and getattr(self.speech, "checked_sentence_audio", False):

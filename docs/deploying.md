@@ -216,7 +216,8 @@ Each ARM submission uses a unique attempt/operation deployment name. Its
 compiled JSON template and exact private parameters are saved separately in
 that attempt's directory before submission; their SHA-256 hashes, Azure
 template hash and correlation ID bind the evidence to what was sent. Repeated
-bootstrap-job submissions no longer overwrite each other's parameter files.
+bootstrap-job submissions no longer overwrite each other's parameter files, and
+concurrent submissions are numbered atomically so they never share a name or a file.
 The deployment name identifies an operation, not a resource: existing resource
 names, naming seeds, bootstrap ordering and release-approval gates are unchanged.
 Failed or timed-out submissions collect read-only Azure deployment state and
@@ -558,6 +559,21 @@ data directory, release-approval file, overlay Dockerfile, workload Bicep
 composition, values application module and explicit domain environment. It
 cannot declare tests, evaluation policy, learning proofs or operator recovery.
 
+## Learning schedules during a delivery
+
+A scheduled learning cycle that overlaps a delivery can lose the Strategy Service or its fairness
+audit, and a failed cycle freezes learning for every member until a person lifts the freeze (the
+delivery never lifts one). To keep that from happening, a delivery that changes the workloads
+(the full deployment, the catalogue upgrade, and a code-only rollout that replaces the runtime or
+P2 image) first replaces the cron expression of `job-gg-p2-fairness` and `job-gg-p2-pipeline` with a
+yearly placeholder, waits up to 20 minutes for a cycle that is already running (and stops without
+changing anything if one is still running), and restores the cron expression afterwards. The
+workloads template re-applies the real cadence; the restore only acts when the placeholder is still
+in place, so a cadence changed by the template is kept. If a delivery is interrupted so hard that it
+cannot restore, rerun any delivery that changes the workloads, or run
+`az containerapp job update --cron-expression` on the two jobs. A target with no schedules yet is
+left alone. Nothing here touches the freeze, the learned order or recovery.
+
 ## Templates and fixed sequence
 
 1. **`infra/main.bicep`: foundation once.** Networking, identities, registry,
@@ -588,6 +604,13 @@ cannot declare tests, evaluation policy, learning proofs or operator recovery.
    diagnostics. It uses the existing Strategy identity and telemetry permission;
    the isolated P2 signing job receives no new telemetry authority. A valid
    existing state is preserved, including learned rankings and protective state.
+   The Entra registrations, agent publishing, the initial priors (the signing and
+   initialization jobs) and the job chain run side by side and need nothing from each
+   other. In the job chain, `infra/bootstrap.bicep` comes first; then the issuer job, the
+   fixtures job and the content job run together, the content job after the Search link
+   is approved. If one chain fails, the others finish (a started Azure
+   operation is never abandoned) and the first failure is reported; the workloads
+   start only when every bootstrap step succeeded.
 4. **`examples/pension_wtp/infra/workloads.bicep`: complete workloads once.**
    This explicit domain composition calls `infra/workloads.bicep` with immutable
    images, published-agent flags and complete domain inputs.
@@ -615,6 +638,39 @@ cannot declare tests, evaluation policy, learning proofs or operator recovery.
    learning-cycle acceptance occurs during delivery.
 
 ## Artifacts, isolation and redeployment
+
+### Code-only redeploy
+
+`scripts.deploy` chooses the path itself. Against an existing deployment (`--reuse`, or the
+saved target), it compares the working tree with the last successful delivery. When only
+application code or dependencies changed, it rolls new image digests through the unchanged,
+previously reviewed deployment parameters instead of repeating the full delivery. When anything
+else changed, it says what and runs the full deployment. `--full` forces the full deployment
+(for example to correct drift in Azure); `--new` always runs it.
+
+```bash
+.venv/bin/python -m scripts.deploy --inputs <private inputs> --reuse <resource group>
+```
+
+The code-only path builds only the images whose source changed (framework images in parallel,
+then the derived images in parallel), replaces only the image fields of the last successful
+`complete workloads` parameters (and of the bootstrap job images when those digests changed),
+and re-runs the workloads deployment (together with the job-image deployment when those digests
+changed, since the two templates deploy disjoint resources) and the readiness check, which also confirms every
+application runs the new image. It never touches the foundation, identities, role
+assignments, Entra registrations, Foundry agents, bootstrap executions or learned state.
+
+The full deployment is required, and runs automatically, when the infrastructure templates, the
+provisioning scripts (`bootstrap`, `create_agents`, `configure_*`, `provision_auth`), the delivery
+inputs (other than the operator), the extension's domain data or release approval, or any Foundry
+agent definition differ from the last successful delivery; when the receipt, the target scope, the
+saved azd environment or the stored parameters (checked by hash) do not match; or when that
+delivery predates this mode. These checks all run before any cloud change.
+
+The Dockerfiles install dependencies before copying `src/`, so a source-only change does not
+invalidate the dependency layer where the registry build reuses layers.
+
+### What the images contain
 
 Framework images contain no extension files or default pension dataset.
 Extension runtime/P2 images contain approved catalogue/content/thresholds;
@@ -692,7 +748,9 @@ Never issue member tokens or grant developer Key Vault access locally.
 
 Operational tools include `scripts.run_p2_container_jobs` for inspecting
 an exact operator cycle, `scripts.configure_strategy_recovery` for
-existing restricted operator access, and `scripts.lift_dev_freeze` for
+existing restricted operator access, and `scripts.lift_dev_freeze` (run as
+`GOVERNEDGRAPH_DATA_DIR=examples/pension_wtp/data PYTHONPATH=src:. python -m scripts.lift_dev_freeze
+--decision-ref <GB-DEV-YYYY-NNN, a real unused board reference>`) for
 personally authorized audited recovery. Unknown status is never completion;
 failed watchdogs are not resumed/replaced, and reinstatement still requires
 the existing human board decision. These tools do not finalize deployment.

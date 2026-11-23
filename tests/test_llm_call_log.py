@@ -81,7 +81,7 @@ def test_the_decision_call_records_the_exact_request_and_response_without_any_he
                        "questions": questions}
     assert json.loads("".join(item["text"] for item in records if item["part"] == "response")) == body
     assert "synthetic-private-token" not in json.dumps(records)
-    assert {item["outcome"] for item in records} == {"ok"} and records[0]["kind"] == "decision"
+    assert {item["outcome"] for item in records} == {"ok"} and records[0]["kind"] == "decision_reason"
 
 
 def test_a_rejected_decision_is_recorded_with_its_failure_domain(on, monkeypatch, caplog):

@@ -9,6 +9,14 @@ import pytest
 
 from scripts import delivery, deploy, deployment_target as target
 
+
+@pytest.fixture(autouse=True)
+def no_real_schedule_pause(monkeypatch):
+    from contextlib import nullcontext
+
+    monkeypatch.setattr(deploy, "paused", lambda *_a, **_k: nullcontext())
+    monkeypatch.setattr("scripts.apps_only.paused", lambda *_a, **_k: nullcontext())
+
 SUBSCRIPTION = "00000000-0000-0000-0000-000000000001"
 SEED = "00000000-0000-0000-0000-000000000002"
 OTHER_SEED = "00000000-0000-0000-0000-000000000004"
@@ -355,6 +363,7 @@ def test_main_routes_explicit_selection_flags_before_delivery(workspace, monkeyp
 
     monkeypatch.setattr(deploy, "select_target", select)
     monkeypatch.setattr(deploy, "deploy", deliver)
+    monkeypatch.setattr("scripts.apps_only.redeploy_images", lambda *_: None)
     assert deploy.main(["--inputs", str(workspace.path), *flags]) == 0
     assert calls == [("select", {"reuse": reuse, "create_new": create_new}), ("deliver", {})]
     assert "Demo URL: https://demo.example.invalid/demo/" in capsys.readouterr().out

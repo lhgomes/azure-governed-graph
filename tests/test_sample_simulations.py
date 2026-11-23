@@ -350,6 +350,7 @@ def test_b4_b7_second_contact_demo_sends_only_closed_context_and_still_delivers_
                                               contact_type=simulation.contact_type)
         assert json.loads(requests[0].content) == {
             "channel": "chat", "accessibility_mode": "english", "contact_type": "second_contact",
+            "language": live.card.language,  # the persona card names the language its member speaks
         }
         assert json.loads(requests[1].content) == {"utterance": simulation.opening}
         assert speech.spoken[0] == DISCLOSURE
@@ -497,6 +498,7 @@ def test_live_simulation_binds_member_channel_accessibility_and_protective_outco
     assert issued == [simulation.member_ref]
     assert json.loads(requests[0].content) == {
         "channel": simulation.channel, "accessibility_mode": simulation.accessibility_mode,
+        "language": simulation.card().language,
     }
     assert requests[-1].url.path == f"/members/{simulation.member_ref}/explainability-report"
     assert all(request.headers["authorization"] == "Bearer memory-only-" + simulation.member_ref

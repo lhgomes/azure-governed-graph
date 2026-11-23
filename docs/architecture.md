@@ -64,18 +64,38 @@ contracts, strategy ranking, vetoes and release gates are framework code.
 
 A single pinned Decision model performs the closed semantic checks: intent
 routing, answer review and teach-back understanding. There is no second judge
-or model fallback.
+or model fallback. One rule applies everywhere: a label is accepted only above
+the confidence gate, and a reading at or below it is an *abstention* handled by
+the caller (below), never an outage. Only transport and response-contract
+failures are service failures.
 
 - **Closed outputs.** Each request asks one question and returns one label from
   a closed set. The domain pack supplies a description of every label
   (`decision_criteria` in the vocabulary), validated against the closed reason
-  and concept sets. Unrelated questions are never combined in one request:
-  intent reason and response language are separate parallel requests, as are the
-  review verdict, the review language check and the concept checks.
+  and concept sets. Unrelated questions are never combined in one request.
+  Intent routing runs two parallel requests: `route` (four labels:
+  `asks_person`, `asks_choice`, `asks_information`, `only_acknowledges`) and `topic`
+  (the explanation topics, used only when the route is `asks_information`). The
+  reply language is not read from the message: it is chosen once when the session
+  starts (a persona's declared language, or the member's selector in chat) and
+  kept for the journey. The journey state adds a note to the route question
+  (a restatement offered for confirmation, with or without a question
+  mark, is `asks_information` and is answered; only plain thanks or agreement is
+  `only_acknowledges`; while a teach-back check is pending, a restatement answers
+  that check and is `only_acknowledges`). The review verdict and the
+  concept checks are likewise separate requests.
 - **Confidence gate.** A reason or verdict is accepted only above a
-  greater-than-half confidence. Transport, response-contract and low-confidence
+  greater-than 30% confidence. Transport, response-contract and low-confidence
   failures are distinguished in content-free operational logs. Unavailable
-  intent or review evidence fails closed to a human handover (B9).
+  intent or review evidence (transport or contract failure) fails closed to a
+  human handover (B9). There are no per-label margin exceptions.
+- **Abstention.** Intent route or topic unclear: the member is asked one
+  clarifying question. The writer drafts it from the conversation, and it is
+  released only if it is a single short question with no figures, placeholders
+  or steering (`numeric_fidelity`, `response_steers_choice`); otherwise the
+  approved clarification wording is used. Review unclear: `unassessable`.
+  Understanding unclear: `uncertain`. Language unclear: the established
+  language is kept.
 - **Answer review.** The reviewer reads plain text in five labelled parts: the
   member's question, the last exchange (context only), the draft, the official
   amounts the draft refers to, and the approved sources it cites; it never sees
@@ -83,17 +103,18 @@ or model fallback.
   described by the domain pack: `pass_draft`, `advice`, `unsupported` (a fact,
   promise, guarantee, amount comparison or claim about the member's own
   documents that no cited source or official amount states; a claim a source
-  does state is supported) and `off_target`. Whether the draft is in the
-  response language is a separate parallel request, so it never competes with
-  those labels. Advice and unsupported claims, and a wrong language, block the
+  does state is supported) and `off_target`. Advice and unsupported claims block the
   draft; after the single bounded repair, a rejection for `off_target` or
   teaching style alone delivers the draft that already passed the safety checks
-  and every deterministic gate, without a teach-back. An unclear review
+  and every deterministic gate, without a teach-back. A draft that teaches a
+  concept the answer goal excludes is rejected for relevance by the host from
+  the concept reading, which names those concepts for the one repair. An unclear review
   (confidence at or below the gate) is neither a pass nor a service failure:
   nothing is released and the host uses the approved wording that offers a
   person. A transport or contract failure still fails closed to a human
   handover (B9). Concept checks only decide which concepts are recorded as
-  taught, so they are optional; they see the draft alone.
+  taught, so they are optional; they see the draft alone and are asked only
+  when the strategy has a teach-back check or the answer goal excludes a concept.
 - **Understanding.** A restatement is `understood`, `needs_explanation` or
   `uncertain`. `uncertain` records neither a pass nor a failure (B5) and returns
   approved retry wording that asserts nothing about correctness, figures or
@@ -139,12 +160,17 @@ B1-B10, channel authorization, catalogue approval or learning.
 6. Verify the signed ranking against active catalogue versions; apply eligibility,
    suspensions and protective state. The control arm retains approved expert order.
 7. Compose a question-specific draft with `{{value:<id>}}` references. Bind only
-   authorized official display strings; reject literal invented figures and steering.
+   authorized official display strings; reject literal invented figures and steering, and a reply that talks about its own
+   passages or sources (a closed, per-language phrase list in the domain pack).
 8. The Decision model's answer review checks support, relevance and language.
    At most one evidence-preserving repair is allowed across the deterministic output
-   gate and answer review. A literal-digit contract failure without a usable
+   gate and answer review. A literal-digit or source-talk contract failure without a usable
    approved fallback can use that repair before review; all deterministic gates
-   and the answer review must then pass. An internal answer failure never asks
+   and the answer review must then pass. When the review still says the draft is
+   unsupported (grounding is the only defect, never advice, an excluded concept or an unclear
+   review), the host answers with the approved passages the draft cited, word for word, after
+   the same numeric, steering and source-talk gates; the record keeps the honest `revise`
+   verdict, and the question is kept for the gap review. An internal answer failure never asks
    the member to repeat an already classified question: the approved answer-failure
    acknowledgment offers human help in the same journey, or escalates if that offer
    cannot safely be delivered. A task fallback that asks for missing context is
@@ -190,8 +216,8 @@ A pending meaning check still requires the Decision model's understanding
 verdict; gratitude alone is insufficient, and a recap's confirmation tag still
 goes through that verdict. Outside a pending meaning check, a confirmation
 question such as "Is that right?" is a request for an answer, not a closing:
-the host corrects a mistaken recap classification through the existing closed
-follow-up intent reading and checked explanation route. New explanation, advice and human
+the route question is told the journey state and reads it as `asks_information`,
+so it takes the checked explanation route. New explanation, advice and human
 requests retain their own routes, including after the natural close; this is not
 a terminal journey lock.
 Journey starts accept a closed, explicitly selected `contact_type`: `first_contact`

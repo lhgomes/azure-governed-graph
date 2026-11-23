@@ -88,9 +88,14 @@ DECLINE_REASONS = frozenset({
     "output_gate", "answer_review", "no_safe_answer", "no_eligible_style", "teach_back_failed", "content_safety",
     "model_requested_advisor", "advice_question", "member_request", "component_failure", "conversation_limit",
 })
-REVIEW_ISSUES = frozenset({
-    "relevance", "language", "grounding", "uncertainty", "strategy", "advice", "document_context",
-})
+REVIEW_ISSUES = frozenset({"relevance", "language", "grounding", "strategy", "advice"})
+# Stored audit records written before the review redesign carry these; they read as the nearest current label.
+RETIRED_REVIEW_ISSUES = {"uncertainty": "grounding", "document_context": "grounding"}
+
+
+def current_review_issues(issues: list) -> list:
+    mapped = [RETIRED_REVIEW_ISSUES.get(item, item) if isinstance(item, str) else item for item in issues]
+    return [item for index, item in enumerate(mapped) if item not in mapped[:index]]
 
 
 @dataclass(frozen=True)
@@ -119,21 +124,6 @@ class ExplanationContext:
 
 
 @dataclass(frozen=True)
-class ReviewFeedback:
-    issue: str
-    quote: str
-
-    def __post_init__(self):
-        if (not isinstance(self.issue, str) or self.issue not in REVIEW_ISSUES
-                or not isinstance(self.quote, str) or not self.quote.strip() or len(self.quote) > 1600):
-            raise ContractError("invalid closed answer-review feedback")
-
-    @classmethod
-    def from_dict(cls, payload: dict) -> "ReviewFeedback":
-        return _strict(cls, payload)
-
-
-@dataclass(frozen=True)
 class AnswerReview:
     verdict: str
     issues: list[str]
@@ -154,6 +144,8 @@ class AnswerReview:
 
     @classmethod
     def from_dict(cls, payload: dict) -> "AnswerReview":
+        if isinstance(payload, dict) and isinstance(payload.get("issues"), list):
+            payload = {**payload, "issues": current_review_issues(payload["issues"])}
         return _strict(cls, payload)
 
 

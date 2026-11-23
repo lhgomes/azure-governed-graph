@@ -107,7 +107,8 @@ async def run_live_simulator(bridge: VoiceBridge, persona_speech: Speech, live: 
     ended_by = "persona"
     try:
         async with asyncio.timeout(deadline_seconds):
-            await bridge.start(accessibility_mode, channel=channel,
+            # The persona card declares the language its member speaks; the guide answers in it.
+            await bridge.start(accessibility_mode, channel=channel, language=live.card.language,
                                **({"contact_type": contact_type} if contact_type != "first_contact" else {}))
             for _ in range(live.card.max_turns):
                 if takeover is not None and takeover():

@@ -216,7 +216,8 @@ def test_warmup_uses_valid_shared_correlation_without_creating_a_member_journey(
     screen = Mock()
     screen.screen.return_value.allowed = True
     choose = Mock(side_effect=lambda _tools, _state, questions: (
-        {"reason": "transition_information_gap"} if "reason" in questions else {"response_language": "en"}))
+        {"route": "asks_information"} if "route" in questions
+        else {"topic": "transition_information_gap"}))
     monkeypatch.setattr(warmup, "operation", lambda *args, **kwargs: nullcontext())
     monkeypatch.setattr(decision_model, "choose", choose)
     monkeypatch.setattr(warmup.FoundryComposer, "shared", Mock())

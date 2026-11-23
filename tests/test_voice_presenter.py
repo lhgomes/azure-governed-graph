@@ -165,6 +165,19 @@ def test_presenter_b7_closed_contracts_reject_unknown_demographic_and_invalid_fi
         presenter.SessionRequest.from_dict(body)
 
 
+@pytest.mark.parametrize("body", [
+    {"mode": "chat", "language": "de"}, {"mode": "simulator", "simulation_id": "annelies", "language": "nl"},
+])
+def test_the_language_selector_is_for_chat_and_microphone_sessions_only(body):
+    with pytest.raises(ContractError):
+        presenter.SessionRequest.from_dict(body)
+
+
+def test_a_chat_session_may_choose_any_language_of_the_pack():
+    assert presenter.SessionRequest.from_dict({"mode": "chat", "language": "nl"}).language == "nl"
+    assert presenter.SessionRequest.from_dict({"mode": "chat"}).language is None
+
+
 def test_presenter_audio_requires_exact_ack_and_bounded_input():
     class Socket:
         async def send_json(self, body): self.last = body

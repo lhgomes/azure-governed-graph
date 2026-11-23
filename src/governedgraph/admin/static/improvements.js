@@ -33,7 +33,7 @@ window.AdminImprovements = {
   },
   issues: {
     grounding: "not based on the approved passage", relevance: "did not answer the question", strategy: "did not fit the style",
-    uncertainty: "was not careful about what is uncertain", advice: "drifted into advice", document_context: "mixed up the member's documents",
+    advice: "drifted into advice",
     language: "was in the wrong language",
   },
   next(row) {

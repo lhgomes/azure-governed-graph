@@ -1,3 +1,4 @@
+- [Design-depth scope](../../examples/pension_wtp/docs/agents-design-depth.md)
 # Agent workflow and coordination
 
 New to the project? Start with the simpler [overview diagram](overview.png), which the README uses:
@@ -213,4 +214,3 @@ flowchart LR
 - [Assurance checks](../../src/governedgraph/learning/assurance_committee.py)
 - [Fairness veto](../../src/governedgraph/agents/fairness_explainability.py)
 - [Architecture](../architecture.md)
-- [Design-depth scope](../../examples/pension_wtp/docs/agents-design-depth.md)

@@ -27,7 +27,7 @@ def test_decision_failure_diagnostics_preserve_usage_without_payload(monkeypatch
             "answers": {"verdict": {"type": "choice", "choice": "pass_draft",
                                      "probabilities": {"pass_draft": 0.51}}}}
     if scenario == "low_confidence":
-        body["answers"]["verdict"]["probabilities"]["pass_draft"] = 0.5
+        body["answers"]["verdict"]["probabilities"]["pass_draft"] = 0.3
     elif scenario == "missing_choice":
         del body["answers"]["verdict"]["choice"]
     response = httpx.Response(429 if scenario in {"http_failure", "retry_exhausted", "retry_budget"} else 200,
@@ -92,8 +92,9 @@ def test_unavailable_decision_evidence_does_not_block_protective_handover(monkey
                 role, turn, "Synthetic question.",
                 decision_agents.DecisionContext("identified", "unclassified", None))
         else:
+            monkeypatch.setattr(decision_agents, "_excluded_concepts", lambda *_: [])
             decision_agents.review_with_decision_model(
-                turn, "Synthetic question.", None, AnswerDraft("Synthetic explanation.", []))
+                turn, "Synthetic question.", SimpleNamespace(teach_back=False), AnswerDraft("Synthetic explanation.", []))
     assert VoiceReply(text="A person can help.", state="escalation_requested", turn_trace=turn.trace.turn_trace)
 
 
@@ -185,10 +186,16 @@ def test_b5_unclear_concept_reading_never_vetoes_an_approved_answer(monkeypatch)
     assert seen["optional"] and all(key.startswith("concept_") for key in seen["optional"])
 
 
-def test_relevance_revision_is_told_which_excluded_concept_was_taught(monkeypatch):
+@pytest.fixture(autouse=True)
+def no_excluded_concepts(monkeypatch):
+    monkeypatch.setattr(decision_agents, "_excluded_concepts", lambda *_: [])
+
+
+@pytest.mark.parametrize("verdict", ["off_target", "pass_draft"])
+def test_relevance_revision_is_told_which_excluded_concept_was_taught(monkeypatch, verdict):
     def choose(_tools, _state, questions, optional=frozenset()):
         if "verdict" in questions:
-            return {"verdict": "off_target"}
+            return {"verdict": verdict}
         if "language" in questions:
             return {"language": "expected_language"}
         return {key: ("taught" if key in {"concept_official_source", "concept_future_adjustments"} else "absent")
@@ -250,20 +257,22 @@ def test_decision_criteria_must_describe_exactly_the_closed_reason_set(monkeypat
         decision_agents._intent_criteria.cache_clear()
 
 
-@pytest.mark.parametrize("probabilities,accepted", [
-    # Observed in gg-dev: a clear but sub-0.5 lead between two explanation reasons.
-    ({"payment_continuity": 0.441, "restating_previous_explanation": 0.253, "personal_choice_or_comparison": 0.02,
-      "explicit_human_request": 0.0004}, True),
-    ({"transition_overview": 0.463, "restating_previous_explanation": 0.307, "rights_conversion": 0.168,
-      "personal_choice_or_comparison": 0.004, "explicit_human_request": 0.001}, True),
-    ({"payment_continuity": 0.40, "restating_previous_explanation": 0.30}, True),
-    ({"payment_continuity": 0.36, "restating_previous_explanation": 0.33}, False),
-    ({"payment_continuity": 0.30, "rights_conversion": 0.10}, False),
-    ({"payment_continuity": 0.44, "restating_previous_explanation": 0.20, "personal_choice_or_comparison": 0.15}, False),
-    ({"personal_choice_or_comparison": 0.45, "payment_continuity": 0.20}, False),
-    ({"explicit_human_request": 0.45, "payment_continuity": 0.20}, False),
-])
-def test_b8_b9_unclear_routing_resolves_by_margin_only_away_from_protective_routes(probabilities, accepted):
-    label = max(probabilities, key=probabilities.get)
-    assert decision_model._clear_margin(label, probabilities) is accepted
-    assert decision_model._clear_margin("rights_conversion", probabilities) is False
+def test_a_routing_reading_at_or_below_the_gate_abstains_whatever_its_margin(monkeypatch):
+    # A clear but sub-0.5 lead used to be accepted by a margin rule that only routing had; there is one gate now.
+    body = {"model": "microsoft-decision-1.1", "usage": {"input_tokens": 12, "output_tokens": 1},
+            "answers": {"route": {"type": "choice", "choice": "asks_information", "probabilities": {
+                "asks_information": 0.25, "only_acknowledges": 0.2, "asks_choice": 0.02, "asks_person": 0.0004}}}}
+    response = httpx.Response(200, json=body, request=httpx.Request("POST", "https://synthetic.example/"))
+    monkeypatch.setattr(decision_model, "settings", SimpleNamespace(
+        project_endpoint="https://synthetic.services.ai.azure.com/api/projects/synthetic",
+        decision_deployment="decision-v1"))
+    monkeypatch.setattr(decision_model.connections, "credential", lambda: SimpleNamespace(
+        get_token=lambda *_: SimpleNamespace(token="synthetic-private-token")))
+    monkeypatch.setattr(decision_model.connections, "http_client",
+                        lambda: SimpleNamespace(post=lambda *_a, **_k: response))
+    monkeypatch.setattr(decision_model, "emit", lambda *_a, **_k: None)
+    turn = SimpleNamespace(journey=SimpleNamespace(journey_id="J-synthetic"), trace_parent="", trace=Trace())
+    questions = {"route": {"type": "choice", "criteria": {
+        "asks_information": "A", "only_acknowledges": "B", "asks_choice": "C", "asks_person": "D"}}}
+    with pytest.raises(decision_model.DecisionModelAbstained):
+        decision_model.choose(turn, "state", questions)

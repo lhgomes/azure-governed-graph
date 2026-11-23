@@ -22,27 +22,31 @@ Decision failures emit `decision_model_failed` with the journey/event IDs,
 closed failure-domain code, exception type, HTTP status (`0` before a response),
 and a bounded host-defined question identifier when applicable. Response bodies,
 exception messages and text are not logged. A `low_confidence` failure also logs the top
-two closed labels (`top_choice`, `runner_up`) and their scores, so the margin to the gate is
+two closed labels (`top_choice`, `runner_up`) and their scores, so the distance to the gate is
 visible; the labels are the host's own criteria keys, never member or answer text. An optional
 question (the answer-review concept checks) that is read without enough confidence logs
 `decision_choice_unclear` with the same fields instead of failing the turn. Valid returned
 token usage is recorded even if a decision is subsequently rejected; abstention
 does not imply missing usage. Chat inactivity emits `chat_idle_expired` with the
 journey ID and ends the channel normally, without claiming a message may be saved.
-Review question identifiers are `verdict`, `language` and `concept_` assessments; each must satisfy
-the unchanged confidence gate, except that an unclear `verdict` or `language` reading emits
+Review question identifiers are `verdict` and `concept_` assessments; each must satisfy
+the unchanged confidence gate, except that an unclear `verdict` reading emits
 `answer_review_abstained` (journey ID only) and is treated as an unassessable review, not a service failure.
 `answer_review_quality_waived` (journey ID and issue labels only) marks
 a draft delivered without teach-back because relevance or teaching style were the only rejected issues.
+An unclear intent route or topic logs `decision_model_failed` (`low_confidence`) and the member is
+asked a clarifying question. A clarifying question
+the writer could not draft, or that fails a host gate, logs `clarification_draft_unavailable` or
+`clarification_draft_replaced` (journey ID only) and the approved wording is used.
 Decision throttling uses the existing `model_rate_limited_retry` event and
 per-turn waiting budget; a final failure still emits `decision_model_failed`.
 **Model-call record (gg-dev only).** With `GOVERNEDGRAPH_LOG_LLM_CALLS=true`, which infra sets only for gg-dev,
-each model call emits `llm_call` events with its `journey_id`, a `call_id`, the `kind` (`decision`, `writer`,
+each model call emits `llm_call` events with its `journey_id`, a `call_id`, the `kind` (`decision_route`, `decision_topic`, `decision_outcome`, `decision_verdict`, `decision_concepts`, `writer`,
 `review`, `persona`, `fairness`), the deployment, `part` (`request` or `response`), `chunk`/`chunks` and the
 `text`, plus an `outcome` (`ok`, or the failure domain). Join the parts of one `call_id` in order to read the
 full payload. Headers are never recorded and credential-like text is withheld. This is the one deliberate
 exception to the content-free log, it is read from the container console or `ContainerAppConsoleLogs`, and it
-must be switched off before real data is used. `output_gate_blocked` names the gate that blocked a draft or
+must be switched off before real data is used. `answer_passage_fallback` (journey ID only) marks an answer given as the cited approved passages after two ungrounded drafts. `model_source_talk_blocked` (journey ID only) marks a draft that mentioned its own passages or sources and went to the one repair. `output_gate_blocked` names the gate that blocked a draft or
 the approved template, using closed `draft:`/`template:` reasons only.
 APIM captures **zero body bytes**, no Authorization header and no client IP.
 Suppressing both bodies is stronger than attempting to redact arbitrary

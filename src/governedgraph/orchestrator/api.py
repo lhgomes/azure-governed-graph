@@ -101,6 +101,7 @@ class StartJourney(BaseModel):
     channel: Literal["voice", "chat", "portal", "letter_follow_up"] = "chat"
     accessibility_mode: Literal["standard", "plain_language", "english", "slower_pace", "large_text"] = "standard"
     contact_type: Literal["first_contact", "second_contact"] = "first_contact"
+    language: str | None = None  # the reply language, chosen by the member or the persona; the pack's default if absent
 
 
 class OutcomeBody(BaseModel):
@@ -139,7 +140,7 @@ def start(body: StartJourney, request: Request, authorization: str = Header(""))
     _, identity = authenticate(authorization)
     try:
         return request.app.state.runtime.start(
-            identity, body.channel, body.accessibility_mode, contact_type=body.contact_type)
+            identity, body.channel, body.accessibility_mode, contact_type=body.contact_type, language=body.language)
     except JourneyBusy:
         raise HTTPException(409, "journey busy; retry the start") from None
     except Exception as error:

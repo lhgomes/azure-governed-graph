@@ -525,3 +525,17 @@ def test_voice_b7_forwards_only_chat_contract_and_same_authorization_on_every_re
         assert sent[1].headers["Idempotency-Key"] == "voice-contract"
         assert len(sent[1].headers["traceparent"]) == 55
     asyncio.run(scenario())
+
+
+def test_every_timing_stage_the_runtime_records_is_one_the_voice_reply_contract_accepts():
+    # Observed in gg-dev: a new stage name ("foundry_clarification") made the bridge reject a valid reply and the
+    # member saw "Conversation unavailable".
+    import re
+    from pathlib import Path
+
+    from governedgraph.voice.voice_live_bridge import TIMING_STAGES
+
+    root = Path(__file__).resolve().parents[1] / "src" / "governedgraph"
+    used = {name for path in root.rglob("*.py")
+            for name in re.findall(r"trace\.measure\(\s*\"([a-z_]+)\"", path.read_text())}
+    assert used and used <= TIMING_STAGES, sorted(used - TIMING_STAGES)

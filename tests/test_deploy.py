@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts import bootstrap, delivery, deploy
+from scripts import bootstrap, delivery, deploy, redeploy
 from scripts.delivery_evidence import Evidence
 from governedgraph.strategy_service.provision_auth import GraphError
 
@@ -444,6 +444,7 @@ def delivery_flow(private_delivery, monkeypatch):
         return {"deployment": outputs}
 
     monkeypatch.setattr(delivery.Composition, "load", lambda _: COMPOSITION)
+    monkeypatch.setattr(redeploy, "fingerprint", lambda *_, **__: {"bicep": {}, "data_sha256": "0" * 64, "definitions": {}})
     monkeypatch.setattr(deploy, "environment", note("environment"))
     monkeypatch.setattr(create_agents, "provision", lambda *_, **__: {})
     monkeypatch.setattr(bootstrap, "release_approval", note("release approval", {}))
@@ -470,10 +471,58 @@ def test_normal_delivery_preserves_baseline_order_and_never_loads_catalogue_migr
     runner = SimpleNamespace(run=lambda *_: "")
     monkeypatch.setattr(deploy, "readiness", lambda *_: delivery_flow.calls.append("readiness"))
     assert deploy.deploy(runner, inputs, COMPOSITION)["readiness"] == "passed"
-    assert delivery_flow.calls == [
-        "environment", "release approval", "foundation", "images", "entra", "agents", "search link",
-        "bootstrap", "issuer", "public key", "initial priors", "content", "fixtures", "workloads", "readiness",
-    ]
+    calls = delivery_flow.calls
+    assert calls[:4] == ["environment", "release approval", "foundation", "images"] and calls[-2:] == ["workloads", "readiness"]
+    middle = calls[4:-2]
+    assert sorted(middle) == sorted(["entra", "agents", "search link", "bootstrap", "issuer", "public key",
+                                     "initial priors", "content", "fixtures"])
+    # Only the issuer chain and the content job wait for bootstrap.bicep, the content job also for the Search link,
+    # and the workloads wait for everything; the initial priors depend on none of the others.
+    for step in ("issuer", "content", "fixtures"):
+        assert middle.index(step) > middle.index("bootstrap")
+    assert middle.index("public key") > middle.index("issuer")
+    assert middle.index("content") > middle.index("search link")
+
+
+def test_bootstrap_identities_agents_initial_priors_and_jobs_run_side_by_side(delivery_flow, monkeypatch):
+    import threading
+
+    meeting = threading.Barrier(4, timeout=10)  # never opens if any of the four starts only after another ends
+    for name in ("entra", "agents", "initial_priors"):
+        original = getattr(bootstrap, name)
+        monkeypatch.setattr(bootstrap, name, lambda *a, _original=original, **k: (meeting.wait(), _original(*a, **k))[1])
+    provision = deploy.provision
+    monkeypatch.setattr(deploy, "provision", lambda runner, inputs, template, values: (
+        meeting.wait() if template == "infra/bootstrap.bicep" else None, provision(runner, inputs, template, values))[1])
+    monkeypatch.setattr(deploy, "readiness", lambda *_: None)
+    inputs = delivery.Inputs.load(delivery_flow.path)
+    assert deploy.deploy(SimpleNamespace(run=lambda *_: ""), inputs, COMPOSITION)["readiness"] == "passed"
+
+
+def test_concurrent_deployments_never_share_a_number_a_name_or_a_parameters_file(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    evidence = Evidence(tmp_path)
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        numbered = list(pool.map(lambda _: evidence.begin_numbered(
+            "deployments", lambda number: {"name": f"gg-x-{number:02d}", "parameters_file": f"{number:02d}.json"}),
+            range(64)))
+    assert sorted(number for number, _ in numbered) == list(range(1, 65))
+    assert len({record["name"] for _, record in numbered}) == 64 == len(evidence.data["deployments"])
+
+
+def test_independent_steps_run_together():
+    import threading
+
+    meeting = threading.Barrier(2, timeout=10)  # a sequential run would time out waiting for the second step
+
+    def step(result):
+        def run():
+            meeting.wait()
+            return result
+        return run
+
+    assert delivery.run_together({"a": step(1), "b": step(2)}) == {"a": 1, "b": 2}
 
 
 def test_deploy_bootstraps_source_imports_in_an_isolated_interpreter():
@@ -598,7 +647,10 @@ def test_conditional_access_denial_finishes_bootstrap_receipt_without_retry(deli
     receipt = json.loads(receipt_path.read_text())
     assert receipt["status"] == "failed" and receipt["stage"] == "bounded bootstrap"
     assert receipt["stages"][-1]["status"] == "failed"
-    assert delivery_flow.calls == ["environment", "release approval", "foundation", "images", "entra denied"]
+    assert delivery_flow.calls[:4] == ["environment", "release approval", "foundation", "images"]
+    # The other bootstrap chains run beside the denied Entra step, but nothing after the bootstrap wave starts.
+    assert delivery_flow.calls.count("entra denied") == 1
+    assert not {"workloads", "readiness"} & set(delivery_flow.calls)
     stderr = capsys.readouterr().err
     assert "Entra Conditional Access blocked" in stderr
     assert "synthetic-correlation" in stderr and str(receipt_path) in stderr
@@ -1291,6 +1343,7 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
             {"issuerJob": "issuer", "contentJob": "content", "fixturesJob": "fixtures"}
             if template.endswith("bootstrap.bicep") else {"deployment": {"FAIRNESS_CLIENT_ID": "synthetic"}})
     monkeypatch.setattr(deploy, "environment", lambda *_: None)
+    monkeypatch.setattr(redeploy, "fingerprint", lambda *_, **__: FINGERPRINT)
     monkeypatch.setattr(deploy, "provision", provision)
     def scoped_images(*_, subscription):
         assert subscription == inputs.subscription
@@ -1311,7 +1364,8 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
     monkeypatch.setattr(bootstrap, "member_public_jwk", lambda *_: {"kty": "RSA", "n": "AQAB", "e": "AQAB"})
     def initialize_in_selected_order(*_, **kwargs):
         assert kwargs.get("catalogue_upgrade", False) is catalogue_upgrade
-        assert calls[-1][0] == (COMPOSITION.workload_template if catalogue_upgrade else "infra/bootstrap.bicep")
+        if catalogue_upgrade:
+            assert calls[-1][0] == COMPOSITION.workload_template
         return {"initialize": {"initialized": False}}
     monkeypatch.setattr(bootstrap, "initial_priors", initialize_in_selected_order)
     monkeypatch.setattr(deploy, "run_job", lambda *_: "execution")
@@ -1393,3 +1447,288 @@ def test_explicit_catalogue_upgrade_plan_runs_nothing(private_delivery, monkeypa
     result = json.loads(capsys.readouterr().out)
     assert result["target"] == "rg-gg-dev-existing" and result["sequence"] == list(upgrade_catalogue.SEQUENCE)
     assert path.read_text() == content
+
+
+def test_framework_images_build_before_the_images_derived_from_them(monkeypatch):
+    import threading
+
+    started, framework_done = [], threading.Event()
+
+    def build(_runner, _registry, target, dockerfile, _paths, args, *, subscription):
+        framework = dockerfile in ("Dockerfile", "Dockerfile.p2")
+        if framework:
+            started.append(target)
+        else:
+            assert framework_done.is_set() and args and not set(args) - {"FRAMEWORK_RUNTIME", "FRAMEWORK_P2"}
+            assert all(value.startswith("framework/") for value in args.values())
+        if len(started) == 2:
+            framework_done.set()
+        return {"image": ("framework/" if framework else "derived/") + target}
+
+    monkeypatch.setattr(deploy, "build", build)
+    images = deploy.image_artifacts(None, {"compute": {"registryName": "r"}}, COMPOSITION, subscription="s")
+    assert list(images) == ["framework-runtime", "framework-p2", "runtime", "p2", "fixtures", "probe"]
+
+
+@pytest.fixture(autouse=True)
+def no_real_schedule_pause(monkeypatch):
+    """Entry-point tests use doubles for Azure; the pause itself is tested below against a scripted runner."""
+    from contextlib import nullcontext
+
+    monkeypatch.setattr(deploy, "paused", lambda *_a, **_k: nullcontext())
+    monkeypatch.setattr("scripts.apps_only.paused", lambda *_a, **_k: nullcontext())
+
+
+class ScheduleRunner:
+    """Scripted `az` for the two scheduled learning jobs; `busy` is the number of polls an execution stays running."""
+
+    def __init__(self, crons, busy=0):
+        self.crons, self.busy, self.updates = dict(crons), busy, []
+
+    def run(self, args):
+        job = args[args.index("-n") + 1] if "-n" in args else None
+        if args[:4] == ["az", "containerapp", "job", "list"]:
+            return json.dumps([{"name": name, "properties": {"configuration": {
+                "triggerType": "Schedule", "scheduleTriggerConfig": {"cronExpression": cron}}}}
+                for name, cron in self.crons.items()])
+        if args[:5] == ["az", "containerapp", "job", "execution", "list"]:
+            self.busy -= 1 if self.busy > 0 else 0
+            return json.dumps([{"properties": {"status": "Running" if self.busy > 0 else "Succeeded"}}])
+        assert args[:4] == ["az", "containerapp", "job", "update"]
+        self.crons[job] = args[args.index("--cron-expression") + 1]
+        self.updates.append((job, self.crons[job]))
+        return ""
+
+
+SCHEDULES = {"job-gg-p2-fairness": "0 */4 * * *", "job-gg-p2-pipeline": "2 */4 * * *"}
+INPUTS = SimpleNamespace(subscription="s", resource_group="rg")
+
+
+def test_learning_schedules_are_paused_for_the_delivery_and_restored_after_it():
+    from scripts import p2_schedules
+
+    runner = ScheduleRunner(SCHEDULES)
+    with p2_schedules.paused(runner, INPUTS):
+        assert set(runner.crons.values()) == {p2_schedules.PAUSED}
+    assert runner.crons == SCHEDULES
+
+
+def test_a_running_cycle_finishes_before_the_delivery_starts_and_the_wait_is_bounded():
+    from scripts import p2_schedules
+
+    waits, clock = [], iter(range(0, 10_000, 400))
+    runner = ScheduleRunner(SCHEDULES, busy=3)
+    with p2_schedules.paused(runner, INPUTS, sleep=waits.append, clock=lambda: next(clock)):
+        assert waits and runner.busy <= 0
+    stuck = ScheduleRunner(SCHEDULES, busy=10 ** 6)
+    with pytest.raises(delivery.DeliveryError, match="still running"):
+        with p2_schedules.paused(stuck, INPUTS, sleep=lambda _: None, clock=lambda: next(clock)):
+            pytest.fail("the delivery must not start while a cycle is running")
+    assert stuck.crons == SCHEDULES  # nothing is left paused
+
+
+def test_a_failed_delivery_restores_the_schedules_and_keeps_its_own_error():
+    from scripts import p2_schedules
+
+    runner = ScheduleRunner(SCHEDULES)
+    with pytest.raises(delivery.DeliveryError, match="synthetic failure"):
+        with p2_schedules.paused(runner, INPUTS):
+            raise delivery.DeliveryError("synthetic failure")
+    assert runner.crons == SCHEDULES
+
+
+def test_a_cadence_the_deployment_replaced_is_kept_and_an_interrupted_pause_returns_to_the_template_cadence():
+    from scripts import p2_schedules
+
+    runner = ScheduleRunner(SCHEDULES)
+    with p2_schedules.paused(runner, INPUTS):
+        runner.crons["job-gg-p2-fairness"] = "0 */6 * * *"  # what the workloads template applies
+    assert runner.crons == {**SCHEDULES, "job-gg-p2-fairness": "0 */6 * * *"}
+    left = ScheduleRunner(dict.fromkeys(SCHEDULES, p2_schedules.PAUSED))
+    with p2_schedules.paused(left, INPUTS):
+        pass
+    assert left.crons == SCHEDULES
+    template = (delivery.ROOT / "infra/modules/p2-jobs.bicep").read_text()
+    assert all(f"'{cron}'" in template for cron in SCHEDULES.values())
+
+
+def test_a_target_without_schedules_is_left_alone():
+    from scripts import p2_schedules
+
+    runner = ScheduleRunner({})
+    with p2_schedules.paused(runner, INPUTS):
+        pass
+    assert not runner.updates
+
+
+def test_parallel_builds_raise_the_first_listed_failure_after_every_build_settles():
+    finished = []
+
+    def failing(name):
+        def job():
+            finished.append(name)
+            raise delivery.DeliveryError(name)
+        return job
+
+    with pytest.raises(delivery.DeliveryError, match="first"):
+        delivery.build_together({"first": failing("first"), "second": failing("second")})
+    assert sorted(finished) == ["first", "second"]
+
+
+OLD_IMAGES = {role: {"image": f"old.azurecr.io/{role}@sha256:" + "1" * 64}
+              for role in ("framework-runtime", "framework-p2", "runtime", "p2", "fixtures", "probe")}
+FINGERPRINT = {"bicep": {"infra/main.bicep": "a" * 64}, "provisioning": {}, "inputs": {}, "data_sha256": "b" * 64,
+               "definitions": {"counsellor": "c" * 64}}
+
+
+@pytest.fixture
+def apps_only_flow(private_delivery, monkeypatch):
+    from scripts import apps_only
+
+    path, raw = private_delivery
+    root = path.parent
+    monkeypatch.setattr(apps_only, "ROOT", root)
+    inputs = delivery.Inputs.from_dict({**raw, "voice_demo": False, "resource_group": "rg-gg-dev-synthetic"})
+    previous = root / ".run/deliveries/previous"
+    previous.mkdir(parents=True)
+
+    def stored(name, values):
+        content = json.dumps(delivery.parameters(values))
+        (previous / name).write_text(content)
+        return {"parameters_file": str(previous / name), "parameters_sha256": hashlib.sha256(content.encode()).hexdigest()}
+
+    workloads = {"foundation": {"compute": {"registryName": "synthetic"}}, "principalId": inputs.operator_id,
+                 **{key: OLD_IMAGES[role]["image"] for key, role in redeploy.WORKLOAD_IMAGES.items()}}
+    bootstrap_parameters = {"foundation": {"kept": True},
+                            **{key: OLD_IMAGES[role]["image"] for key, role in redeploy.BOOTSTRAP_IMAGES.items()}}
+    receipt = {"environment": inputs.environment, "subscription": inputs.subscription,
+               "resource_group": inputs.resource_group, "naming_seed": inputs.naming_seed,
+               "readiness": "passed", "images": OLD_IMAGES, "outputs": {"ADMIN_CONSOLE_URL": "https://synthetic/"},
+               "fingerprint": FINGERPRINT, "run_id": "previous",
+               "baseline": {"workloads": stored("workloads.json", {"configuration": workloads}),
+                            "bootstrap": stored("bootstrap.json", bootstrap_parameters)}}
+    (root / ".run/delivery.json").write_text(json.dumps(receipt))
+    (root / ".azure/gg-dev").mkdir(parents=True)
+    (root / ".azure/gg-dev/.env").write_text("")
+    scope = {"AZURE_SUBSCRIPTION_ID": inputs.subscription, "AZURE_RESOURCE_GROUP": inputs.resource_group,
+             "GOVERNEDGRAPH_NAMING_SEED": inputs.naming_seed}
+    state = SimpleNamespace(calls=[], deployments=[], readiness=[], root=root, inputs=inputs, receipt=receipt,
+                            fingerprint=dict(FINGERPRINT), images=OLD_IMAGES)
+    monkeypatch.setattr(apps_only, "load", lambda **_: scope)
+    monkeypatch.setattr(redeploy, "fingerprint", lambda *_, **__: state.fingerprint)
+    monkeypatch.setattr(apps_only, "image_artifacts", lambda *_, **__: state.images)
+    monkeypatch.setattr(apps_only, "provision", lambda _runner, _inputs, template, values: (
+        state.deployments.append((template, values)) or {"deployment": {"ADMIN_CONSOLE_URL": "https://new/"}}))
+    monkeypatch.setattr(apps_only, "readiness", lambda _runner, _inputs, outputs, *, images: state.readiness.append(images))
+    state.runner = SimpleNamespace(run=lambda args: state.calls.append(args))
+    return state
+
+
+def test_code_only_redeploy_replaces_only_image_fields_of_the_reviewed_parameters(apps_only_flow):
+    from scripts import apps_only
+
+    new = {role: {"image": f"new.azurecr.io/{role}@sha256:" + "2" * 64} for role in OLD_IMAGES}
+    apps_only_flow.images = new
+    receipt = apps_only.redeploy_images(apps_only_flow.runner, apps_only_flow.inputs, COMPOSITION)
+    assert len(apps_only_flow.deployments) == 2  # the two templates roll out together, so their order is not fixed
+    deployments = dict(apps_only_flow.deployments)
+    workloads, bootstrap_values = deployments[COMPOSITION.workload_template], deployments[redeploy.BOOTSTRAP_TEMPLATE]
+    configuration = workloads["configuration"]
+    assert configuration["principalId"] == apps_only_flow.inputs.operator_id
+    assert configuration["foundation"]["compute"]["registryName"] == "synthetic"
+    assert {key: configuration[key] for key in redeploy.WORKLOAD_IMAGES} == {
+        key: new[role]["image"] for key, role in redeploy.WORKLOAD_IMAGES.items()}
+    assert bootstrap_values["foundation"] == {"kept": True} and bootstrap_values["probeImage"] == new["probe"]["image"]
+    assert apps_only_flow.readiness == [dict.fromkeys(redeploy.REQUIRED_APPS, new["runtime"]["image"])]
+    assert {call[3] for call in apps_only_flow.calls} == {"P2_CONTAINER_IMAGE", "DEV_FIXTURES_IMAGE", "DEV_ISSUER_IMAGE"}
+    assert receipt["mode"] == "apps_only" and receipt["based_on"] == "previous" and receipt["images"] == new
+    assert json.loads((apps_only_flow.root / ".run/delivery.json").read_text())["images"] == new
+
+
+def test_code_only_redeploy_rolls_the_workloads_and_the_job_images_out_together(apps_only_flow, monkeypatch):
+    import threading
+
+    from scripts import apps_only
+
+    meeting = threading.Barrier(2, timeout=10)  # never opens if one deployment starts only after the other ends
+    provision = apps_only.provision
+    monkeypatch.setattr(apps_only, "provision", lambda *args: (meeting.wait(), provision(*args))[1])
+    apps_only_flow.images = {role: {"image": f"new.azurecr.io/{role}@sha256:" + "2" * 64} for role in OLD_IMAGES}
+    apps_only.redeploy_images(apps_only_flow.runner, apps_only_flow.inputs, COMPOSITION)
+    assert len(apps_only_flow.deployments) == 2
+
+
+def test_code_only_redeploy_with_unchanged_images_deploys_nothing(apps_only_flow, capsys):
+    from scripts import apps_only
+
+    apps_only.redeploy_images(apps_only_flow.runner, apps_only_flow.inputs, COMPOSITION)
+    assert not apps_only_flow.deployments and not apps_only_flow.readiness and not apps_only_flow.calls
+    assert "nothing was deployed" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("field,value,reason", [
+    ("bicep", {"infra/main.bicep": "d" * 64}, "infrastructure templates"),
+    ("provisioning", {"scripts/bootstrap.py": "d" * 64}, "provisioning scripts"),
+    ("inputs", {"voice_demo": True}, "delivery inputs"),
+    ("data_sha256", "d" * 64, "domain data"),
+    ("definitions", {"counsellor": "d" * 64}, "Foundry agent definitions"),
+])
+def test_changes_beyond_images_fall_back_to_the_full_deployment_before_building(
+        apps_only_flow, monkeypatch, capsys, field, value, reason):
+    from scripts import apps_only
+
+    apps_only_flow.fingerprint = {**FINGERPRINT, field: value}
+    monkeypatch.setattr(apps_only, "image_artifacts", lambda *_, **__: pytest.fail("built before falling back"))
+    assert apps_only.redeploy_images(apps_only_flow.runner, apps_only_flow.inputs, COMPOSITION) is None
+    assert f"Full deployment required: changes to {reason}" in capsys.readouterr().out
+    assert not apps_only_flow.deployments
+
+
+def test_another_scope_a_stale_receipt_an_operator_change_and_altered_parameters_fall_back(apps_only_flow):
+    from dataclasses import replace
+    from scripts import apps_only
+
+    other = replace(apps_only_flow.inputs, resource_group="rg-gg-dev-other")
+    with pytest.raises(redeploy.NotCodeOnly, match="different deployment scope"):
+        redeploy.load_baseline(other, root=apps_only_flow.root)
+    redeployed = lambda inputs=apps_only_flow.inputs: apps_only.redeploy_images(apps_only_flow.runner, inputs, COMPOSITION)
+    assert redeployed(replace(apps_only_flow.inputs, operator_id="00000000-0000-0000-0000-000000000009")) is None
+    receipt_path = apps_only_flow.root / ".run/delivery.json"
+    receipt_path.write_text(json.dumps({k: v for k, v in apps_only_flow.receipt.items() if k != "fingerprint"}))
+    assert redeployed() is None
+    receipt_path.write_text(json.dumps(apps_only_flow.receipt))
+    Path(apps_only_flow.receipt["baseline"]["workloads"]["parameters_file"]).write_text("{}")
+    assert redeployed() is None
+    assert not apps_only_flow.deployments
+
+
+def test_the_fingerprint_covers_inputs_but_not_the_operator_who_may_be_resolved_at_delivery():
+    from dataclasses import replace
+
+    inputs = delivery.Inputs.from_dict({
+        "subscription": "00000000-0000-0000-0000-000000000001", "naming_seed": "00000000-0000-0000-0000-000000000002",
+        "operator_id": "00000000-0000-0000-0000-000000000003", "on_call_email": "synthetic@example.invalid",
+        "composition": "examples/pension_wtp/deployment.json", "resource_group": "rg-gg-dev-synthetic"})
+    root = COMPOSITION.data_directory.parents[2]
+    before = redeploy.fingerprint(COMPOSITION, inputs, root=root)
+    assert set(before) == set(redeploy.CHANGES)
+    assert redeploy.fingerprint(COMPOSITION, replace(inputs, operator_id=""), root=root) == before
+    assert redeploy.fingerprint(
+        COMPOSITION, replace(inputs, voice_demo=not inputs.voice_demo), root=root)["inputs"] != before["inputs"]
+
+
+@pytest.mark.parametrize("flags,expect_redeploy", [
+    (["--reuse", "rg-gg-dev-synthetic"], True), (["--reuse", "rg-gg-dev-synthetic", "--full"], False), (["--new"], False)])
+def test_deploy_picks_the_code_only_path_unless_forced_full_or_new(private_delivery, monkeypatch, flags, expect_redeploy):
+    from scripts import apps_only
+
+    path, raw = private_delivery
+    path.write_text(json.dumps({**raw, "voice_demo": False}))
+    receipt = {"readiness": "passed", "outputs": {"ADMIN_CONSOLE_URL": "https://synthetic/"}}
+    calls = []
+    monkeypatch.setattr(delivery.Composition, "load", lambda _: COMPOSITION)
+    monkeypatch.setattr(deploy, "select_target", lambda _runner, _path, _raw, inputs, **_: inputs)
+    monkeypatch.setattr(deploy, "deploy", lambda *_: calls.append("full") or receipt)
+    monkeypatch.setattr(apps_only, "redeploy_images", lambda *_: calls.append("code-only") or None)
+    assert deploy.main(["--inputs", str(path), *flags]) == 0
+    assert calls == (["code-only", "full"] if expect_redeploy else ["full"])

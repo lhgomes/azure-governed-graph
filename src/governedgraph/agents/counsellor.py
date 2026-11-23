@@ -25,7 +25,7 @@ from governedgraph.common.config import DATA_DIR, settings
 from governedgraph.common.contracts import (
     AnswerDraft, AnswerReview, ExplanationContext, IntentDecision, UnderstandingDecision, event_timestamp,
 )
-from governedgraph.common.domain import message, prompt as domain_prompt
+from governedgraph.common.domain import mentions_own_sources, message, prompt as domain_prompt
 from governedgraph.common.io import load_json
 from governedgraph.explainability.declined_questions import (
     CAPTURED_REASONS, MAX_CHARS, DeclinedQuestion, default_question_store,
@@ -94,9 +94,29 @@ ESCALATION_DECLINES = {
 }
 
 
+# The approved wording that opens the reply for each host escalation code (the handover text always follows).
+ESCALATION_MESSAGES = {
+    "advice_intent": "advice_declined", "safety": "safety_declined",
+    "component_failure": "component_failure", "conversation_limit": "conversation_limit",
+}
+
+
 def _quality_only(review: AnswerReview) -> bool:
     """Only relevance/style defects remain; every safety check (grounding, advice, document, language) passed."""
     return review.verdict == "revise" and bool(review.issues) and set(review.issues) <= {"relevance", "strategy"}
+
+
+MAX_CLARIFICATION_CHARS = 300
+MAX_PASSAGE_FALLBACK_CHARS = 700
+
+
+def _clarifying_question_ok(text: str) -> bool:
+    """One short question with no figures, placeholders or steering; anything else falls back to approved wording."""
+    text = text.strip()
+    return (bool(text) and len(text) <= MAX_CLARIFICATION_CHARS and text.endswith("?") and text.count("?") == 1
+            and "{{" not in text and "}}" not in text
+            and numeric_fidelity.check(text, None, []).passed and not response_steers_choice(text)
+            and not mentions_own_sources(text))
 
 
 def _task_template(tools, strategy) -> str:
@@ -131,12 +151,53 @@ class TurnResult:
     turn_trace: list[dict] = field(default_factory=list)
 
 
+class _Reply(Exception):
+    """Ends the explanation path early with a finished reply."""
+
+    def __init__(self, result: "TurnResult"):
+        super().__init__("reply")
+        self.result = result
+
+
+def _judge(c, utterance: str, strategy, draft: AnswerDraft) -> AnswerReview:
+    from governedgraph.agents.decision_agents import review_with_decision_model
+
+    review = dependency("answer_review_agent", review_with_decision_model, c.tools, utterance, strategy, draft)
+    c.tools.trace.note("answer_review", review.verdict, review.issues)
+    return review
+
+
+def _revise(c, utterance: str, strategy, draft: AnswerDraft, issues: list[str]) -> str:
+    """One writer revision; '' when the revised draft does not pass the deterministic gate."""
+    revised = dependency("model", c._foundry_composer().revise, c.tools, utterance, strategy, draft, issues)
+    _, _, reason = c._post_process(revised, strategy)
+    usable = not reason and c.tools.trace.composition_source == "foundry"
+    c.tools.trace.note("answer_repair", "revised" if usable else "unusable")
+    return revised if usable else ""
+
+
+def _release_after_failed_review(c, raw_draft: str, draft: AnswerDraft, review: AnswerReview) -> tuple[str, AnswerReview]:
+    """What is released when the review is not a pass: the draft itself for quality-only defects (no teach-back is
+    claimed), the cited approved passages when grounding is the only safety defect, otherwise the approved fallback."""
+    trace = c.tools.trace
+    if _quality_only(review):
+        log.warning("answer_review_quality_waived", extra={"journey_id": c.journey.journey_id, "issues": review.issues})
+        trace.composition_source = "foundry"
+        return raw_draft, review
+    passages = c._passage_fallback(draft, review)
+    if passages:
+        trace.composition_source = "foundry"
+        return passages, review
+    trace.composition_source = "template_fallback"
+    return "", review
+
+
 class Counsellor:
     question_store = None
     _utterance = ""
 
     def __init__(self, journey: Journey, authenticated_member_ref: str, strategy_service=None,
-                 composer: str | None = None, member_token: str = "", step_up_verified: bool = True,
+                 member_token: str = "", step_up_verified: bool = True,
                  audit_enqueue=None, audit_store=None, voice_model: str = ""):
         selected_voice_model = voice_model or os.getenv("GOVERNEDGRAPH_VOICE_DRAFT_MODEL", "gpt-counsellor")
         if selected_voice_model not in ("gpt-counsellor", "gpt-compact"):
@@ -164,9 +225,6 @@ class Counsellor:
             prompt_screen=self.screen,
             step_up_verified=step_up_verified,
         )
-        if composer not in (None, "foundry"):
-            raise ValueError("only the hosted Foundry composer is supported")
-        self.composer = "foundry"
         if self.compact_voice:
             self.tools.model_deployment = settings.compact_deployment
             self.tools.agent_name = "gg-counsellor-voice-compact"
@@ -209,7 +267,7 @@ class Counsellor:
     def decide(self, role: str, utterance: str) -> IntentDecision | UnderstandingDecision:
         from governedgraph.agents.decision_agents import DecisionContext, run_decision
 
-        selected = self.tools.related_answer_context if role in {"intent", "follow_up_intent"} else None
+        selected = self.tools.related_answer_context if role == "intent" else None
         context = DecisionContext(
             self.journey.state.value, selected.previous_intent if selected else self.journey.intent,
             (selected.previous_template_id if selected else
@@ -316,18 +374,33 @@ class Counsellor:
 
     # ---- explanation path ----
     def _explain(self, utterance: str, exclude: set[str]) -> TurnResult:
+        try:
+            if not self.step_up_verified:
+                return self._step_up_reply(utterance)
+            self._load_sources(utterance)
+            strategy = self._choose_strategy(exclude)
+            draft = self._draft(utterance, strategy)
+            text, fidelity, last_explanation = self._release(utterance, strategy, draft)
+        except _Reply as done:
+            return done.result
+        return self._deliver(strategy, text, fidelity, last_explanation)
+
+    def _step_up_reply(self, utterance: str) -> TurnResult:
+        """Without step-up verification only the approved general passages are shown."""
+        trace = self.tools.trace
+        try:
+            dependency("search", self.tools.search_approved_content, utterance)
+        except ContentSafetyError:
+            return self._escalate("approved content screening unavailable or blocked", "safety")
+        passages = [text for text in trace.content_texts
+                    if numeric_fidelity.check(text, None, []).passed and not response_steers_choice(text)]
+        text = " ".join(passages) + " Please complete step-up verification to see your personal figures, or ask for a human advisor."
+        trace.note("outcome", "step_up_required")
+        return TurnResult(text.strip(), self.journey.state.value)
+
+    def _load_sources(self, utterance: str) -> None:
+        """Official values, the ranked strategies and the approved passages; a missing source ends the turn."""
         t = self.tools
-        if not self.step_up_verified:
-            try:
-                dependency("search", t.search_approved_content, utterance)
-            except ContentSafetyError:
-                return self._escalate("approved content screening unavailable or blocked", "safety")
-            passages = [text for text in t.trace.content_texts
-                        if numeric_fidelity.check(text, None, []).passed and not response_steers_choice(text)]
-            text = " ".join(passages)
-            text += " Please complete step-up verification to see your personal figures, or ask for a human advisor."
-            t.trace.note("outcome", "step_up_required")
-            return TurnResult(text.strip(), self.journey.state.value)
         if self.journey.channel == "voice":
             self._parallel_explanation_sources(utterance)
         try:
@@ -342,146 +415,149 @@ class Counsellor:
         if not self._prefetched:
             with t.trace.measure("strategy_lookup"):
                 dependency("strategy_service", t.get_ranked_strategies)
-        if (t.trace.ranked is None or (t.trace.ranked.source == "expert_priors_fallback"
-                and not t.trace.ranked.static_fallback_authorized)):
+        ranked = t.trace.ranked
+        if ranked is None or (ranked.source == "expert_priors_fallback" and not ranked.static_fallback_authorized):
             raise DependencyFailure("strategy snapshot unavailable")
-        if t.trace.ranked.catalogue_version != self.catalogue.version:
+        if ranked.catalogue_version != self.catalogue.version:
             self.catalogue, _ = dependency("strategy_catalogue", t.strategy_client.get_catalogue,
-                                           t.trace.ranked.catalogue_version)
+                                           ranked.catalogue_version)
         try:
             if not self._prefetched:
                 with t.trace.measure("content_lookup"):
                     dependency("search", t.search_approved_content, utterance)
         except ContentSafetyError:
-            return self._escalate("approved content screening unavailable or blocked", "safety")
-        ranked = [r for r in t.trace.ranked.ranked if r.strategy_id not in exclude]
-        if self.journey.test_strategy_id:
-            ranked = [r for r in ranked if r.strategy_id == self.journey.test_strategy_id]
-        if not ranked:
-            return self._escalate("selected test style is not currently eligible or available"
-                                  if self.journey.test_strategy_id else "no eligible approved strategy left",
-                                  "teach_back_failed", decline_reason="no_eligible_style")
-        strategy = self.catalogue.get(ranked[0].strategy_id)
-        t.explanation_pattern = self._pattern_for(strategy)
-        t.template_version = strategy.template_version
+            raise _Reply(self._escalate("approved content screening unavailable or blocked", "safety"))
 
-        escalation_count = len(t.trace.escalations)
+    def _choose_strategy(self, exclude: set[str]):
+        """The first ranked approved strategy that is not excluded (or the one an admin test selected)."""
+        test_strategy = self.journey.test_strategy_id
+        ranked = [r for r in self.tools.trace.ranked.ranked if r.strategy_id not in exclude
+                  and (not test_strategy or r.strategy_id == test_strategy)]
+        if not ranked:
+            raise _Reply(self._escalate("selected test style is not currently eligible or available" if test_strategy
+                                        else "no eligible approved strategy left",
+                                        "teach_back_failed", decline_reason="no_eligible_style"))
+        strategy = self.catalogue.get(ranked[0].strategy_id)
+        self.tools.explanation_pattern = self._pattern_for(strategy)
+        self.tools.template_version = strategy.template_version
+        return strategy
+
+    def _draft(self, utterance: str, strategy) -> str:
+        """One writer draft, ended early when the model asks for a person or the strategy is no longer served."""
         from governedgraph.agents.foundry_runtime import ToolUnavailable
 
+        trace = self.tools.trace
+        escalations = len(trace.escalations)
         try:
-            with t.trace.measure("foundry_draft"):
+            with trace.measure("foundry_draft"):
                 draft = dependency("model", self._compose, strategy, utterance)
         except ContentSafetyError:
-            return self._escalate("approved content screening unavailable or blocked", "safety")
+            raise _Reply(self._escalate("approved content screening unavailable or blocked", "safety"))
         except ToolUnavailable as error:
             raise DependencyFailure("journey-bound component unavailable") from error
-        if len(t.trace.escalations) > escalation_count:
-            return self._escalate("model requested a human advisor", "advice_intent",
-                                  decline_reason="model_requested_advisor")
-        if strategy.strategy_id not in {r.strategy_id for r in t.trace.ranked.ranked}:
+        if len(trace.escalations) > escalations:
+            raise _Reply(self._escalate("model requested a human advisor", "advice_intent",
+                                        decline_reason="model_requested_advisor"))
+        if strategy.strategy_id not in {r.strategy_id for r in trace.ranked.ranked}:
             raise DependencyFailure("selected strategy no longer served")
-        with t.trace.measure("post_processing"):
-            text, fid, reason = self._post_process(draft, strategy)
-        repaired = reason == "placeholder_contract"
+        return draft
+
+    def _release(self, utterance: str, strategy, draft: str):
+        """Gate the draft (one repair for a contract breach), review it, gate again: (text, fidelity, taught)."""
+        trace = self.tools.trace
+        with trace.measure("post_processing"):
+            text, fidelity, reason = self._post_process(draft, strategy)
+        repaired = reason in {"placeholder_contract", "source_talk"}
         if repaired:
-            log.warning("answer_output_repair", extra={
-                "journey_id": self.journey.journey_id, "failure_domain": reason,
-            })
-            with t.trace.measure("foundry_review"):
-                draft = dependency("model", self._foundry_composer().revise, t, utterance, strategy,
-                                   AnswerDraft.from_dict(json.loads(draft)), ["placeholder_contract"])
-            with t.trace.measure("post_processing"):
-                text, fid, reason = self._post_process(draft, strategy)
-            t.trace.note("answer_repair", "unusable" if reason else "revised")
+            log.warning("answer_output_repair", extra={"journey_id": self.journey.journey_id, "failure_domain": reason})
+            with trace.measure("foundry_review"):
+                draft = dependency("model", self._foundry_composer().revise, self.tools, utterance, strategy,
+                                   AnswerDraft.from_dict(json.loads(draft)), [reason])
+            with trace.measure("post_processing"):
+                text, fidelity, reason = self._post_process(draft, strategy)
+            trace.note("answer_repair", "unusable" if reason else "revised")
         if reason:
-            return self._unanswered(reason)
+            raise _Reply(self._unanswered(reason))
+        if trace.composition_source != "foundry":
+            return text, fidelity, None
+        with trace.measure("foundry_review"):
+            draft, review = self._review_answer(utterance, strategy, draft, allow_repair=not repaired)
+        with trace.measure("post_processing"):
+            text, fidelity, reason = self._post_process(draft, strategy)
+        if reason:
+            raise _Reply(self._unanswered(reason, "answer_review" if review.verdict != "pass" else "output_gate"))
+        if review.verdict != "pass" or trace.composition_source != "foundry":
+            return text, fidelity, None
+        intent = next((item.decision for item in reversed(trace.decision_evidence)
+                       if item.role == "intent" and item.decision["route"] == "explanation"), None)
+        last = self.journey.last_explanation
+        focus = intent["reason"] if intent else (last.question_focus if last else None)
+        return text, fidelity, ExplanationContext(review.concepts, review.teach_back_concepts, focus)
 
-        last_explanation = None
-        if t.trace.composition_source == "foundry":
-            with t.trace.measure("foundry_review"):
-                draft, review = self._review_answer(utterance, strategy, draft, allow_repair=not repaired)
-            with t.trace.measure("post_processing"):
-                text, fid, reason = self._post_process(draft, strategy)
-            if reason:
-                return self._unanswered(reason, "answer_review" if review.verdict != "pass" else "output_gate")
-            intent = next((item.decision for item in reversed(t.trace.decision_evidence)
-                           if item.role == "intent" and item.decision["route"] == "explanation"), None)
-            focus = intent["reason"] if intent else (
-                self.journey.last_explanation.question_focus if self.journey.last_explanation else None)
-            last_explanation = (
-                ExplanationContext(review.concepts, review.teach_back_concepts, focus)
-                if review.verdict == "pass" and t.trace.composition_source == "foundry" else None
-            )
-
+    def _deliver(self, strategy, text: str, fidelity, last_explanation) -> TurnResult:
+        """Record the answer, advance the journey and build the member-visible result."""
+        t = self.tools
         self._current_strategy = strategy.strategy_id
         self.journey.unanswered_streak = 0
-        fallback_goal = t.trace.composition_source == "template_fallback" and bool(_task_template(t, strategy))
+        source = t.trace.composition_source
+        fallback_goal = source == "template_fallback" and bool(_task_template(t, strategy))
         clarification = fallback_goal and "?" in text
         t.trace.note("outcome", "follow_up_question" if clarification else "answered")
         self.journey.strategies_tried.append(strategy.strategy_id)
         with t.trace.measure("audit_commit"):
             t.write_explainability_record(
-                strategy.strategy_id, numeric_fidelity_passed=fid.passed,
-                response_kind="acknowledgment" if clarification else "explanation",
-            )
+                strategy.strategy_id, numeric_fidelity_passed=fidelity.passed,
+                response_kind="acknowledgment" if clarification else "explanation")
         reviews = [item for item in t.trace.decision_evidence if item.role == "answer-review"]
         if reviews and reviews[-1].decision["verdict"] != "pass":
             self._keep_declined_question(flagged=True)
         # A task-specific fallback is not a reviewed teach-back.
-        teach_back_skipped = t.trace.composition_source == "foundry" and last_explanation is None
-        ev = (Event.OUTPUT_DELIVERED if clarification else
-              Event.RESPONSE_DELIVERED if strategy.teach_back and not fallback_goal and not teach_back_skipped
-              else Event.NO_TEACH_BACK)
-        self.journey.fire(ev, strategy=(strategy.strategy_id, strategy.version))
+        teach_back_skipped = source == "foundry" and last_explanation is None
+        event = (Event.OUTPUT_DELIVERED if clarification else
+                 Event.RESPONSE_DELIVERED if strategy.teach_back and not fallback_goal and not teach_back_skipped
+                 else Event.NO_TEACH_BACK)
+        self.journey.fire(event, strategy=(strategy.strategy_id, strategy.version))
         self.journey.last_explanation = last_explanation
-        r = t.trace.ranked
-        return TurnResult(text, self.journey.state.value, strategy.strategy_id, fidelity=fid,
-                          ranked=[x.strategy_id for x in r.ranked], suspended=r.suspended, arm=r.arm, snapshot_id=r.snapshot_id)
+        ranked = t.trace.ranked
+        return TurnResult(text, self.journey.state.value, strategy.strategy_id, fidelity=fidelity,
+                          ranked=[x.strategy_id for x in ranked.ranked], suspended=ranked.suspended,
+                          arm=ranked.arm, snapshot_id=ranked.snapshot_id)
 
     def _review_answer(self, utterance: str, strategy, raw_draft: str, *,
                        allow_repair: bool = True) -> tuple[str, AnswerReview]:
-        from governedgraph.agents.decision_agents import review_with_decision_model
-
-        judge = self.decision_agents.get("answer-review")
-        review_draft = judge.judge if judge is not None else review_with_decision_model
+        """Judge the draft; a defect the writer can fix gets one revision. Returns the text to release ("" = none)."""
         draft = AnswerDraft.from_dict(json.loads(raw_draft))
-        review = dependency("answer_review_agent", review_draft, self.tools, utterance, strategy, draft)
-        self.tools.trace.note("answer_review", review.verdict, review.issues)
+        review = _judge(self, utterance, strategy, draft)
         if allow_repair and review.verdict == "revise" and "advice" not in review.issues:
             log.warning("answer_review_repair", extra={
-                "journey_id": self.journey.journey_id, "verdict": review.verdict, "issues": review.issues,
-            })
-            revised = dependency("model", self._foundry_composer().revise,
-                                 self.tools, utterance, strategy, draft, review.issues)
-            _, _, reason = self._post_process(revised, strategy)
-            if reason or self.tools.trace.composition_source != "foundry":
-                self.tools.trace.note("answer_repair", "unusable")
-                if _quality_only(review):
-                    self.tools.trace.composition_source = "foundry"
-                    log.warning("answer_review_quality_waived", extra={
-                        "journey_id": self.journey.journey_id, "issues": review.issues})
-                    return raw_draft, review
-                return "", review
-            self.tools.trace.note("answer_repair", "revised")
-            draft = AnswerDraft.from_dict(json.loads(revised))
-            raw_draft = revised
-            review = dependency("answer_review_agent", review_draft, self.tools, utterance, strategy, draft)
-            self.tools.trace.note("answer_review", review.verdict, review.issues)
-        if review.verdict != "pass":
-            log.warning("answer_review_nonpass", extra={
-                "journey_id": self.journey.journey_id, "verdict": review.verdict, "issues": review.issues,
-            })
-            if _quality_only(review):
-                # Relevance and teaching style are quality properties, not safety properties: the draft already
-                # passed every grounding, advice, document, language and uncertainty check and the deterministic
-                # gates after one repair, so deliver it rather than withhold an answer. No teach-back is claimed.
-                log.warning("answer_review_quality_waived", extra={
-                    "journey_id": self.journey.journey_id, "issues": review.issues})
-                self.tools.trace.composition_source = "foundry"
-                return raw_draft, review
-            self.tools.trace.composition_source = "template_fallback"
-            return "", review
-        return raw_draft, review
+                "journey_id": self.journey.journey_id, "verdict": review.verdict, "issues": review.issues})
+            revised = _revise(self, utterance, strategy, draft, review.issues)
+            if not revised:
+                return _release_after_failed_review(self, raw_draft, draft, review)
+            raw_draft, draft = revised, AnswerDraft.from_dict(json.loads(revised))
+            review = _judge(self, utterance, strategy, draft)
+        if review.verdict == "pass":
+            return raw_draft, review
+        log.warning("answer_review_nonpass", extra={
+            "journey_id": self.journey.journey_id, "verdict": review.verdict, "issues": review.issues})
+        return _release_after_failed_review(self, raw_draft, draft, review)
+
+    def _passage_fallback(self, draft: AnswerDraft, review: AnswerReview) -> str:
+        """Grounding is the only defect that two drafts could not fix: answer with the approved passages the draft
+        cited, word for word. Approved text cannot be unsupported; every deterministic gate still applies to it."""
+        if review.verdict != "revise" or "grounding" not in review.issues or not set(review.issues) <= {
+                "grounding", "strategy"}:
+            return ""
+        trace = self.tools.trace
+        approved = dict(zip(trace.content_versions, trace.content_texts, strict=True))
+        used = [content_id for content_id in dict.fromkeys(draft.content_ids) if content_id in approved][:2]
+        text = " ".join(approved[content_id] for content_id in used)
+        if (not text or len(text) > MAX_PASSAGE_FALLBACK_CHARS or not numeric_fidelity.check(text, None, []).passed
+                or response_steers_choice(text) or mentions_own_sources(text)):
+            return ""
+        log.warning("answer_passage_fallback", extra={"journey_id": self.journey.journey_id})
+        trace.note("answer_review", "passage_fallback")
+        return json.dumps({"text": text, "content_ids": used})
 
     def _template_for(self, strategy) -> str:
         """Approved task-specific wording, otherwise a variant with available official values."""
@@ -507,81 +583,99 @@ class Counsellor:
                 else FoundryComposer.shared(INSTRUCTIONS))
 
     def _post_process(self, draft: str, strategy) -> tuple[str, numeric_fidelity.FidelityResult, str | None]:
-        from governedgraph.observability import emit
-
-        def numeric_block():
-            emit("numeric_fidelity_block", event_id=f"{self.tools.response_id}:numeric-block",
-                 journey_id=self.journey.journey_id, agent_name=self.tools.agent_name)
-
+        """The deterministic output gate: (text, fidelity, None) when released, or ("", failed, reason)."""
+        trace = self.tools.trace
         template = _task_template(self.tools, strategy)
-        approved = self.tools.trace.content_texts
-        failure_reason = "numeric-fidelity or steering gate failed"
-        if self.tools.trace.composition_source == "foundry":
-            try:
-                answer = AnswerDraft.from_dict(json.loads(draft))
-                references = set(referenced_value_ids(answer.text))
-                available = set(self.tools.trace.values.by_id()) if self.tools.trace.values else set()
-                if (not references <= available
-                        or not set(answer.content_ids) <= set(self.tools.trace.content_versions)
-                        or (not references and not answer.content_ids)):
-                    raise ValueError("answer has no approved grounding")
-                draft = answer.text
-            except (ValueError, TypeError) as error:
-                log.warning("model_grounding_contract_blocked", extra={
-                    "journey_id": self.journey.journey_id, "error_type": type(error).__name__,
-                })
-                self.tools.trace.note("output_gate", "blocked", ["grounding_contract"])
-                draft = ""
+        from_model = trace.composition_source == "foundry"
+        reason = "numeric-fidelity or steering gate failed"
+        if from_model:
+            draft = self._grounded_text(draft)
         for index, candidate in enumerate((draft, template)):
             if not candidate:
                 continue
-            gate_source = "template" if index else "draft"
-            if index == 0 and self.tools.trace.composition_source == "foundry":
-                unbound = re.sub(r"\{\{(?:value|asof):[^{}]+\}\}", "", candidate)
-                if re.search(r"\d", numeric_fidelity.ORDINAL.sub("", unbound)):
-                    failure_reason = "placeholder_contract"
-                    log.warning("model_placeholder_contract_blocked", extra={"journey_id": self.journey.journey_id})
-                    self.tools.trace.note("output_gate", "blocked", ["placeholder_contract"])
-                    numeric_block()
+            if index == 0 and from_model:
+                breach = self._contract_breach(candidate)
+                if breach:
+                    reason = breach
                     continue
-            if not numeric_fidelity.check(candidate, None, []).passed:
-                log.warning("unbound_figure_blocked", extra={"journey_id": self.journey.journey_id})
-                self.tools.trace.note("output_gate", "blocked", ["unbound_figure"])
-                numeric_block()
-                continue
-            try:
-                text = bind(candidate, self.tools.trace.values)
-            except BindingError:
-                log.warning("output_gate_blocked", extra={
-                    "journey_id": self.journey.journey_id, "failure_domain": f"{gate_source}:binding"})
-                numeric_block()
-                continue
-            if "{{" in text or "}}" in text:
-                log.warning("output_gate_blocked", extra={
-                    "journey_id": self.journey.journey_id, "failure_domain": f"{gate_source}:unbound_placeholder"})
-                numeric_block()
-                continue
-            fid = numeric_fidelity.check(text, self.tools.trace.values, approved)
-            if not fid.passed:
-                log.warning("output_gate_blocked", extra={
-                    "journey_id": self.journey.journey_id, "failure_domain": f"{gate_source}:numeric_fidelity"})
-                self.tools.trace.note("output_gate", "blocked", ["numeric_fidelity"])
-                numeric_block()
-            if fid.passed and not response_steers_choice(text):
+            gated = self._gate(candidate, "template" if index else "draft")
+            if gated:
                 if index:
-                    self.tools.trace.composition_source = "template_fallback"
-                    self.tools.trace.note("output_gate", "template_fallback")
+                    trace.composition_source = "template_fallback"
+                    trace.note("output_gate", "template_fallback")
                     log.warning("output_gate_template_fallback", extra={"journey_id": self.journey.journey_id})
-                return text, fid, None
-            if fid.passed:
-                log.warning("output_gate_blocked", extra={
-                    "journey_id": self.journey.journey_id, "failure_domain": f"{gate_source}:steers_choice"})
-                self.tools.trace.note("output_gate", "blocked", ["steers_choice"])
+                return gated[0], gated[1], None
         if not template:
             log.warning("output_gate_blocked", extra={
                 "journey_id": self.journey.journey_id, "failure_domain": "template:none_approved"})
-            self.tools.trace.note("output_gate", "no_approved_fallback")
-        return "", numeric_fidelity.FidelityResult(False, [], ["<blocked>"]), failure_reason
+            trace.note("output_gate", "no_approved_fallback")
+        return "", numeric_fidelity.FidelityResult(False, [], ["<blocked>"]), reason
+
+    def _grounded_text(self, draft: str) -> str:
+        """The model draft's text when it cites approved content or official values only, otherwise ''."""
+        trace = self.tools.trace
+        try:
+            answer = AnswerDraft.from_dict(json.loads(draft))
+            references = set(referenced_value_ids(answer.text))
+            available = set(trace.values.by_id()) if trace.values else set()
+            if (not references <= available or not set(answer.content_ids) <= set(trace.content_versions)
+                    or (not references and not answer.content_ids)):
+                raise ValueError("answer has no approved grounding")
+            return answer.text
+        except (ValueError, TypeError) as error:
+            log.warning("model_grounding_contract_blocked", extra={
+                "journey_id": self.journey.journey_id, "error_type": type(error).__name__})
+            trace.note("output_gate", "blocked", ["grounding_contract"])
+            return ""
+
+    def _contract_breach(self, text: str) -> str | None:
+        """What a model draft breaks before binding: talking about its own sources, or a literal figure."""
+        if mentions_own_sources(text):
+            log.warning("model_source_talk_blocked", extra={"journey_id": self.journey.journey_id})
+            self.tools.trace.note("output_gate", "blocked", ["source_talk"])
+            return "source_talk"
+        unbound = re.sub(r"\{\{(?:value|asof):[^{}]+\}\}", "", text)
+        if re.search(r"\d", numeric_fidelity.ORDINAL.sub("", unbound)):
+            log.warning("model_placeholder_contract_blocked", extra={"journey_id": self.journey.journey_id})
+            self.tools.trace.note("output_gate", "blocked", ["placeholder_contract"])
+            self._numeric_block()
+            return "placeholder_contract"
+        return None
+
+    def _gate(self, candidate: str, source: str):
+        """Bind the placeholders and run the numeric and steering gates: (text, fidelity), or None when refused."""
+        trace, journey_id = self.tools.trace, self.journey.journey_id
+
+        def refuse(domain: str, issue: str | None = None, *, numeric: bool = True):
+            log.warning("output_gate_blocked", extra={"journey_id": journey_id, "failure_domain": f"{source}:{domain}"})
+            if issue:
+                trace.note("output_gate", "blocked", [issue])
+            if numeric:
+                self._numeric_block()
+
+        if not numeric_fidelity.check(candidate, None, []).passed:
+            log.warning("unbound_figure_blocked", extra={"journey_id": journey_id})
+            trace.note("output_gate", "blocked", ["unbound_figure"])
+            self._numeric_block()
+            return None
+        try:
+            text = bind(candidate, trace.values)
+        except BindingError:
+            return refuse("binding")
+        if "{{" in text or "}}" in text:
+            return refuse("unbound_placeholder")
+        fidelity = numeric_fidelity.check(text, trace.values, trace.content_texts)
+        if not fidelity.passed:
+            return refuse("numeric_fidelity", "numeric_fidelity")
+        if response_steers_choice(text):
+            return refuse("steers_choice", "steers_choice", numeric=False)
+        return text, fidelity
+
+    def _numeric_block(self) -> None:
+        from governedgraph.observability import emit
+
+        emit("numeric_fidelity_block", event_id=f"{self.tools.response_id}:numeric-block",
+             journey_id=self.journey.journey_id, agent_name=self.tools.agent_name)
 
     def _keep_declined_question(self, flagged: bool = False) -> None:
         """Best effort, after the audit record: a storage problem here never changes what the member receives.
@@ -596,6 +690,21 @@ class Counsellor:
         except Exception as error:
             log.error("declined_question_not_kept", extra={"journey_id": self.journey.journey_id,
                                                            "error_type": type(error).__name__})
+
+    def _clarify(self, utterance: str) -> TurnResult:
+        """An unclear request gets one writer-drafted clarifying question; any failure uses the approved wording."""
+        text = ""
+        try:
+            with self.tools.trace.measure("foundry_draft"):
+                text = dependency("model", lambda: self._foundry_composer().clarify(self.tools, utterance))
+        except ConversationQuotaExceeded:
+            raise
+        except DependencyFailure:
+            log.warning("clarification_draft_unavailable", extra={"journey_id": self.journey.journey_id})
+        if not _clarifying_question_ok(text):
+            log.warning("clarification_draft_replaced", extra={"journey_id": self.journey.journey_id})
+            text = message("clarify_question")
+        return TurnResult(text, self.journey.state.value)
 
     def _unanswered(self, reason: str, decline_reason: str = "output_gate") -> TurnResult:
         """A failed answer is a host failure, not a request for the member to repeat their question."""
@@ -624,15 +733,10 @@ class Counsellor:
         self.tools.write_explainability_record(ESCALATION_STRATEGY, response_kind="escalation")
         self._keep_declined_question()
         self.tools.trace.note("outcome", "escalated", [reason_code])
-        msg = message("advice_declined") if reason_code == "advice_intent" else ""
-        if reason_code == "safety":
-            msg = message("safety_declined")
-        elif reason_code == "component_failure":
-            msg = message("component_failure")
-        elif reason_code == "conversation_limit":
-            msg = message("conversation_limit")
-        return TurnResult(msg + message("handover_arranged"),
-                          self.journey.state.value, ESCALATION_STRATEGY, escalated=True, blocked_reason=None if reason_code != "safety" else summary)
+        declined = ESCALATION_MESSAGES.get(reason_code)
+        return TurnResult((message(declined) if declined else "") + message("handover_arranged"),
+                          self.journey.state.value, ESCALATION_STRATEGY, escalated=True,
+                          blocked_reason=summary if reason_code == "safety" else None)
 
 
 def new_session(member_ref: str, channel: str = "voice", accessibility_mode: str = "standard", strategy_service=None,

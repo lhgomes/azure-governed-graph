@@ -3,6 +3,7 @@ from dataclasses import asdict, replace
 from contextlib import nullcontext
 import json
 import os
+from threading import Lock
 from types import ModuleType, SimpleNamespace
 import sys
 import time
@@ -11,10 +12,12 @@ from uuid import uuid4
 
 import pytest
 
-from governedgraph.agents import azure_safety, foundry_runtime
+from governedgraph.agents import azure_safety, decision_model, foundry_runtime
 from governedgraph.agents.foundry_runtime import FoundryComposer, MAX_TOOL_ROUNDS
 from governedgraph.agents.counsellor import INSTRUCTIONS
-from governedgraph.common.contracts import ContractError, DecisionEvidence, ExplainabilityRecord, IntentDecision
+from governedgraph.common.contracts import (
+    EXPLANATION_CONCEPTS, ContractError, DecisionEvidence, ExplainabilityRecord, IntentDecision,
+)
 from governedgraph.guardrails.prompt_safety import ScreenResult
 from governedgraph.guardrails.numeric_fidelity import check
 from counsellor_doubles import install as install_azure_doubles, new_session, pinned_search
@@ -38,17 +41,18 @@ def azure_errors(monkeypatch):
     sys.modules["azure.identity"].DefaultAzureCredential = lambda: None
 
 
-def review_response(verdict="pass", issues=(), concepts=(), teach_back_concepts=(), feedback=()):
-    from governedgraph.agents.decision_agents import REVIEW_CHECKS
+def review_response(verdict="pass", issues=(), concepts=(), teach_back_concepts=()):
+    """A scripted review outcome; FakeResponses turns it into the Decision model's closed readings."""
+    return SimpleNamespace(verdict=verdict, issues=list(issues), concepts=list(concepts),
+                           teach_back_concepts=list(teach_back_concepts))
 
-    return response(json.dumps({"checks": {check: issue not in issues for check, issue in REVIEW_CHECKS.items()},
-                                "evidence_status": "insufficient" if verdict == "unassessable" else "sufficient",
-                                "feedback": list(feedback),
-                                "concepts": list(concepts),
-                                "teach_back_concepts": list(teach_back_concepts)}))
+
+ISSUE_LABELS = {"advice": "advice", "grounding": "unsupported", "relevance": "off_target"}
 
 
 class FakeResponses:
+    """The writer client (draft and repair calls) and, through `decide`, the Decision model's review readings."""
+
     def __init__(self, *events, reviews=(), judgments=()):
         self.events = list(events)
         self.reviews = list(reviews)
@@ -58,13 +62,15 @@ class FakeResponses:
         self.judgments = list(judgments)
         if reviews and not judgments:
             self.judgments = [review_response("revise", ["relevance"]), review_response()]
+        self.review_states = []
+        self._lock = Lock()
+        self._kinds = {"verdict", "language", "concepts"}
+        self._round = -1
+        self._current = None
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
-        judge = kwargs["extra_body"]["agent_reference"]["name"] == "gg-answer-review-agent"
-        if judge:
-            result = self.judgments.pop(0) if self.judgments else review_response()
-        elif kwargs.get("tool_choice") == "none":
+        if kwargs.get("tool_choice") == "none":
             result = self.reviews.pop(0) if self.reviews else self.last_draft
         else:
             result = self.events.pop(0)
@@ -72,9 +78,41 @@ class FakeResponses:
             raise result
         if result is None:
             raise AssertionError("review requires a validated preceding draft")
-        if result.output_text and not judge:
+        if result.output_text:
             self.last_draft = result
         return result
+
+    def decide(self, tools, state, questions, optional=frozenset()):
+        """The Decision model's answer to the two parallel review requests of one round."""
+        from governedgraph.agents import decision_agents, decision_model
+
+        kind = "verdict" if "verdict" in questions else "concepts"
+        with self._lock:
+            if kind in self._kinds:
+                self._kinds, self._round = set(), self._round + 1
+                self._current = self.judgments.pop(0) if self.judgments else review_response()
+            self._kinds.add(kind)
+            scripted = self._current
+        failure = scripted if isinstance(scripted, Exception) else None
+        review = review_response() if failure else scripted
+        if kind == "verdict":
+            self.review_states.append(state)
+            if failure:
+                raise failure
+            if review.verdict == "unassessable":
+                raise decision_model.DecisionModelAbstained("below minimum confidence")
+            return {"verdict": next((ISSUE_LABELS[issue] for issue in ("advice", "grounding", "relevance")
+                                     if issue in review.issues), "pass_draft")}
+        checked = set(review.teach_back_concepts)
+        if review.verdict == "pass" and not review.issues and not review.concepts and not checked:
+            # An unscripted good review teaches one allowed fact and asks the member about it.
+            stub = SimpleNamespace(strategy_id="S1", version="1.0", name="stub", teach_back=False,
+                                   template_id="T-S1", template_version="1.0")
+            excluded = set(decision_agents._excluded_concepts(tools, stub))
+            checked = {next(concept for concept in sorted(EXPLANATION_CONCEPTS) if concept not in excluded)}
+        return {key: "checked" if key.removeprefix("concept_") in checked
+                else "taught" if key.removeprefix("concept_") in review.concepts else "absent"
+                for key in questions}
 
 
 def response(text="", *calls, content_ids=(), question=None):
@@ -114,6 +152,13 @@ def test_b2_b7_writer_definition_enforces_the_closed_answer_envelope():
     assert schema["properties"]["meaning_check_question"] == {"type": "string"}
 
 
+def test_b2_the_writer_is_told_not_to_add_caveats_or_guarantees_the_passages_do_not_state():
+    # Observed in gg-dev: "not guaranteed ... decisions about the reserve" was not in the approved passage, so the
+    # reviewer rejected the repaired draft as unsupported and the member got the unavailable fallback.
+    assert "Add no caveat, reason, guarantee or non-guarantee of your own" in INSTRUCTIONS
+    assert "only if the material says so" in INSTRUCTIONS
+
+
 def test_b2_b9_art50_counsellor_instructions_keep_the_approved_guardrail_wording():
     for phrase in (
             "Support each factual claim with relevant authorized evidence",
@@ -142,7 +187,6 @@ def counsellor(tmp_path, monkeypatch, azure_errors):
     run_cycle(service)
     c = new_session("MBR-7Q2K", strategy_service=service, journey_id="J-FOUNDRY-TEST")
     c.start()
-    c.composer = "foundry"
     c.tools.agent_name = "gg-counsellor"
     monkeypatch.setattr(foundry_runtime, "settings", foundry_settings)
     return c
@@ -173,12 +217,11 @@ def assert_unanswered(counsellor, result):
 
 
 def install_responses(monkeypatch, client):
-    from governedgraph.agents import decision_agents
+    from governedgraph.agents import decision_model
 
     composer = FoundryComposer("test instructions", client=client)
     monkeypatch.setattr(FoundryComposer, "shared", classmethod(lambda cls, instructions: composer))
-    judge = decision_agents.FoundryDecisionAgent("answer-review", client=client, agent_version="7")
-    monkeypatch.setattr(decision_agents, "review_with_decision_model", judge.judge)
+    monkeypatch.setattr(decision_model, "choose", client.decide)
 
 
 @pytest.mark.parametrize("strategy_id", ["S1", "S5"])
@@ -254,17 +297,17 @@ def test_b3_b7_question_focus_reaches_writer_judge_and_repair_and_vetoes_inciden
     counsellor.tools.search = pinned_search("C-001-v1.3")
     result = counsellor.handle("Can you explain what this change means to my retirement plan?")
     assert counsellor.tools.trace.composition_source == "foundry" and result.text == stepwise(revised)
-    assert result.fidelity.passed and len(client.calls) == 4
+    assert result.fidelity.passed and len(client.calls) == 2 and len(client.review_states) == 2
     assert '"question_focus": "transition_overview"' in client.calls[0]["input"][0]["content"]
     assert "monthly_pension_after_transition" not in client.calls[0]["input"][0]["content"]
-    judge_input = json.loads(client.calls[1]["input"][0]["content"])
-    assert judge_input["task"]["excluded_concepts"] == [
-        "official_after_transition_amount", "official_source", "personal_capital_presentation"]
-    quoted = client.calls[2]["input"][1]["content"].split('""" <documents> ', 1)[1].rsplit(
+    # The reviewer never sees the writer's task; the host vetoes the excluded concept the draft taught.
+    assert "excluded_concepts" not in client.review_states[0] and "question_focus" not in client.review_states[0]
+    quoted = client.calls[1]["input"][1]["content"].split('""" <documents> ', 1)[1].rsplit(
         ' </documents> """', 1)[0]
     repair_input = json.loads(json.loads('"' + quoted + '"'))
-    assert '["relevance"]' in client.calls[2]["input"][0]["content"]
+    assert '["relevance"]' in client.calls[1]["input"][0]["content"]
     assert repair_input["official_references"] == []
+    assert [item["excluded_concept"] for item in repair_input["feedback"]] == [concept]
     record = counsellor.tools.store.read_all()[-1]
     assert record["decision_evidence"][0]["decision"]["reason"] == "transition_overview"
     assert record["decision_evidence"][1]["decision"]["verdict"] == "revise"
@@ -273,8 +316,7 @@ def test_b3_b7_question_focus_reaches_writer_judge_and_repair_and_vetoes_inciden
 
 @pytest.mark.parametrize("reason,has_references", [
     ("transition_overview", False), ("payment_continuity", True),
-    ("official_calculation_source", False), ("official_value_details", True),
-    ("combined_transition_question", True), ("official_transition_information", True),
+    ("official_calculation_source", False),     ("official_value_details", True), ("official_transition_information", True),
 ])
 def test_b1_b2_b7_question_focus_limits_reference_context_without_changing_strategy_key(
         counsellor, reason, has_references):
@@ -333,12 +375,14 @@ def test_b1_b3_rights_question_repairs_unrequested_adjustments_without_changing_
     counsellor.tools.search = pinned_search("C-004-v1.1")
     result = counsellor.handle("Does that mean I lose the pension I already built up?")
     assert result.text == stepwise(repaired) and counsellor.tools.trace.composition_source == "foundry"
-    first = json.loads(client.calls[1]["input"][0]["content"])["task"]
-    second = json.loads(client.calls[3]["input"][0]["content"])["task"]
-    assert first == second and first["selected_strategy"]["teach_back"]
+    first = json.JSONDecoder().raw_decode(
+        client.calls[0]["input"][0]["content"].split("Trusted host task:\n", 1)[1])[0]
+    assert first["selected_strategy"]["teach_back"]
     assert "future_adjustments" in first["excluded_concepts"]
     assert "remain unchanged" in first["answer_goal"]
     assert "monthly_pension_after_transition" not in client.calls[0]["input"][0]["content"]
+    # The host vetoed the excluded concept the first draft taught and sent it to the single repair.
+    assert '["relevance"]' in client.calls[1]["input"][0]["content"] and len(client.review_states) == 2
     assert counsellor.journey.last_explanation.concepts == ["rights_transfer"]
 
 
@@ -363,12 +407,13 @@ def test_b1_b2_overview_can_explain_sourced_future_uncertainty_without_an_offici
     counsellor.tools.search = pinned_search("C-001-v1.3", "C-003-v1.2")
     result = counsellor.handle("Can you explain what this change means to my retirement plan?")
     assert result.text == stepwise(text) and counsellor.tools.trace.composition_source == "foundry"
-    assert result.fidelity.passed and len(client.calls) == 2
-    task = json.loads(client.calls[1]["input"][0]["content"])["task"]
+    assert result.fidelity.passed and len(client.calls) == 1
+    task = json.JSONDecoder().raw_decode(
+        client.calls[0]["input"][0]["content"].split("Trusted host task:\n", 1)[1])[0]
     assert "upward or downward adjustments is relevant" in task["answer_goal"]
     assert "future_adjustments" not in task["excluded_concepts"]
     assert "official_after_transition_amount" in task["excluded_concepts"]
-    assert counsellor.journey.last_explanation.concepts == ["rights_transfer", "future_adjustments"]
+    assert counsellor.journey.last_explanation.concepts == ["future_adjustments", "rights_transfer"]
 
 
 def test_b1_b3_information_gap_task_supports_direct_answer_and_specific_human_help(counsellor):
@@ -396,7 +441,7 @@ def contextual_answer(monkeypatch, azure_errors, channel):
     from governedgraph.orchestrator.state_machine import Event, Journey
     from governedgraph.strategy_service.catalogue import Catalogue
 
-    for module in ("agents.tools", "agents.decision_agents"):
+    for module in ("agents.tools",):
         monkeypatch.setattr(f"governedgraph.{module}.operation", lambda *args, **kwargs: nullcontext(None))
     monkeypatch.setattr("governedgraph.observability.emit", Mock())
     monkeypatch.setattr("governedgraph.observability.model_usage", Mock())
@@ -473,17 +518,97 @@ def test_b2_b3_followup_repairs_a_blocked_draft_without_losing_the_question(
     assert "can't confirm whether you can refuse" in result.text
     assert "What would you like me to explain" not in result.text and "2028" not in result.text
     assert case.counsellor.tools.trace.composition_source == "foundry"
-    assert len(client.calls) == 5 and len(case.records) == 2
-    repair = client.calls[3]
+    assert len(client.calls) == 3 and len(case.records) == 2 and len(client.review_states) == 2
+    repair = client.calls[2]
     assert repair["input"][-1]["content"] == followup and repair["tool_choice"] == "none"
     assert '"question_focus": "transition_information_gap"' in repair["input"][0]["content"]
     assert "placeholder_contract" in repair["input"][0]["content"]
     assert "conversation_context" in repair["input"][1]["content"]
-    assert client.calls[4]["extra_body"]["agent_reference"]["name"] == "gg-answer-review-agent"
     assert case.records[-1].strategy_id == "S5"
     assert {"stage": "answer_repair", "result": "revised", "issues": []} in (
         case.counsellor.tools.trace.turn_trace
     )
+
+
+@pytest.mark.parametrize("channel", ["chat", "voice"])
+def test_b2_the_repair_of_an_ungrounded_draft_tells_the_writer_to_drop_its_own_additions(
+        contextual_answer, monkeypatch):
+    # Observed in gg-dev: the reviewer returns no quote for an unsupported draft, so the writer repeated its
+    # "not guaranteed ... decisions about the reserve" embellishment in the repair and the turn was refused.
+    case = contextual_answer
+    added = response("Pensions can be adjusted each year. The exact amount is not guaranteed, as it depends on "
+                     "decisions about the reserve.", content_ids=["C-001-v1.3"], question="What can happen later?")
+    stated = response("Pensions can be adjusted each year, upward or downward.", content_ids=["C-001-v1.3"],
+                      question="What can happen to your pension in later years?")
+    client = FakeResponses(added, reviews=[stated], judgments=[
+        review_response("revise", ["grounding"]), review_response()])
+    install_responses(monkeypatch, client)
+    result = case.explain("What could happen in later years?", "payment_continuity")
+    assert "not guaranteed" not in result.text and len(client.calls) == 2
+    instruction = client.calls[1]["input"][0]["content"]
+    assert 'The issue "grounding" means' in instruction
+    assert "leave out every addition of yours" in instruction
+
+
+FIXTURE_PASSAGE = "The fund moves built-up pension rights into the new contract."
+
+
+@pytest.mark.parametrize("channel", ["chat", "voice"])
+def test_b2_when_two_drafts_stay_ungrounded_the_cited_approved_passage_is_the_answer_word_for_word(
+        contextual_answer, monkeypatch):
+    # Observed in gg-dev: both drafts added "not guaranteed ... decisions about the reserve" and the member got
+    # "I couldn't complete a reliable answer" although an approved passage answered the question.
+    case = contextual_answer
+    added = response("Rights move. It is not guaranteed, as it depends on decisions about the reserve.",
+                     content_ids=["C-001-v1.3"], question="What happens to your rights?")
+    client = FakeResponses(added, reviews=[added], judgments=[
+        review_response("revise", ["grounding"]), review_response("revise", ["grounding"])])
+    install_responses(monkeypatch, client)
+    result = case.explain("What happens to my rights?", "transition_overview")
+    assert result.text == FIXTURE_PASSAGE and not result.escalated
+    assert case.counsellor.tools.trace.composition_source == "foundry"
+    assert {"stage": "answer_review", "result": "passage_fallback", "issues": []} in (
+        case.counsellor.tools.trace.turn_trace)
+    assert case.records[-1].response_kind == "explanation"
+    assert case.records[-1].decision_evidence[-1].decision["verdict"] == "revise"  # the audit stays honest
+
+
+@pytest.mark.parametrize("channel", ["chat", "voice"])
+@pytest.mark.parametrize("review", [
+    review_response("fail", ["advice"]),
+    review_response("unassessable", ["grounding"]),
+])
+def test_b2_the_passage_fallback_never_covers_advice_or_an_unclear_review(
+        contextual_answer, monkeypatch, review):
+    case = contextual_answer
+    added = response("Rights move. It is not guaranteed.", content_ids=["C-001-v1.3"], question="What moves?")
+    client = FakeResponses(added, reviews=[added], judgments=[review, review])
+    install_responses(monkeypatch, client)
+    result = case.explain("What happens to my rights?", "transition_overview")
+    assert {"stage": "answer_review", "result": "passage_fallback", "issues": []} not in (
+        case.counsellor.tools.trace.turn_trace)
+
+
+@pytest.mark.parametrize("channel", ["chat", "voice"])
+@pytest.mark.parametrize("repair", [
+    "I cannot confirm what the reserve means. I can arrange for a fund advisor to explain it.",
+    "I cannot confirm what the reserve means; the supplied passages do not define it.",
+])
+def test_b2_a_reply_that_mentions_its_own_passages_is_repaired_once_and_never_delivered_as_written(
+        contextual_answer, monkeypatch, repair):
+    # Observed in gg-dev: "... because no official explanation is available in the supplied passages".
+    case = contextual_answer
+    leaky = response("I cannot confirm what the reserve means, because no official explanation is available in "
+                     "the supplied passages.", content_ids=["C-001-v1.3"], question="What would you like to know?")
+    client = FakeResponses(leaky, reviews=[response(repair, content_ids=["C-001-v1.3"],
+                                                    question="What remains to be confirmed about the reserve?")],
+                           judgments=[review_response()])
+    install_responses(monkeypatch, client)
+    result = case.explain("What does the reserve mean in simpler words?", "official_value_details")
+    assert "passages" not in result.text and len(client.calls) == 2
+    assert "source_talk" in client.calls[1]["input"][0]["content"]
+    assert {"stage": "output_gate", "result": "blocked", "issues": ["source_talk"]} in (
+        case.counsellor.tools.trace.turn_trace)
 
 
 @pytest.mark.parametrize("channel", ["chat", "voice"])
@@ -512,7 +637,7 @@ def test_b2_b3_b9_failed_followup_repair_offers_help_instead_of_restarting_disco
         assert case.counsellor.tools.trace.composition_source == "foundry"
         assert not result.escalated and result.fidelity.passed
         assert "built-up rights move into the new contract" in result.text and "2028" not in result.text
-        assert len(client.calls) == 3 and len(case.records) == 1
+        assert len(client.calls) == 2 and len(case.records) == 1
         return
     assert result.fidelity.passed and case.counsellor.tools.trace.composition_source == "unanswered"
     assert "couldn't complete a reliable answer to your question" in result.text
@@ -566,7 +691,7 @@ def test_b3_contextual_recovery_preserves_the_existing_independent_review_repair
     result = contextual_answer.explain("Can I reject this change?", "transition_information_gap")
     assert result.fidelity.passed and "can't confirm whether you can refuse" in result.text
     assert contextual_answer.counsellor.tools.trace.composition_source == "foundry"
-    assert len(client.calls) == 4 and len(contextual_answer.records) == 1
+    assert len(client.calls) == 2 and len(contextual_answer.records) == 1
 
 
 def test_b1_b3_explicit_source_question_keeps_relevant_provenance(counsellor, monkeypatch):
@@ -586,7 +711,7 @@ def test_b1_b3_explicit_source_question_keeps_relevant_provenance(counsellor, mo
     install_responses(monkeypatch, client)
     result = counsellor.handle("Who calculates my pension figures?")
     assert result.text == stepwise(text) and counsellor.tools.trace.composition_source == "foundry"
-    assert len(client.calls) == 2 and result.fidelity.passed
+    assert len(client.calls) == 1 and result.fidelity.passed
 
 
 @pytest.mark.parametrize("draft", [
@@ -660,7 +785,7 @@ def test_b3_foundry_receives_screened_tagged_passages_without_a_compulsory_tool_
     client = FakeResponses(response(template))
     install_responses(monkeypatch, client)
     counsellor.handle("Please explain invaren.")
-    assert len(client.calls) == 2 and counsellor.tools.trace.content_texts
+    assert len(client.calls) == 1 and counsellor.tools.trace.content_texts
     content = client.calls[0]["input"][1]["content"]
     assert '""" <documents> ' in content and ' </documents> """' in content
     for version, body in zip(counsellor.tools.trace.content_versions, counsellor.tools.trace.content_texts):
@@ -746,7 +871,7 @@ def test_b1_b2_source_provenance_is_recorded_without_routine_spoken_disclaimers(
         assert result.composition_source == "foundry"
     records = counsellor.tools.store.read_all()
     assert all(record["value_sources"] and record["value_ids"] for record in records)
-    for call, question in zip(client.calls[::2], (
+    for call, question in zip(client.calls[:2], (
             "What does this change mean to me?",
             "So, will I keep receiving the same values?"), strict=True):
         instruction, context, member = call["input"]
@@ -787,10 +912,11 @@ def test_b1_b2_b3_agent_reviews_validated_placeholders_before_one_audit_commit(
     expected = "Your official monthly amount directly after the transition is EUR 1,412.50." + check_back
     assert result.text == (stepwise(expected) if check_back else expected)
     assert result.fidelity.passed and result.composition_source == "foundry"
-    assert result.model_rounds == 4 and len(client.calls) == 4
-    assert client.calls[1]["extra_body"]["agent_reference"]["name"] == "gg-answer-review-agent"
-    assert client.calls[3]["extra_body"]["agent_reference"] == client.calls[1]["extra_body"]["agent_reference"]
-    review = client.calls[2]
+    # Two routing requests, plus per review round a verdict and, only with a teach-back check, a concepts request.
+    assert result.model_rounds == (6 if channel == "voice" else 4)
+    assert len(client.calls) == 2 and len(client.review_states) == 2
+    assert client.calls[0]["extra_body"]["agent_reference"]["name"] == "gg-counsellor"
+    review = client.calls[1]
     assert review["tool_choice"] == "none" and "previous_response_id" not in review
     assert review["extra_body"] == client.calls[0]["extra_body"]
     assert review["input"][-1]["content"] == "So, will I keep receiving the same values?"
@@ -818,22 +944,28 @@ def test_b2_b3_dq10_review_cannot_add_references_or_bypass_output_gates(
     assert result.composition_source == "foundry" and result.fidelity.passed and not result.escalated
     assert "EUR 1,412.50" in result.text
     assert "9,999" not in result.text and "should choose" not in result.text and "unavailable" not in result.text
-    assert len(client.calls) == 3 and len(counsellor.tools.store.read_all()) == 1
+    assert len(client.calls) == 2 and len(counsellor.tools.store.read_all()) == 1
 
 
-@pytest.mark.parametrize("reviewed", [
-    TimeoutError("private review text"),
-    response("", function("get_member_values", {})),
-])
-def test_b1_b2_b9_review_is_bounded_and_service_failure_is_explicit(
-        counsellor, monkeypatch, explanation_decision, caplog, reviewed):
+@pytest.mark.parametrize("failure", ["transport", "abstained"])
+def test_b1_b2_b9_review_is_bounded_and_a_real_failure_is_explicit_but_an_unclear_review_is_not(
+        counsellor, monkeypatch, explanation_decision, caplog, failure):
+    from governedgraph.agents import decision_model
+
+    scripted = (decision_model.DecisionModelUnavailable("private review text") if failure == "transport"
+                else review_response("unassessable", ["grounding"]))
     client = FakeResponses(response("Your amount is {{value:current_monthly_pension}}. What does that refer to?"),
-                           judgments=[reviewed])
+                           judgments=[scripted])
     install_responses(monkeypatch, client)
     result = counsellor.handle("Please explain my official amount.")
-    assert result.escalated and counsellor.tools.trace.escalations[-1].reason_code == "component_failure"
-    assert len(client.calls) == 2
-    assert "decision_agent_unavailable" in caplog.text and "private review text" not in caplog.text
+    assert len(client.calls) == 1 and "private review text" not in caplog.text
+    if failure == "transport":
+        assert result.escalated and counsellor.tools.trace.escalations[-1].reason_code == "component_failure"
+        assert "workflow_dependency_failed" in caplog.text
+        return
+    # An unclear review releases nothing and offers a person; it is not reported as an outage.
+    assert_unanswered(counsellor, result)
+    assert "answer_review_abstained" in caplog.text and "unavailable" not in result.text
 
 
 @pytest.mark.parametrize("channel", ["chat", "voice"])
@@ -868,7 +1000,7 @@ def test_b9_source_gap_uses_member_language_and_continues_the_same_handover_jour
     handover = counsellor.handle("I want a human advisor")
     assert handover.escalated and handover.state == "escalation_requested"
     assert "requested-human-handoff" in handover.workflow_steps
-    assert len(client.calls) == 2
+    assert len(client.calls) == 1
     assert counsellor.tools.trace.escalations[-1].journey_id == counsellor.journey.journey_id
     assert counsellor.tools.trace.escalations[-1].reason_code == "member_request"
     assert "I'm arranging" in handover.text and "Please contact" not in handover.text
@@ -932,6 +1064,7 @@ def test_art50_b9_foundry_composition_treats_opening_as_already_delivered(counse
 def test_b1_b2_b8_letter_help_fallback_keeps_the_approved_goal(
         counsellor, monkeypatch, caplog, channel, language, failure):
     counsellor.journey.channel = channel
+    counsellor.journey.response_language = language  # chosen at session start
 
     def route(bound_tools, *_):
         decision = IntentDecision("explanation", "transition_impact_question", "personal_letter_context", language)
@@ -1012,17 +1145,18 @@ def test_b1_b2_b8_letter_help_is_welcoming_without_claiming_document_access(coun
     install_responses(monkeypatch, client)
     result = counsellor.handle("Can you help me to understand the letter I received?")
 
-    writer, judge = client.calls
-    task = json.JSONDecoder().raw_decode(writer["input"][0]["content"].split("Trusted host task:\n", 1)[1])[0]
+    task = json.JSONDecoder().raw_decode(
+        client.calls[0]["input"][0]["content"].split("Trusted host task:\n", 1)[1])[0]
     assert task["question_focus"] == "personal_letter_context"
     assert task["personal_letter_available"] is False
     assert "Acknowledge warmly that you can help" in task["answer_goal"]
     assert "leaving out personal details" in task["answer_goal"]
     assert "Do not lead with a limitation or an unsolicited transition overview" in task["answer_goal"]
     assert "State that the actual personal letter is unavailable; explain only" not in task["answer_goal"]
-    payload = json.loads(judge["input"][0]["content"])
-    assert payload["task"] == task
-    assert payload["official_references"] == []
+    assert len(client.calls) == 1
+    review = client.review_states[0]
+    assert review.startswith("MEMBER QUESTION:\nCan you help me to understand the letter I received?")
+    assert "OFFICIAL AMOUNTS (the system inserts each one where the draft shows its placeholder):\nnone" in review
     assert not result.escalated and result.fidelity.passed
     assert result.composition_source == "foundry"
     assert result.text == (f"First: {text} Finally: {question}" if channel == "voice" else text)
@@ -1030,7 +1164,7 @@ def test_b1_b2_b8_letter_help_is_welcoming_without_claiming_document_access(coun
     assert record["response_kind"] == "explanation"
 
 
-def test_b1_b2_b3_judge_receives_cited_authorized_bodies_labels_and_trusted_task(counsellor, monkeypatch):
+def test_b1_b2_b3_reviewer_receives_cited_authorized_bodies_and_labels_but_no_figure(counsellor, monkeypatch):
     counsellor.tools.get_member_values()
     hits = counsellor.tools.search.search("overgang", counsellor.journey.stage, language="nl")
     assert hits
@@ -1041,30 +1175,24 @@ def test_b1_b2_b3_judge_receives_cited_authorized_bodies_labels_and_trusted_task
     install_responses(monkeypatch, client)
     result = counsellor.handle("Will the transition change what I receive?")
     assert result.composition_source == "foundry" and not result.escalated
-    writer, judge = client.calls
-    assert writer["extra_body"]["agent_reference"]["name"] != judge["extra_body"]["agent_reference"]["name"]
-    assert not ({"model", "tools", "instructions", "previous_response_id"} & judge.keys())
-    payload = json.loads(judge["input"][0]["content"])
-    assert payload["task"]["personal_letter_available"] is False
-    assert payload["task"]["response_language"] == "en"
-    assert payload["task"]["selected_strategy"]["id"] == result.strategy_id
-    assert payload["cited_sources"] == [{"id": hits[0].id, "body": hits[0].body}]
-    assert payload["official_references"] == [{
-        "value_id": "monthly_pension_after_transition",
-        "label": counsellor.tools.trace.values.by_id()["monthly_pension_after_transition"].label,
-    }]
-    assert "1,412" not in json.dumps(payload) and "{{value:" in payload["draft"]["text"]
+    assert len(client.calls) == 1 and len(client.review_states) == 1
+    review = client.review_states[0]
+    label = counsellor.tools.trace.values.by_id()["monthly_pension_after_transition"].label
+    assert f"{{{{value:monthly_pension_after_transition}}}} = {label}" in review
+    assert f"[{hits[0].id}] {hits[0].body}" in review
+    assert "1,412" not in review and "{{value:monthly_pension_after_transition}}." in review
     record, = counsellor.tools.store.read_all()
     assert record["contract_version"] == "1.3"
     assert record["decision_evidence"][-1]["role"] == "answer-review"
 
 
-def test_b7_semantic_language_is_forwarded_to_writer_and_judge_without_changing_ranking_key(
+def test_b7_the_session_language_is_forwarded_to_the_writer_without_changing_ranking_key(
         counsellor, monkeypatch):
     from governedgraph.common.contracts import IntentDecision
 
     counsellor.decision_agents["intent"] = SimpleNamespace(run=lambda *_: IntentDecision(
         "explanation", "transition_impact_question", "official_transition_information", "nl"))
+    counsellor.journey.response_language = "nl"  # chosen at session start, not read from the message
     client = FakeResponses(response("Uw bedrag is {{value:current_monthly_pension}}. Wat betekent dat bedrag?"))
     install_responses(monkeypatch, client)
     result = counsellor.handle("Wat betekent de overgang voor mijn pensioen?")
@@ -1072,7 +1200,6 @@ def test_b7_semantic_language_is_forwarded_to_writer_and_judge_without_changing_
     task = json.JSONDecoder().raw_decode(client.calls[0]["input"][0]["content"].split(
         "Trusted host task:\n", 1)[1])[0]
     assert task["response_language"] == "nl"
-    assert json.loads(client.calls[1]["input"][0]["content"])["task"]["response_language"] == "nl"
     assert set(counsellor.journey.request_key()) == {
         "journey_state", "intent", "channel", "accessibility_mode",
     }
@@ -1089,7 +1216,7 @@ def test_b3_judge_nonpass_is_explicit_fallback_not_semantic_success(counsellor, 
     assert counsellor.journey.last_explanation is None
     assert "answer_review_nonpass" in caplog.text
     # Only a "revise" verdict earns the single repair; an unassessable draft fails closed straight away.
-    assert len(client.calls) == (4 if verdict == "revise" else 2) and len(counsellor.tools.store.read_all()) == 1
+    assert len(client.calls) == (2 if verdict == "revise" else 1) and len(counsellor.tools.store.read_all()) == 1
     assert counsellor.tools.store.read_all()[0]["decision_evidence"][-1]["decision"]["verdict"] == verdict
     assert counsellor.tools.store.read_all()[0]["decline_reason"] == "answer_review"
 
@@ -1117,7 +1244,7 @@ def test_b3_revision_is_bounded_even_when_second_judgment_requests_another(couns
     assert_unanswered(counsellor, result)
     assert counsellor.journey.last_explanation is None
     assert "answer_review_nonpass" in caplog.text
-    assert len(client.calls) == 4 and len(counsellor.tools.store.read_all()) == 1
+    assert len(client.calls) == 2 and len(counsellor.tools.store.read_all()) == 1
 
 
 @pytest.mark.parametrize("verdict", ["unassessable", "revise"])
@@ -1136,9 +1263,7 @@ def test_b2_b3_rejected_claim_is_replaced_using_authorized_evidence_before_relea
                          "What happens to the pension rights you have built up?",
                          content_ids=[hits[-1][0]])
     client = FakeResponses(initial, reviews=[corrected], judgments=[
-        review_response(verdict, ["grounding"], feedback=[
-            {"issue": "grounding", "quote": "There is no option to cancel this transition."},
-        ]),
+        review_response(verdict, ["grounding"]),
         review_response(concepts=["rights_transfer", "information_gap"],
                         teach_back_concepts=["rights_transfer"]),
     ])
@@ -1146,19 +1271,17 @@ def test_b2_b3_rejected_claim_is_replaced_using_authorized_evidence_before_relea
     result = counsellor.handle("What does this change mean to my retirement plan?")
     if verdict == "unassessable":
         assert_unanswered(counsellor, result)
-        assert "no option to cancel" not in result.text and len(client.calls) == 2
+        assert "no option to cancel" not in result.text and len(client.calls) == 1
         return
     assert not result.escalated and result.composition_source == "foundry"
     assert "no option to cancel" not in result.text
     assert result.text.startswith("First: Your built-up pension rights")
     assert "does not establish" in result.text
-    quoted = client.calls[2]["input"][1]["content"].split('""" <documents> ', 1)[1].rsplit(
+    quoted = client.calls[1]["input"][1]["content"].split('""" <documents> ', 1)[1].rsplit(
         ' </documents> """', 1)[0]
     repair = json.loads(json.loads('"' + quoted + '"'))
     assert repair["authorized_sources"] and repair["official_references"]
-    assert repair["feedback"] == [
-        {"issue": "grounding", "quote": "There is no option to cancel this transition."},
-    ]
+    assert repair["feedback"] == []
     assert all("display" not in ref for ref in repair["official_references"])
     record, = counsellor.tools.store.read_all()
     assert [item["decision"]["verdict"] for item in record["decision_evidence"]
@@ -1166,130 +1289,7 @@ def test_b2_b3_rejected_claim_is_replaced_using_authorized_evidence_before_relea
     assert "feedback" not in json.dumps(record)
 
 
-@pytest.mark.parametrize("count", [2, 8])
-def test_b3_b4_all_rejected_clauses_with_the_same_issue_reach_the_single_repair(
-        counsellor, monkeypatch, explanation_decision, count):
-    clauses = [f"Unrequested detail {letter}." for letter in "ABCDEFGHIJKLMNOP"[:count]]
-    feedback = [{"issue": "relevance", "quote": clause} for clause in clauses]
-    corrected = response("Your official amount directly after the transition is "
-                         "{{value:monthly_pension_after_transition}}. What does that amount refer to?")
-    client = FakeResponses(
-        response("Your amount is {{value:current_monthly_pension}}. " + " ".join(clauses) + ASK),
-        reviews=[corrected], judgments=[
-            review_response("revise", ["relevance"], feedback=feedback),
-            review_response(concepts=["official_after_transition_amount"],
-                            teach_back_concepts=["official_after_transition_amount"]),
-        ],
-    )
-    install_responses(monkeypatch, client)
-    result = counsellor.handle("Will the transition change what I receive?")
-    assert not result.escalated and result.composition_source == "foundry"
-    quoted = client.calls[2]["input"][1]["content"].split('""" <documents> ', 1)[1].rsplit(
-        ' </documents> """', 1)[0]
-    assert json.loads(json.loads('"' + quoted + '"'))["feedback"] == feedback
-    assert len(client.calls) == 4
-    record, = counsellor.tools.store.read_all()
-    assert "feedback" not in json.dumps(record)
-    assert all(clause not in result.text for clause in clauses)
-
-
-@pytest.mark.parametrize("feedback", [
-    [{"issue": "grounding", "quote": "Your amount", "age": 65}],
-    [{"issue": "demographic", "quote": "Your amount"}],
-    [{"issue": "grounding", "quote": ""}],
-    [{"issue": "grounding", "quote": "Your amount"}] * 17,
-])
-def test_b4_b7_review_feedback_cannot_introduce_new_text_or_fields(
-        counsellor, monkeypatch, explanation_decision, feedback):
-    client = FakeResponses(response("Your amount is {{value:current_monthly_pension}}." + ASK),
-                           judgments=[review_response("revise", ["grounding"], feedback=feedback)])
-    install_responses(monkeypatch, client)
-    result = counsellor.handle("Explain my official figures.")
-    assert result.escalated and "Your amount is" not in result.text
-    assert counsellor.tools.trace.review_feedback == []
-
-
-def test_b4_unmatched_review_quote_cannot_inject_text_or_turn_revision_into_an_outage(
-        counsellor, monkeypatch, explanation_decision, caplog):
-    corrected = response("Your official amount directly after the transition is "
-                         "{{value:monthly_pension_after_transition}}. What does that amount refer to?")
-    client = FakeResponses(response("Your amount is {{value:current_monthly_pension}}. What does it refer to?"),
-                           reviews=[corrected], judgments=[
-                               review_response("revise", ["grounding"], feedback=[
-                                   {"issue": "grounding", "quote": "A claim absent from the draft."},
-                               ]),
-                               review_response(concepts=["official_after_transition_amount"],
-                                               teach_back_concepts=["official_after_transition_amount"]),
-                           ])
-    install_responses(monkeypatch, client)
-    result = counsellor.handle("Will the transition change what I receive?")
-    assert not result.escalated and result.composition_source == "foundry"
-    assert "answer_review_quote_discarded" in caplog.text
-    assert "A claim absent" not in json.dumps(client.calls[2])
-    assert "A claim absent" not in json.dumps(counsellor.tools.store.read_all())
-    decisions = [item["decision"] for item in counsellor.tools.store.read_all()[0]["decision_evidence"]
-                 if item["role"] == "answer-review"]
-    assert decisions[0]["verdict"] == "revise" and decisions[0]["issues"] == ["grounding"]
-
-
-@pytest.mark.parametrize("checks", [
-    None, {}, {"grounding": True}, {"grounding": "true"},
-])
-def test_b2_native_judge_cannot_skip_individual_quality_checks(
-        counsellor, monkeypatch, explanation_decision, checks):
-    body = {"checks": checks, "evidence_status": "sufficient", "feedback": [],
-            "concepts": [], "teach_back_concepts": []}
-    client = FakeResponses(response("Your amount is {{value:current_monthly_pension}}." + ASK),
-                           judgments=[response(json.dumps(body))])
-    install_responses(monkeypatch, client)
-    result = counsellor.handle("Explain my official figures.")
-    assert result.escalated and "Your amount is" not in result.text
-    assert "service-failure-handoff" in result.workflow_steps
-
-
-def test_b2_native_judge_cannot_pass_a_failed_grounding_check(
-        counsellor, monkeypatch, explanation_decision):
-    from governedgraph.agents.decision_agents import REVIEW_CHECKS
-
-    body = {"checks": {check: issue != "grounding" for check, issue in REVIEW_CHECKS.items()},
-            "evidence_status": "sufficient", "feedback": [], "concepts": [], "teach_back_concepts": []}
-    client = FakeResponses(response("There is no right to opt out.", content_ids=["C-001-v1.3"],
-                                    question="What is the right to opt out?"),
-                           judgments=[response(json.dumps(body)), review_response("revise", ["grounding"])])
-    install_responses(monkeypatch, client)
-    result = counsellor.handle("Explain the transition.")
-    assert_unanswered(counsellor, result)
-    assert "no right to opt out" not in result.text
-
-
-@pytest.mark.parametrize("failed_checks", [
-    ("uses_member_facing_language",),
-    ("answers_question", "keeps_only_relevant_detail", "uses_member_facing_language"),
-])
-def test_b3_repeated_relevance_failures_produce_one_closed_issue_not_a_service_error(
-        counsellor, monkeypatch, explanation_decision, failed_checks):
-    rejected = json.loads(review_response().output_text)
-    for name in failed_checks:
-        rejected["checks"][name] = False
-    corrected = response("Your built-up rights move into the new contract. What happens to your rights?",
-                         content_ids=["C-001-v1.3"])
-    client = FakeResponses(
-        response("The references explain your rights. What happens to your rights?",
-                 content_ids=["C-001-v1.3"]),
-        reviews=[corrected], judgments=[
-            response(json.dumps(rejected)),
-            review_response(concepts=["rights_transfer"], teach_back_concepts=["rights_transfer"]),
-        ])
-    install_responses(monkeypatch, client)
-    result = counsellor.handle("Explain what the transition means.")
-    assert not result.escalated and result.composition_source == "foundry"
-    reviews = [item["decision"] for item in counsellor.tools.store.read_all()[0]["decision_evidence"]
-               if item["role"] == "answer-review"]
-    assert reviews[0]["verdict"] == "revise" and reviews[0]["issues"] == ["relevance"]
-    assert reviews[1]["verdict"] == "pass" and len(client.calls) == 4
-
-
-def test_dq10_advice_check_veto_is_derived_and_never_repaired(counsellor, monkeypatch, explanation_decision):
+def test_dq10_advice_verdict_blocks_and_is_never_repaired(counsellor, monkeypatch, explanation_decision):
     client = FakeResponses(response("Your official amount is {{value:current_monthly_pension}}. "
                                     "What does this amount refer to?"),
                            judgments=[review_response("fail", ["advice"])])
@@ -1298,40 +1298,23 @@ def test_dq10_advice_check_veto_is_derived_and_never_repaired(counsellor, monkey
     assert_unanswered(counsellor, result)
     review = counsellor.tools.store.read_all()[0]["decision_evidence"][-1]["decision"]
     assert review["verdict"] == "fail" and review["issues"] == ["advice"]
-    assert len(client.calls) == 2 and counsellor.journey.last_explanation is None
-
-
-@pytest.mark.parametrize("extra", [{"verdict": "pass"}, {"issues": []}, {"age_band": "synthetic"}])
-def test_b7_native_reviewer_cannot_supply_host_decisions_or_demographics(
-        counsellor, monkeypatch, explanation_decision, extra):
-    body = {**json.loads(review_response().output_text), **extra}
-    client = FakeResponses(response("Your official amount is {{value:current_monthly_pension}}." + ASK),
-                           judgments=[response(json.dumps(body))])
-    install_responses(monkeypatch, client)
-    result = counsellor.handle("Explain my official figures.")
-    assert result.escalated and "service-failure-handoff" in result.workflow_steps
+    assert len(client.calls) == 1 and counsellor.journey.last_explanation is None
 
 
 def test_b3_answering_question_cannot_hide_irrelevant_detail(
         counsellor, monkeypatch, explanation_decision):
-    from governedgraph.agents.decision_agents import REVIEW_CHECKS
-
-    rejected = json.loads(review_response().output_text)
-    rejected["checks"]["keeps_only_relevant_detail"] = False
-    rejected["feedback"] = [{"issue": "relevance", "quote": "The administrator sets your amount."}]
     initial = response("Your built-up rights move into the new contract. The administrator sets your amount. "
                        "What happens to your built-up rights?",
                        content_ids=["C-001-v1.3"])
     corrected = response("Your built-up rights move into the new contract. What happens to your built-up rights?",
                          content_ids=["C-001-v1.3"])
     client = FakeResponses(initial, reviews=[corrected], judgments=[
-        response(json.dumps(rejected)),
+        review_response("revise", ["relevance"]),
         review_response(concepts=["rights_transfer"], teach_back_concepts=["rights_transfer"]),
     ])
     install_responses(monkeypatch, client)
     result = counsellor.handle("Explain what the transition means.")
     assert result.composition_source == "foundry" and "administrator" not in result.text
-    assert rejected["checks"]["answers_question"] and set(rejected["checks"]) == set(REVIEW_CHECKS)
     reviews = [item["decision"] for item in counsellor.tools.store.read_all()[0]["decision_evidence"]
                if item["role"] == "answer-review"]
     assert reviews[0]["verdict"] == "revise" and reviews[0]["issues"] == ["relevance"]
@@ -1356,23 +1339,20 @@ def test_b3_serial_and_parallel_retrieval_do_not_inject_a_payment_topic(
     assert received == [(question, {"language": "en", "top": 5})]
 
 
-def test_b3_rejected_judge_concepts_do_not_turn_quality_repair_into_service_failure(
+def test_b3_a_nonpass_review_never_records_taught_concepts_and_does_not_become_a_service_failure(
         counsellor, monkeypatch, explanation_decision, caplog):
-    rejected = json.loads(review_response("revise", ["relevance"]).output_text)
-    rejected["concepts"] = ["official_source"]
-    rejected["teach_back_concepts"] = ["official_source"]
     corrected = response("Your official amount directly after the transition is "
                          "{{value:monthly_pension_after_transition}}. What does that amount refer to?")
     client = FakeResponses(response("Your amount is {{value:current_monthly_pension}}." + ASK),
                            reviews=[corrected], judgments=[
-                               response(json.dumps(rejected)),
+                               review_response("revise", ["relevance"], concepts=["official_source"],
+                                               teach_back_concepts=["official_source"]),
                                review_response(concepts=["official_after_transition_amount"],
                                                teach_back_concepts=["official_after_transition_amount"]),
                            ])
     install_responses(monkeypatch, client)
     result = counsellor.handle("Will the transition change what I receive?")
     assert not result.escalated and result.composition_source == "foundry"
-    assert "rejected_answer_concepts_discarded" in caplog.text
     assert counsellor.journey.last_explanation.concepts == ["official_after_transition_amount"]
     reviews = [item["decision"] for item in counsellor.tools.store.read_all()[0]["decision_evidence"]
                if item["role"] == "answer-review"]
@@ -1686,7 +1666,6 @@ def test_azure_mode_selects_remote_shields_and_named_semantic_agents(monkeypatch
     assert isinstance(c.screen, azure_safety.AzurePromptShields)
     assert c.decision_agents == {} and not hasattr(c, "advice")
     assert c.tools.prompt_screen is c.screen
-    assert c.composer == "foundry"
     assert not c.step_up_verified
 
 

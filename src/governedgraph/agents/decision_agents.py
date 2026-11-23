@@ -1,7 +1,6 @@
 """Semantic decision agents; closed schemas and a bounded, host-validated contract."""
 from __future__ import annotations
 
-import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -9,84 +8,17 @@ from contextvars import copy_context
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 
-from governedgraph.agents import llm_log
-from governedgraph.agents.rate_limit import create_with_retry
 from governedgraph.common import domain
-from governedgraph.common.config import settings
 from governedgraph.common.contracts import (
-    EXPLANATION_CONCEPTS, HISTORICAL_REASONS, INTENT_DECISIONS, RESPONSE_LANGUAGES, REVIEW_ISSUES,
-    UNDERSTANDING_DECISIONS, AnswerDraft, AnswerReview, ContractError, DecisionEvidence,
-    ExplanationContext, IntentDecision, ReviewFeedback, UnderstandingDecision, _strict,
+    EXPLANATION_CONCEPTS, HISTORICAL_REASONS, INTENT_DECISIONS, RESPONSE_LANGUAGES, UNDERSTANDING_DECISIONS,
+    AnswerDraft, AnswerReview, ContractError, DecisionEvidence, ExplanationContext, IntentDecision,
+    UnderstandingDecision, _strict,
 )
-from governedgraph.common.domain import REVIEW_LABEL_ISSUES
-from governedgraph.observability import headers, model_usage, operation
+from governedgraph.common.domain import (
+    CLARIFICATION_DECISION, REVIEW_LABEL_ISSUES, ROUTE_LABEL_DECISIONS,
+)
 
 log = logging.getLogger("governedgraph.decision_agents")
-REQUEST_TIMEOUT = 20
-REVIEW_CHECKS = {
-    "answers_question": "relevance",
-    "keeps_only_relevant_detail": "relevance",
-    "uses_member_facing_language": "relevance",
-    "uses_requested_language": "language",
-    "all_claims_supported": "grounding",
-    "preserves_uncertainty": "uncertainty",
-    "follows_selected_strategy": "strategy",
-    "avoids_personal_advice": "advice",
-    "respects_document_availability": "document_context",
-}
-MAX_REVIEW_FEEDBACK = 16
-INSTRUCTIONS = {"answer-review": domain.prompt("answer-review")}
-
-
-def deployment_for(role: str) -> str:
-    if role not in INSTRUCTIONS:
-        raise ValueError("unknown decision-agent role")
-    return settings.model_deployment
-
-
-def decision_schema(role: str) -> dict:
-    if role != "answer-review":
-        raise ValueError("unknown decision-agent role")
-    return {
-        "type": "object",
-        "properties": {
-            "checks": {
-                "type": "object",
-                "properties": {check: {"type": "boolean"} for check in REVIEW_CHECKS},
-                "required": list(REVIEW_CHECKS), "additionalProperties": False,
-            },
-            "evidence_status": {"type": "string", "enum": ["sufficient", "insufficient"]},
-            "feedback": {
-                "type": "array", "items": {
-                    "type": "object",
-                    "properties": {
-                        "issue": {"type": "string", "enum": sorted(REVIEW_ISSUES)},
-                        "quote": {"type": "string"},
-                    },
-                    "required": ["issue", "quote"], "additionalProperties": False,
-                },
-            },
-            "concepts": {"type": "array", "items": {"type": "string", "enum": sorted(EXPLANATION_CONCEPTS)}},
-            "teach_back_concepts": {
-                "type": "array", "items": {"type": "string", "enum": sorted(EXPLANATION_CONCEPTS)},
-            },
-        },
-        "required": ["checks", "evidence_status", "feedback", "concepts", "teach_back_concepts"],
-        "additionalProperties": False,
-    }
-
-
-def agent_definition(role: str):
-    from azure.ai.projects.models import (
-        PromptAgentDefinition, PromptAgentDefinitionTextOptions, TextResponseFormatJsonSchema,
-    )
-
-    return PromptAgentDefinition(model=deployment_for(role), instructions=INSTRUCTIONS[role],
-                                 tools=[], temperature=0.0, text=PromptAgentDefinitionTextOptions(
-                                     format=TextResponseFormatJsonSchema(
-                                         name=f"{role}_decision", schema=decision_schema(role), strict=True,
-                                     ),
-                                 ))
 
 
 @dataclass(frozen=True)
@@ -120,45 +52,19 @@ class DecisionUnavailable(RuntimeError):
     pass
 
 
-def review_payload(tools, utterance: str, strategy, draft: AnswerDraft) -> dict:
-    from governedgraph.agents.foundry_runtime import task_context
-    from governedgraph.guardrails.binding import referenced_value_ids
-
-    cited = set(draft.content_ids)
-    references = set(referenced_value_ids(draft.text))
-    return {
-        "task": task_context(tools, strategy),
-        "member_text": re.sub(r"\d+(?:[.,:/% -]\d+)*", "[member-supplied number]", utterance),
-        "draft": asdict(draft),
-        "official_references": [
-            {"value_id": value.value_id, "label": value.label}
-            for value in tools.trace.values.values if value.value_id in references
-        ],
-        "cited_sources": [
-            {"id": content_id, "body": body}
-            for content_id, body in zip(tools.trace.content_versions, tools.trace.content_texts, strict=True)
-            if content_id in cited
-        ],
-    }
-
-
 @lru_cache(maxsize=None)
 def _pack_criteria() -> dict:
     return domain.vocabulary()["decision_criteria"]
 
 
 @lru_cache(maxsize=None)
-def _intent_criteria(follow_up: bool = False) -> dict[str, str]:
-    """The pack's description of every selectable reason; the host's closed reason set must be fully described.
-
-    A follow-up reading classifies a message already known to ask something new, so recapping is not selectable."""
-    allowed = {row[2] for row in INTENT_DECISIONS} - HISTORICAL_REASONS
+def _intent_criteria() -> dict[str, str]:
+    """The pack's description of every explanation topic; the closed topic set must be fully described."""
+    allowed = {row[2] for row in INTENT_DECISIONS if row[0] == "explanation"} - HISTORICAL_REASONS
     described = _pack_criteria()["intent"]
     if set(described) != allowed:
         raise domain.DomainPackError(
             f"domain vocabulary: decision_criteria.intent must describe exactly {sorted(allowed)}")
-    if follow_up:
-        allowed -= {"restating_previous_explanation"}
     return {reason: described[reason] for reason in sorted(allowed)}
 
 
@@ -166,6 +72,23 @@ SITUATIONS = {
     "comprehension_check": "the assistant has just asked the customer to say in their own words what they understood",
     "resolved": "the customer's last question was answered",
 }
+# Protective routes come first: a message that asks for a person or a choice is never read as a plain question.
+ROUTE_ORDER = ("asks_person", "asks_choice", "asks_information", "only_acknowledges")
+ROUTE_NOTES = {
+    "comprehension_check": "A restatement of the explanation, even one closed by \"right?\", answers the check "
+                           "question just asked and is only_acknowledges.",
+    "resolved": "A restatement of the explanation offered for confirmation (\"so ...\"), with or without a question "
+                "mark, is a request to confirm it: asks_information. Any question, including \"is that right?\", is "
+                "asks_information. Only plain thanks or agreement is only_acknowledges.",
+}
+
+
+def _route_instructions(journey_state: str) -> str:
+    return " ".join(filter(None, (
+        "What does the customer's message ask for? The customer message is the last line; the previous exchange "
+        "is context only. If several labels apply, choose the first of: " + ", ".join(ROUTE_ORDER) + ".",
+        ROUTE_NOTES.get(journey_state),
+    )))
 
 
 def _state_text(tools, context: DecisionContext, utterance: str) -> str:
@@ -220,9 +143,6 @@ REVIEW_INSTRUCTIONS = (
     "an official amount that the system inserts; it is always correct. If several labels apply, choose the first "
     "of: advice, unsupported, off_target."
 )
-LANGUAGE_INSTRUCTIONS = (
-    "Is the DRAFT REPLY written in the EXPECTED LANGUAGE (an ISO 639-1 code)? Ignore names, official terms and placeholders."
-)
 REVIEW_LABEL_ORDER = ("pass_draft", "advice", "unsupported", "off_target")
 MAX_REVIEW_EXCHANGE_CHARS = 800
 
@@ -264,14 +184,6 @@ def review_with_decision_model(tools, utterance: str, strategy, draft: AnswerDra
         "instructions": REVIEW_INSTRUCTIONS,
         "criteria": {label: criteria["review"][label] for label in REVIEW_LABEL_ORDER},
     }}
-    language_question = {"language": {
-        "type": "choice",
-        "instructions": LANGUAGE_INSTRUCTIONS,
-        "criteria": {
-            "expected_language": "The draft is written in the expected language.",
-            "other_language": "The draft is mainly written in another language.",
-        },
-    }}
     concept_questions = {
         f"concept_{concept}": {
             "type": "choice",
@@ -286,43 +198,44 @@ def review_with_decision_model(tools, utterance: str, strategy, draft: AnswerDra
             },
         } for concept in concepts
     }
-    judged, language, taught_result = _ask_each(
-        tools,
-        [review_state(tools, utterance, draft),
-         f"EXPECTED LANGUAGE: {tools.journey.response_language}\n\nDRAFT REPLY:\n{draft.text}",
-         "DRAFT REPLY:\n" + draft.text],
-        [verdict_question, language_question, concept_questions], optional=frozenset(concept_questions))
-    tools.trace.model_rounds += 3
-    failed = next((item for item in (judged, language) if isinstance(item, DecisionModelUnavailable)
-                   and not isinstance(item, DecisionModelAbstained)), None)
-    if failed is not None:
+    scoped_out = _excluded_concepts(tools, strategy)
+    # What the draft teaches matters for a teach-back check and for the answer goal's exclusions only; with neither,
+    # the concepts are not asked and nothing is recorded as taught.
+    read_concepts = bool(strategy.teach_back or scoped_out)
+    states = [review_state(tools, utterance, draft)] + (["DRAFT REPLY:\n" + draft.text] if read_concepts else [])
+    questions = [verdict_question] + ([concept_questions] if read_concepts else [])
+    judged, *rest = _ask_each(tools, states, questions, optional=frozenset(concept_questions))
+    taught_result = rest[0] if rest else None
+    tools.trace.model_rounds += len(questions)
+    if isinstance(judged, DecisionModelUnavailable) and not isinstance(judged, DecisionModelAbstained):
         tools.trace.note("answer_review", "unavailable")
-        raise DecisionUnavailable("Decision model review unavailable") from failed
-    if any(isinstance(item, DecisionModelAbstained) for item in (judged, language)):
+        raise DecisionUnavailable("Decision model review unavailable") from judged
+    if isinstance(judged, DecisionModelAbstained):
         # An unclear review is neither a pass nor a service failure: the draft is not released and the host falls
         # back to approved wording that offers a person.
         log.warning("answer_review_abstained", extra={"journey_id": tools.journey.journey_id})
         review = AnswerReview("unassessable", ["grounding"], [], [])
     else:
         issues = set() if judged["verdict"] == "pass_draft" else {REVIEW_LABEL_ISSUES[judged["verdict"]]}
-        if language["language"] == "other_language":
-            issues.add("language")
-        if issues:
-            review = AnswerReview("fail" if "advice" in issues else "revise", sorted(issues), [], [])
-            if "relevance" in issues and not isinstance(taught_result, DecisionModelUnavailable):
-                # The classifier returns no quote, so name the closed excluded concepts it saw taught; without this
-                # the one bounded revision cannot tell what to remove and repeats the same clause.
-                tools.trace.review_feedback = [
-                    {"issue": "relevance", "excluded_concept": concept, "meaning": described[concept]}
-                    for concept in _excluded_concepts(tools, strategy)
-                    if taught_result.get(f"concept_{concept}") not in (None, "absent")
-                ]
-        else:
-            if isinstance(taught_result, DecisionModelUnavailable):
-                tools.trace.note("answer_review", "unavailable")
-                raise DecisionUnavailable("Decision model review unavailable") from taught_result
+        taught = None if read_concepts else []
+        if read_concepts and not isinstance(taught_result, DecisionModelUnavailable):
             # A concept the judge could not read confidently is not recorded as taught: no teach-back is claimed.
             taught = [concept for concept in concepts if taught_result[f"concept_{concept}"] not in (None, "absent")]
+            # Teaching an excluded concept is a relevance defect whatever the verdict said. The classifier returns
+            # no quote, so the host names the concepts for the one bounded revision.
+            excluded = [concept for concept in scoped_out if concept in taught]
+            if excluded:
+                issues.add("relevance")
+                tools.trace.review_feedback = [
+                    {"issue": "relevance", "excluded_concept": concept, "meaning": described[concept]}
+                    for concept in excluded
+                ]
+        if issues:
+            review = AnswerReview("fail" if "advice" in issues else "revise", sorted(issues), [], [])
+        else:
+            if taught is None:
+                tools.trace.note("answer_review", "unavailable")
+                raise DecisionUnavailable("Decision model review unavailable") from taught_result
             checked = [concept for concept in taught if taught_result[f"concept_{concept}"] == "checked"]
             review = (AnswerReview("revise", ["strategy"], [], []) if strategy.teach_back and not checked
                       else AnswerReview("pass", [], taught, checked))
@@ -336,226 +249,48 @@ def _record_model_decision(tools, role: str, decision: IntentDecision | AnswerRe
     ))
 
 
-class FoundryDecisionAgent:
-    """Evaluation-only hosted reviewer; a candidate under test is addressed by an explicit version."""
-
-    def __init__(self, role: str, *, agent_version: str, client=None):
-        if role not in INSTRUCTIONS:
-            raise ValueError("unknown decision-agent role")
-        self.role = role
-        self.agent_name = f"gg-{role}-agent"
-        self.agent_version = agent_version
-        if not self.agent_version.isdecimal():
-            raise DecisionUnavailable("an explicit decision-agent version is required")
-        if client is None:
-            from azure.ai.projects import AIProjectClient
-            from azure.identity import DefaultAzureCredential
-
-            project = AIProjectClient(endpoint=settings.project_endpoint, credential=DefaultAzureCredential(),
-                                      connection_timeout=5, read_timeout=10, retry_total=0)
-            version = project.agents.get_version(self.agent_name, self.agent_version)
-            if (version.name != self.agent_name or version.version != self.agent_version
-                    or version.definition.as_dict() != agent_definition(role).as_dict()):
-                raise DecisionUnavailable("pinned decision agent does not match the approved definition")
-            client = project.get_openai_client(
-                max_retries=0, timeout=REQUEST_TIMEOUT,
-                **({"base_url": settings.ai_gateway_url} if settings.ai_gateway_url else {}),
-            )
-        self.client = client
-
-    def close(self):
-        self.client.close()
-
-    def judge(self, tools, utterance: str, strategy, draft) -> AnswerReview:
-        tools.trace.review_feedback = []
-        decision = self._request(tools, review_payload(tools, utterance, strategy, draft))
-        if not isinstance(decision, AnswerReview):
-            raise ContractError("unexpected answer-review decision")
-        return decision
-
-    def _request(self, tools, payload: dict) -> AnswerReview:
-        from azure.core.exceptions import AzureError
-        from openai import OpenAIError
-        from governedgraph.observability import emit
-        from uuid import uuid4
-
-        payload = {**payload, "conversation_context": tools.conversation_context()}
-        pending = False
-        validation_stage = "request"
-        with operation(tools.journey.journey_id, f"invoke_agent {self.agent_name}",
-                       agent_name=self.agent_name, parent=tools.trace_parent) as span:
-            if span is not None:
-                span.set_attributes({"gen_ai.operation.name": "invoke_agent",
-                                     "gen_ai.agent.id": f"{self.agent_name}:{self.agent_version}",
-                                     "gen_ai.agent.version": self.agent_version,
-                                     "gen_ai.request.model": deployment_for(self.role)})
-            try:
-                pending = True
-                with tools.trace.measure("foundry_requests"):
-                    response = create_with_retry(
-                        self.client.responses.create, tools,
-                        input=[{"type": "message", "role": "user", "content": json.dumps(payload)}],
-                        store=False, timeout=REQUEST_TIMEOUT, max_output_tokens=600,
-                        extra_headers=headers(tools.journey.journey_id, tools.trace_parent),
-                        extra_body={"agent_reference": {"type": "agent_reference", "name": self.agent_name,
-                                                         "version": self.agent_version}},
-                    )
-                pending = False
-                llm_log.record(tools.journey.journey_id, "review", deployment_for(self.role),
-                               {"agent": f"{self.agent_name}:{self.agent_version}", "input": payload}, response)
-                tools.trace.model_rounds += 1
-                model_usage(response, journey_id=tools.journey.journey_id,
-                            agent_name=self.agent_name, model=deployment_for(self.role))
-                if span is not None:
-                    span.set_attribute("gen_ai.response.id", response.id)
-                validation_stage = "completion"
-                if response.status != "completed" or any(
-                    item.type == "function_call" for item in response.output
-                ):
-                    raise ContractError("decision agent did not return a completed decision")
-                validation_stage = "json"
-                body = json.loads(response.output_text)
-                validation_stage = "review_checks"
-                if not isinstance(body, dict):
-                    raise ContractError("answer review must be an object")
-                body = dict(body)
-                checks = body.pop("checks", None)
-                if (not isinstance(checks, dict) or set(checks) != set(REVIEW_CHECKS)
-                        or any(type(value) is not bool for value in checks.values())):
-                    raise ContractError("answer review omitted the complete closed checklist")
-                evidence_status = body.pop("evidence_status", None)
-                if not isinstance(evidence_status, str) or evidence_status not in {"sufficient", "insufficient"}:
-                    raise ContractError("invalid closed answer-review evidence status")
-                if "verdict" in body or "issues" in body:
-                    raise ContractError("answer review supplied host-derived fields")
-                failed = {REVIEW_CHECKS[check] for check, passed in checks.items() if not passed}
-                if evidence_status == "insufficient":
-                    failed.add("grounding")
-                if set(body.get("concepts", [])) & set(payload["task"].get("excluded_concepts", [])):
-                    failed.add("relevance")
-                if payload["task"]["selected_strategy"]["teach_back"] and "?" not in payload["draft"]["text"]:
-                    failed.add("strategy")
-                validation_stage = "review_consistency"
-                feedback = body.pop("feedback", None)
-                if not isinstance(feedback, list) or len(feedback) > MAX_REVIEW_FEEDBACK:
-                    raise ContractError("invalid closed answer-review feedback")
-                validated_feedback = [ReviewFeedback.from_dict(item) for item in feedback]
-                quoted_feedback = [item for item in validated_feedback if item.quote in payload["draft"]["text"]]
-                if len(quoted_feedback) != len(validated_feedback):
-                    log.warning("answer_review_quote_discarded", extra={
-                        "journey_id": tools.journey.journey_id,
-                        "failure_domain": "answer-review:review_quote",
-                    })
-                tools.trace.review_feedback = [asdict(item) for item in quoted_feedback]
-                failed.update(item.issue for item in validated_feedback)
-                body["issues"] = sorted(failed)
-                body["verdict"] = ("fail" if "advice" in failed
-                                   else "unassessable" if evidence_status == "insufficient"
-                                   else "revise" if failed else "pass")
-                if body.get("verdict") in {"revise", "fail", "unassessable"}:
-                    if body.get("concepts") or body.get("teach_back_concepts"):
-                        log.warning("rejected_answer_concepts_discarded", extra={
-                            "journey_id": tools.journey.journey_id,
-                            "failure_domain": "answer-review:nonpass_concepts",
-                        })
-                    body["concepts"], body["teach_back_concepts"] = [], []
-                validation_stage = "decision_contract"
-                decision = AnswerReview.from_dict(body)
-                validation_stage = "audit_evidence"
-                tools.trace.decision_evidence.append(DecisionEvidence(
-                    self.role, self.agent_name, self.agent_version, asdict(decision),
-                ))
-                if span is not None:
-                    span.set_attribute("governedgraph.decision.code", decision.verdict)
-                    span.set_attribute("governedgraph.decision.reason", ",".join(decision.issues) or "accepted")
-                return decision
-            except (AzureError, OpenAIError, TimeoutError, ValueError, TypeError, KeyError) as error:
-                if pending:
-                    emit("model_usage_missing", event_id=f"unknown:{uuid4().hex}",
-                         journey_id=tools.journey.journey_id, agent_name=self.agent_name,
-                         model_deployment=deployment_for(self.role), usage_complete=False)
-                contract_codes = {
-                    "decision agent did not return a completed decision": "incomplete",
-                    "answer review must be an object": "review_object",
-                    "answer review omitted the complete closed checklist": "review_checks",
-                    "answer review verdict disagrees with its checks": "review_consistency",
-                    "invalid answer-review verdict": "review_verdict",
-                    "invalid closed answer-review issues": "review_issues",
-                    "invalid closed answer-review evidence status": "review_evidence",
-                    "answer review supplied host-derived fields": "review_derived_fields",
-                    "invalid closed answer-review feedback": "review_feedback",
-                    "invalid closed explanation concepts": "review_concepts",
-                    "teach-back cannot assess an untaught concept": "untaught_concept",
-                    "only an accepted explanation supplies taught concepts": "nonpass_concepts",
-                }
-                failure_code = contract_codes.get(str(error), "schema_or_dependency")
-                log.error("decision_agent_unavailable", extra={"journey_id": tools.journey.journey_id,
-                                                             "agent_name": self.agent_name,
-                                                             "error_type": type(error).__name__,
-                                                             "failure_domain": (
-                                                                 f"{self.role}:{validation_stage}:{failure_code}"),
-                                                             "validation_stage": validation_stage,
-                                                             "failure_code": failure_code})
-                if span is not None:
-                    from opentelemetry.trace import Status, StatusCode
-
-                    span.set_status(Status(StatusCode.ERROR))
-                    span.set_attribute("error.type", type(error).__name__)
-                    span.set_attribute("governedgraph.decision.validation_stage", validation_stage)
-                    span.set_attribute("governedgraph.decision.failure_code", failure_code)
-                raise DecisionUnavailable(f"{self.role} agent unavailable") from error
-
-
 def run_decision(role: str, tools, utterance: str,
                  context: DecisionContext) -> IntentDecision | UnderstandingDecision:
     if role == "understanding":
         return _run_understanding(tools, utterance, context)
-    if role not in {"intent", "follow_up_intent"}:
+    if role != "intent":
         raise ValueError("unknown routing decision role")
-    from governedgraph.agents.decision_model import DecisionModelUnavailable
+    from governedgraph.agents.decision_model import DecisionModelAbstained, DecisionModelUnavailable
 
-    follow_up = role == "follow_up_intent"
     state = _state_text(tools, context, utterance)
-    reason_question = {"reason": {
-        "type": "choice", "instructions": "What is the customer's current message about?",
-        "criteria": _intent_criteria(follow_up),
+    route_question = {"route": {
+        "type": "choice", "instructions": _route_instructions(context.journey_state),
+        "criteria": {label: _pack_criteria()["route"][label] for label in ROUTE_ORDER},
     }}
-    if follow_up:
-        # The language was already read for this message; only the new question's topic is open.
-        (routed,) = _ask_each(tools, state, [reason_question])
-        if isinstance(routed, DecisionModelUnavailable):
-            tools.trace.note("intent", "unavailable")
-            raise DecisionUnavailable("Decision model follow-up intent unavailable") from routed
-        matches = [row for row in INTENT_DECISIONS if row[2] == routed["reason"]
-                   and row[2] not in HISTORICAL_REASONS and row[2] != "restating_previous_explanation"]
-        if len(matches) != 1:
-            raise DecisionUnavailable("invalid closed follow-up intent classification")
-        decision = IntentDecision(*matches[0], context.response_language)
-        # The follow-up reading supersedes the earlier mistaken one; evidence holds one routing decision per role.
-        tools.trace.decision_evidence[:] = [
-            item for item in tools.trace.decision_evidence if item.role != "intent"]
-        _record_model_decision(tools, "intent", decision)
-        return decision
-    language_question = {"response_language": {
-        "type": "choice",
-        "instructions": ("Follow an explicit supported language request; otherwise use the current "
-                         "message's language or retain the established language if ambiguous."),
-        "criteria": {language: language for language in sorted(RESPONSE_LANGUAGES)},
+    topic_question = {"topic": {
+        "type": "choice", "instructions": "Which topic does the customer's message ask about?",
+        "criteria": _intent_criteria(),
     }}
-    # The language reading needs only the current message and the established language, never the history.
-    language_state = f"Established language: {context.response_language}\nCustomer message: {utterance}"
-    routed, language = _ask_each(tools, [state, language_state], [reason_question, language_question])
-    if isinstance(routed, DecisionModelUnavailable):
+    routed, topic = _ask_each(tools, state, [route_question, topic_question])
+
+    def failed(reading) -> bool:
+        return isinstance(reading, DecisionModelUnavailable) and not isinstance(reading, DecisionModelAbstained)
+
+    if failed(routed):
         tools.trace.note("intent", "unavailable")
         raise DecisionUnavailable("Decision model intent unavailable") from routed
-    # The language is a convenience: an unclear reading keeps the established language, never a handover.
-    response_language = context.response_language if isinstance(language, DecisionModelUnavailable) \
-        else language["response_language"]
-    matches = [row for row in INTENT_DECISIONS if row[2] == routed["reason"]
-               and row[2] not in HISTORICAL_REASONS]
-    if len(matches) != 1:
-        raise DecisionUnavailable("invalid closed intent classification")
-    decision = IntentDecision(*matches[0], response_language)
+    # An unclear reading is a clarification, never an outage; a protective route needs no topic.
+    if isinstance(routed, DecisionModelAbstained):
+        row = CLARIFICATION_DECISION
+    elif routed["route"] != "asks_information":
+        row = ROUTE_LABEL_DECISIONS[routed["route"]]
+    elif isinstance(topic, DecisionModelAbstained):
+        row = CLARIFICATION_DECISION
+    elif failed(topic):
+        tools.trace.note("intent", "unavailable")
+        raise DecisionUnavailable("Decision model intent unavailable") from topic
+    else:
+        matches = [item for item in INTENT_DECISIONS if item[0] == "explanation" and item[2] == topic["topic"]
+                   and item[2] not in HISTORICAL_REASONS]
+        if len(matches) != 1:
+            raise DecisionUnavailable("invalid closed intent classification")
+        row = matches[0]
+    decision = IntentDecision(*row, context.response_language)
     _record_model_decision(tools, "intent", decision)
     return decision
 

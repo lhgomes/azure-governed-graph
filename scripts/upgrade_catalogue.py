@@ -36,7 +36,8 @@ def main(argv=None) -> int:
         evidence.write()
         runner = Runner(evidence=evidence)
         inputs = select_target(runner, args.inputs, raw, inputs, reuse=args.reuse, create_new=False)
-        receipt = deploy.deploy(runner, inputs, composition, catalogue_upgrade=True)
+        with deploy.paused(runner, inputs):
+            receipt = deploy.deploy(runner, inputs, composition, catalogue_upgrade=True)
         evidence.finish("succeeded")
         print(json.dumps({"readiness": receipt["readiness"], "evaluation": "not_run",
                           "strategy_initialization": receipt["bootstrap"]["priors"]["initialize"]}))
