@@ -4,6 +4,7 @@ import logging
 from dataclasses import asdict, replace
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from governedgraph.agents import decision_agents
@@ -695,3 +696,36 @@ def test_b2_a_restatement_verdict_needs_more_confidence_where_a_wrong_answer_cos
     turn = review_tools(sources=[("C-002-v1.2", "Your payment after the transition is your official amount.")])
     verdict = decision_agents.read_restatement(turn, "So it stays the same?")
     assert verdict == (label if accepted else "cannot_tell")
+
+
+@pytest.mark.parametrize("failures,expected_posts,fails", [
+    ([httpx.ConnectError("refused")], 2, False),               # seen in gg-dev: one refused connection must not hand the member over
+    ([httpx.ConnectError("a"), httpx.ConnectError("b")], 2, True),  # a second failure still fails closed (B9)
+    ([httpx.ReadTimeout("slow")], 1, True),                    # a request that may have been processed is not repeated
+])
+def test_b9_the_decision_client_retries_only_a_connection_that_was_never_made(monkeypatch, failures, expected_posts, fails):
+    from governedgraph.agents import connections, decision_model
+
+    posts = []
+    ok = SimpleNamespace(status_code=200, text="{}", raise_for_status=lambda: None, json=lambda: {"ok": True})
+
+    class Client:
+        def post(self, *_, **__):
+            posts.append(1)
+            if failures and len(posts) <= len(failures):
+                raise failures[len(posts) - 1]
+            return ok
+
+    monkeypatch.setattr(connections, "credential", lambda: SimpleNamespace(get_token=lambda _: SimpleNamespace(token="t")))
+    monkeypatch.setattr(connections, "http_client", lambda: Client())
+    monkeypatch.setattr(decision_model, "headers", lambda *_: {})
+    turn = review_tools()
+    turn.trace_parent = ""
+    turn.trace.measure = lambda _: __import__("contextlib").nullcontext()
+    call = decision_model._Call()
+    if fails:
+        with pytest.raises(httpx.HTTPError):
+            decision_model._send(turn, "https://decision.invalid", {}, call)
+    else:
+        assert decision_model._send(turn, "https://decision.invalid", {}, call) == {"ok": True}
+    assert len(posts) == expected_posts

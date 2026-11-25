@@ -73,8 +73,17 @@ def _send(tools, endpoint: str, request_body: dict, call: _Call) -> dict:
         response.raise_for_status()
         return response
 
+    def request_once_more_if_not_connected():
+        # A connection that was never established delivered nothing, so repeating this read-only classification
+        # cannot duplicate an effect. Timeouts and HTTP errors are not retried here.
+        try:
+            return request()
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            log.warning("decision_connect_retry", extra={"journey_id": tools.journey.journey_id})
+            return request()
+
     with tools.trace.measure("foundry_requests"):
-        response = create_with_retry(request, tools)
+        response = create_with_retry(request_once_more_if_not_connected, tools)
     call.stage = "response_json"
     return response.json()
 
