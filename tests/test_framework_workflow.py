@@ -14,7 +14,7 @@ def test_art50_b8_natural_opening_is_exactly_user_approved_and_versioned():
     from governedgraph.agents.counsellor import DISCLOSURE, TEMPLATES
     from governedgraph.guardrails.numeric_fidelity import check
 
-    assert TEMPLATES["template_set_version"] == "1.5"
+    assert TEMPLATES["template_set_version"] == "1.6"
     assert TEMPLATES["disclosure"]["approval_ref"] == "IMP-102-user-approval-2026-11-14"
     assert DISCLOSURE == (
         "Hello, welcome! I'm your AI pension guide. We can take your pension questions one step at a time. "
@@ -208,3 +208,17 @@ def test_b8_confirmed_closing_is_approved_figure_free_and_does_not_replace_the_t
         assert confirmed[language] != thanks[language] and "?" not in confirmed[language]
         assert check(confirmed[language], None, []).passed and not response_steers_choice(confirmed[language])
     assert "leave it here" not in confirmed["en"]
+
+
+def test_b2_gna_restatement_verdicts_are_approved_short_figure_free_and_never_steer():
+    from governedgraph.agents.counsellor import TEMPLATES
+    from governedgraph.guardrails.advice_intent import response_steers_choice
+    from governedgraph.guardrails.numeric_fidelity import check
+
+    for verdict in ("matches", "partly", "differs"):
+        entry = TEMPLATES["acknowledgements"][f"restatement_{verdict}"]
+        assert entry["approval_ref"] == "IMP-RESTATEMENT-VERDICT-2026-11-25-user-approval"
+        for language in ("en", "nl"):
+            text = entry[language]
+            assert len(text) <= 40 and "?" not in text and "{{" not in text
+            assert check(text, None, []).passed and not response_steers_choice(text)

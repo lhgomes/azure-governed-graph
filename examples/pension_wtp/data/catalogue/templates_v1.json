@@ -1,5 +1,5 @@
 {
-  "template_set_version": "1.5",
+  "template_set_version": "1.6",
   "acknowledgements": {
     "approval_ref": "IMP-35-user-approval-2026-10-27",
     "label": "ILLUSTRATIVE - synthetic data",
@@ -16,6 +16,24 @@
       "version": "1.0",
       "en": "Thank you. If anything else comes to mind, you can ask another question or request a person at any time.",
       "nl": "Dank je. Als je nog iets te binnen schiet, kun je een andere vraag stellen of op elk moment om een medewerker vragen."
+    },
+    "restatement_matches": {
+      "approval_ref": "IMP-RESTATEMENT-VERDICT-2026-11-25-user-approval",
+      "label": "ILLUSTRATIVE - synthetic data",
+      "en": "Yes, that's right.",
+      "nl": "Ja, dat klopt."
+    },
+    "restatement_partly": {
+      "approval_ref": "IMP-RESTATEMENT-VERDICT-2026-11-25-user-approval",
+      "label": "ILLUSTRATIVE - synthetic data",
+      "en": "That is partly right.",
+      "nl": "Dat klopt gedeeltelijk."
+    },
+    "restatement_differs": {
+      "approval_ref": "IMP-RESTATEMENT-VERDICT-2026-11-25-user-approval",
+      "label": "ILLUSTRATIVE - synthetic data",
+      "en": "Not quite.",
+      "nl": "Niet helemaal."
     },
     "comprehension_retry": {
       "approval_ref": "IMP-COMPREHENSION-RETRY-2026-11-19",

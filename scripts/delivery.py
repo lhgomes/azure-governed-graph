@@ -197,6 +197,33 @@ class Composition:
                    raw["member_values_module"], env)
 
 
+MANAGED_SUBNETS = frozenset({"container-apps", "apim", "private-endpoints"})
+
+
+def check_retained_subnets(items: tuple) -> None:
+    import ipaddress
+
+    names = [item.get("name") if isinstance(item, dict) else None for item in items]
+    for item in items:
+        if (not isinstance(item, dict) or not {"name", "address_prefix"} <= set(item)
+                or set(item) - {"name", "address_prefix", "network_security_group"}
+                or any(not isinstance(field, str) for field in item.values())):
+            raise DeliveryError("retained subnets need string name and address_prefix, and optionally a network_security_group")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", item["name"]) or item["name"] in MANAGED_SUBNETS:
+            raise DeliveryError("retained subnet name is invalid or already managed by the template")
+        if item.get("network_security_group") and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}",
+                                                                   item["network_security_group"]):
+            raise DeliveryError("retained subnet network security group must be a resource name")
+        try:
+            network = ipaddress.ip_network(item["address_prefix"], strict=True)
+        except ValueError:
+            raise DeliveryError("retained subnet address_prefix must be a CIDR block") from None
+        if not network.subnet_of(ipaddress.ip_network("10.33.0.0/16")):
+            raise DeliveryError("retained subnet must lie inside the virtual network address space")
+    if len(set(names)) != len(names):
+        raise DeliveryError("retained subnet names must be unique")
+
+
 @dataclass(frozen=True)
 class Inputs:
     subscription: str
@@ -210,6 +237,15 @@ class Inputs:
     voice_demo: bool = True
     environment: str = "gg-dev"
     decision_deployment: str = "decision-v1"
+    # Subnets created outside the template that a redeployment must keep, as {"name", "address_prefix"} with an
+    # optional "network_security_group" name in the resource group. Absent for a standard or net-new delivery.
+    retained_subnets: tuple = ()
+
+    def subnet_parameters(self) -> list:
+        prefix = f"/subscriptions/{self.subscription}/resourceGroups/{self.resource_group}/providers"
+        return [{"name": item["name"], "addressPrefix": item["address_prefix"],
+                 "networkSecurityGroupId": f"{prefix}/Microsoft.Network/networkSecurityGroups/{item['network_security_group']}"
+                 if item.get("network_security_group") else ""} for item in self.retained_subnets]
 
     @classmethod
     def load(cls, path: Path) -> Inputs:
@@ -236,7 +272,8 @@ class Inputs:
     def from_dict(cls, raw: dict) -> Inputs:
         if set(raw) - set(cls.__dataclass_fields__):
             raise DeliveryError("unknown delivery input")
-        value = cls(**raw)
+        value = cls(**{**raw, "retained_subnets": tuple(raw.get("retained_subnets", ()))})
+        check_retained_subnets(value.retained_subnets)
         for field in ("subscription", "naming_seed"):
             UUID(getattr(value, field))
         if not isinstance(value.operator_id, str):

@@ -18,6 +18,7 @@ param compactModelVersion string = '2025-04-14'
 param embeddingModelName string = 'text-embedding-3-large'
 param embeddingModelVersion string = '1'
 param decisionDeployment string = 'decision-v1'
+param retainedSubnets array = []
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: resourceGroupName
@@ -31,7 +32,7 @@ var tags = { 'azd-env-name': environmentName, workload: 'gg-journey-graph', data
 module network 'modules/network.bicep' = {
   name: 'network'
   scope: rg
-  params: { location: location, tags: tags, token: token }
+  params: { location: location, tags: tags, token: token, retainedSubnets: retainedSubnets }
 }
 module monitoring 'modules/monitoring.bicep' = {
   name: 'monitoring'

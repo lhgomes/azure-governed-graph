@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from governedgraph.agents import llm_log
+from governedgraph.agents.foundry_runtime import first_message_text
 from governedgraph.common.config import settings
 from governedgraph.common.contracts import ContractError, _strict
 
@@ -160,12 +161,13 @@ class LivePersona:
         if (result.status != "completed" or not result.output_text.strip()
                 or any(item.type != "message" for item in result.output)):
             raise RuntimeError("persona did not return a completed text-only turn")
-        body = json.loads(result.output_text)
+        text = first_message_text(result)
+        body = json.loads(text)
         if (not isinstance(body, dict) or set(body) != {"utterance", "done"}
                 or not isinstance(body["utterance"], str) or type(body["done"]) is not bool
                 or not body["utterance"].strip() or len(body["utterance"]) > MAX_SPOKEN_CHARS):
             raise ContractError("persona requires a bounded utterance and a done flag")
-        self.messages.append({"role": "assistant", "content": result.output_text})
+        self.messages.append({"role": "assistant", "content": text})
         return PersonaTurn(body["utterance"].strip(), body["done"])
 
 

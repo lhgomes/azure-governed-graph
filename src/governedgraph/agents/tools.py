@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING
 
+from governedgraph.common import domain
 from governedgraph.common.contracts import (
     DecisionEvidence,
     EscalationRequest,
@@ -53,6 +54,8 @@ class Trace:
     turn_trace: list[dict] = field(default_factory=list)
     rate_limit_wait: float = 0.0
     decline_reason: str = ""
+    # How the approved sources bear out the member's restatement of the last answer; empty when none was made.
+    restatement: str = ""
 
     def note(self, stage: str, result: str, issues: list[str] | tuple[str, ...] = ()) -> None:
         """Content-free turn evidence: closed codes only, never member or answer text."""
@@ -132,12 +135,19 @@ class CounsellorTools:
         return json.dumps(resp.to_dict())
 
     # ---- tool: search_approved_content (governed RAG, B3) ----
+    def _retrieval_topic(self) -> str:
+        """The pack's description of the topic the intent agent chose, so a conversational opening or a broad
+        passage cannot crowd out the passages that topic needs. Empty before a decision or for a historical reason."""
+        intent = next((item.decision for item in reversed(self.trace.decision_evidence) if item.role == "intent"), None)
+        return domain.vocabulary()["decision_criteria"]["intent"].get(intent["reason"], "") if intent else ""
+
     def search_approved_content(self, query: str) -> str:
         """Search the APPROVED, versioned domain content. Answer only from these passages."""
         lang = self.journey.response_language
+        topic = self._retrieval_topic()
         with operation(self.journey.journey_id, "governedgraph.tool.approved_content", agent_name=self.agent_name,
                        parent=self.trace_parent):
-            hits = self.search.search(query, self.journey.stage, language=lang, top=5)
+            hits = self.search.search(f"{query}\n{topic}" if topic else query, self.journey.stage, language=lang, top=5)
         if self.prompt_screen is not None:
             with self.trace.measure("document_screening"):
                 result = self.prompt_screen.screen("", self.auth_ref, documents=[h.body for h in hits])

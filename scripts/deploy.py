@@ -109,7 +109,7 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
             "deployVoicePersona": inputs.voice_demo}
     print("Deploying foundation...", flush=True)
     stage(runner, "foundation")
-    foundation = provision(runner, inputs, "infra/main.bicep", base)["foundation"]
+    foundation = provision(runner, inputs, "infra/main.bicep", {**base, "retainedSubnets": inputs.subnet_parameters()})["foundation"]
     network_snapshot(runner, inputs, foundation, "foundation")
     print("Preparing immutable images...", flush=True)
     stage(runner, "immutable images")

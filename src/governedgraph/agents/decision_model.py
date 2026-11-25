@@ -94,7 +94,8 @@ def _record_usage(tools, body: dict, deployment: str, call: _Call) -> None:
         raise ValueError("unexpected Decision model")
 
 
-def _read_choices(tools, body: dict, questions: dict, optional: frozenset[str], call: _Call) -> dict[str, str | None]:
+def _read_choices(tools, body: dict, questions: dict, optional: frozenset[str], call: _Call,
+                  label_minimums: dict | None = None) -> dict[str, str | None]:
     """The label chosen for every question; a label at or below the confidence gate is refused (None if optional)."""
     call.stage = "answer_keys"
     answers = body["answers"]
@@ -113,7 +114,10 @@ def _read_choices(tools, body: dict, questions: dict, optional: frozenset[str], 
         if type(probability) not in (int, float) or not 0 <= probability <= 1:
             raise ValueError("invalid Decision probability")
         call.stage = "low_confidence"
-        if probability > (OPTIONAL_MIN_CONFIDENCE if key in optional else MIN_CONFIDENCE):
+        minimum = (label_minimums or {}).get(key, {}).get(label)
+        if minimum is None:
+            minimum = OPTIONAL_MIN_CONFIDENCE if key in optional else MIN_CONFIDENCE
+        if probability > minimum:
             selected[key] = label
             continue
         ranked = sorted(answer["probabilities"].items(), key=lambda item: -item[1])[:2]
@@ -131,9 +135,11 @@ def _read_choices(tools, body: dict, questions: dict, optional: frozenset[str], 
     return selected
 
 
-def choose(tools, state: dict | str, questions: dict, optional: frozenset[str] = frozenset()) -> dict[str, str | None]:
+def choose(tools, state: dict | str, questions: dict, optional: frozenset[str] = frozenset(),
+           label_minimums: dict | None = None) -> dict[str, str | None]:
     """One Decision request. An `optional` question that is answered without enough confidence returns None;
-    any other unclear or invalid answer raises, so the caller fails closed."""
+    any other unclear or invalid answer raises, so the caller fails closed. `label_minimums` ({question: {label:
+    probability}}) raises the bar for particular labels, for a question whose labels are not equally risky to get wrong."""
     endpoint, deployment = _decision_endpoint()
     call = _Call()
     request_body = {"model": deployment,
@@ -143,7 +149,7 @@ def choose(tools, state: dict | str, questions: dict, optional: frozenset[str] =
     try:
         body = _send(tools, endpoint, request_body, call)
         _record_usage(tools, body, deployment, call)
-        selected = _read_choices(tools, body, questions, optional, call)
+        selected = _read_choices(tools, body, questions, optional, call, label_minimums)
     except (AzureError, httpx.HTTPError, AttributeError, KeyError, TypeError, ValueError) as error:
         log.error("decision_model_failed", extra={
             "event_id": f"decision:{call.event_id}", "journey_id": journey_id,

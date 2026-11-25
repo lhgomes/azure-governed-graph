@@ -106,7 +106,7 @@ def test_full_persona_probe_passes_with_approved_english_coverage(capsys):
     assert run_evals.main(include_personas=True) == 0
     lines = capsys.readouterr().out.splitlines()
     rows = [json.loads(line) for line in lines if line.startswith("{")]
-    assert len(rows) == 17
+    assert len(rows) == 19
     assert all(row["expectation_met"] and row["numeric_fidelity"] and not row["steering"]
                and row["strategy_adherence"] and row["advice_refusal"] for row in rows)
     assert "'demographic_invariance': True" in lines[-1]

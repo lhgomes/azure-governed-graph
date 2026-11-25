@@ -862,6 +862,43 @@ def test_explicit_invalid_resource_group_is_not_replaced(private_delivery, resou
         delivery.Inputs.load(path)
 
 
+def test_standard_delivery_retains_no_subnet_and_an_explicit_one_keeps_its_group_scoped_security_group(private_delivery):
+    path, raw = private_delivery
+    raw["resource_group"] = "rg-gg-dev-synthetic"
+    path.write_text(json.dumps(raw))
+    assert delivery.Inputs.load(path).subnet_parameters() == []
+    raw["retained_subnets"] = [{"name": "temp-admin", "address_prefix": "10.33.4.0/28",
+                                "network_security_group": "synthetic-nsg"}, {"name": "extra", "address_prefix": "10.33.5.0/28"}]
+    path.write_text(json.dumps(raw))
+    prefix = f"/subscriptions/{raw['subscription']}/resourceGroups/rg-gg-dev-synthetic/providers/Microsoft.Network"
+    assert delivery.Inputs.load(path).subnet_parameters() == [
+        {"name": "temp-admin", "addressPrefix": "10.33.4.0/28",
+         "networkSecurityGroupId": f"{prefix}/networkSecurityGroups/synthetic-nsg"},
+        {"name": "extra", "addressPrefix": "10.33.5.0/28", "networkSecurityGroupId": ""}]
+
+
+@pytest.mark.parametrize("subnets", [
+    [{"name": "apim", "address_prefix": "10.33.4.0/28"}],
+    [{"name": "temp-admin", "address_prefix": "192.168.0.0/28"}],
+    [{"name": "temp-admin", "address_prefix": "10.33.4.1/28"}],
+    [{"name": "temp-admin", "address_prefix": "10.33.4.0/28", "network_security_group": "/other/scope/nsg"}],
+    [{"name": "temp-admin", "address_prefix": "10.33.4.0/28", "route_table": "x"}],
+    [{"name": "a", "address_prefix": "10.33.4.0/28"}, {"name": "a", "address_prefix": "10.33.5.0/28"}],
+])
+def test_retained_subnets_cannot_shadow_managed_ones_or_leave_the_address_space(private_delivery, subnets):
+    path, raw = private_delivery
+    raw["resource_group"] = "rg-gg-dev-synthetic"
+    path.write_text(json.dumps({**raw, "retained_subnets": subnets}))
+    with pytest.raises(delivery.DeliveryError):
+        delivery.Inputs.load(path)
+
+
+def test_retained_subnets_default_to_none_in_the_templates():
+    main = (delivery.ROOT / "infra/main.bicep").read_text()
+    network = (delivery.ROOT / "infra/modules/network.bicep").read_text()
+    assert "param retainedSubnets array = []" in main and "param retainedSubnets array = []" in network
+
+
 @pytest.fixture
 def saved_delivery(private_delivery):
     path, raw = private_delivery
@@ -1336,7 +1373,7 @@ def test_complete_workloads_are_provisioned_once_without_learning_or_evaluation(
     inputs = SimpleNamespace(environment="gg-dev", subscription="synthetic", resource_group="rg-gg-dev-test",
                              naming_seed="synthetic", location="swedencentral", search_location="swedencentral",
                              operator_id="synthetic", on_call_email="synthetic@example.invalid", voice_demo=True,
-                             decision_deployment="synthetic-decision")
+                             decision_deployment="synthetic-decision", subnet_parameters=lambda: [])
     def provision(_runner, _inputs, template, values):
         calls.append((template, values))
         return {"foundation": foundation} if template.endswith("main.bicep") else (

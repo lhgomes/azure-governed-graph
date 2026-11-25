@@ -39,6 +39,17 @@
       "decision": {"route": "explanation", "intent": "general_question", "reason": "approved_fund_information"}
     },
     {
+      "texts": ["So right after the transition my payment is my official amount, and later it can go up or down?"],
+      "decision": {"route": "explanation", "intent": "transition_impact_question", "reason": "payment_continuity", "restates": true}
+    },
+    {
+      "texts": [
+        "Why are there new pension rules?",
+        "Wie houdt toezicht op pensioenfondsen?"
+      ],
+      "decision": {"route": "explanation", "intent": "general_question", "reason": "pension_rules_information"}
+    },
+    {
       "texts": [
         "Should I object to the transition or not? What would you do in my position?",
         "Should I object to the transition or not?",

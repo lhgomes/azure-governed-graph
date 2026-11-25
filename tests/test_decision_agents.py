@@ -53,6 +53,7 @@ def reading(verdict, *, checked="concept_rights_transfer"):
 
 @pytest.mark.parametrize("route,topic,expected", [
     ("asks_information", "transition_overview", ("explanation", "transition_overview")),
+    ("asks_information", "pension_rules_information", ("explanation", "pension_rules_information")),
     ("asks_choice", "transition_overview", ("advice", "personal_choice_or_comparison")),
     ("asks_person", "transition_overview", ("human", "explicit_human_request")),
     ("asks_person", "fail", ("human", "explicit_human_request")),
@@ -99,7 +100,7 @@ def test_decision_model_is_sole_intent_router(monkeypatch, route, topic, expecte
     assert states["route"][0] == states["topic"][0] == "Customer message: Synthetic request."
     # Controls and topics are separate questions, so neither dilutes the other.
     assert list(states["route"][1]["route"]["criteria"]) == [
-        "asks_person", "asks_choice", "asks_information", "only_acknowledges"]
+        "asks_person", "asks_choice", "asks_information", "only_acknowledges"]  # nothing to restate yet
     assert set(states["topic"][1]["topic"]["criteria"]) == set(decision_agents._intent_criteria())
     assert "choose the first of: asks_person, asks_choice, asks_information, only_acknowledges" in (
         states["route"][1]["route"]["instructions"])
@@ -307,7 +308,7 @@ def test_b9_a_question_after_an_accepted_answer_is_never_read_as_an_acknowledgem
     turn.conversation_context = lambda: []
     decision_agents.run_decision(
         "intent", turn, "So it stays the same, right?", DecisionContext("resolved", "unclassified", None))
-    assert "Any other question, including \"is that right?\", is asks_information" in (
+    assert "Any other question, including \"is that right?\" about something new, is asks_information" in (
         seen["route"]["route"]["instructions"])
 
 
@@ -342,7 +343,7 @@ def test_b9_a_restatement_offered_for_confirmation_is_a_request_for_information_
     assert not any("is that right" in text.lower() for text in criteria.values())
     assert all("context note" in criteria[label] for label in ("asks_information", "only_acknowledges"))
     note = decision_agents.ROUTE_NOTES["resolved"]
-    assert "with or without a question mark" in note and "asks_information" in note
+    assert "with or without a question mark" in note and "restates_explanation" in note
 
 
 def test_b3_b7_question_focus_preserves_old_audits_without_generic_new_native_outputs():
@@ -354,8 +355,9 @@ def test_b3_b7_question_focus_preserves_old_audits_without_generic_new_native_ou
     reasons = set(decision_agents._intent_criteria())
     assert not HISTORICAL_REASONS & reasons
     for reason, (_, excluded) in ANSWER_GOALS.items():
-        decision = IntentDecision.from_dict({**EXPLAIN, "reason": reason})
-        assert decision.intent == EXPLAIN["intent"] and decision.reason in reasons
+        intent = next(row[1] for row in INTENT_DECISIONS if row[0] == "explanation" and row[2] == reason)
+        decision = IntentDecision.from_dict({**EXPLAIN, "intent": intent, "reason": reason})
+        assert decision.intent == intent and decision.reason in reasons
         assert set(excluded) <= EXPLANATION_CONCEPTS
         with pytest.raises(ContractError):
             IntentDecision.from_dict({**asdict(decision), "age_band": "synthetic"})
@@ -392,7 +394,7 @@ def test_b3_b7_classification_derives_only_the_approved_matching_route(monkeypat
     turn.trace.note = lambda *_: None
     decision = decision_agents.run_decision("intent", turn, "Synthetic question.", CONTEXT)
     assert asdict(decision) == {
-        "route": route, "intent": intent, "reason": reason, "response_language": "en",
+        "route": route, "intent": intent, "reason": reason, "response_language": "en", "restates": False,
     }
 
 
@@ -611,3 +613,85 @@ def test_b3_audit_accepts_only_one_bounded_repair_and_preserves_unique_routing_e
     ):
         with pytest.raises(ContractError):
             ExplainabilityRecord.from_dict({**record, "decision_evidence": rejected})
+
+
+def test_b2_a_restatement_is_offered_as_a_route_only_after_an_answer_and_stays_an_explanation(monkeypatch):
+    from governedgraph.agents import decision_model
+
+    seen = {}
+
+    def choose(_t, _s, questions):
+        seen.update(questions)
+        return {"route": "restates_explanation"} if "route" in questions else {"topic": "payment_continuity"}
+
+    monkeypatch.setattr(decision_model, "choose", choose)
+    turn = tools()
+    turn.trace.note = lambda *_: None
+    turn.conversation_context = lambda: []
+    decision = decision_agents.run_decision(
+        "intent", turn, "So the amount stays the same?", DecisionContext("resolved", "unclassified", None))
+    assert (decision.route, decision.reason, decision.restates) == ("explanation", "payment_continuity", True)
+    assert list(seen["route"]["criteria"]) == [
+        "asks_person", "asks_choice", "restates_explanation", "asks_information", "only_acknowledges"]
+    with pytest.raises(ContractError):
+        IntentDecision("advice", "option_level_question", "personal_choice_or_comparison", restates=True)
+    assert not IntentDecision.from_dict(
+        {"route": "explanation", "intent": "transition_impact_question", "reason": "payment_continuity",
+         "response_language": "en"}).restates  # audits written before the field existed still decode
+
+
+@pytest.mark.parametrize("label,expected", [
+    ("matches", "matches"), ("partly", "partly"), ("differs", "differs"), ("cannot_tell", "cannot_tell"),
+    (None, "cannot_tell"),  # an unreadable answer never becomes a verdict
+])
+def test_b2_a_restatement_is_judged_against_the_approved_sources_and_fails_to_cannot_tell(
+        monkeypatch, label, expected):
+    from governedgraph.agents import decision_model
+
+    seen = {}
+
+    def choose(_t, state, questions, optional=frozenset(), label_minimums=None):
+        seen.update(state=state, questions=questions, minimums=label_minimums)
+        return {"restatement": label}
+
+    monkeypatch.setattr(decision_model, "choose", choose)
+    turn = review_tools(history=[{"role": "assistant", "text": "Your payment is your official amount."}],
+                        sources=[("C-002-v1.2", "Your payment after the transition is your official amount.")])
+    verdict = decision_agents.read_restatement(turn, "So it is the same as before, 5 percent?")
+    assert verdict == expected
+    assert "[member-supplied number]" in seen["state"] and "[C-002-v1.2]" in seen["state"]
+    assert seen["minimums"]["restatement"]["matches"] >= 0.6  # a confirmation needs more than the ordinary gate
+    assert "comparison of amounts" in seen["questions"]["restatement"]["criteria"]["matches"]
+    assert "member's own letter" in seen["questions"]["restatement"]["criteria"]["partly"]  # seen live in gg-dev
+
+
+def test_b2_an_unavailable_decision_model_leaves_a_restatement_without_a_verdict(monkeypatch):
+    from governedgraph.agents import decision_model
+
+    def choose(*_, **__):
+        raise decision_model.DecisionModelUnavailable("synthetic outage")
+
+    monkeypatch.setattr(decision_model, "choose", choose)
+    assert decision_agents.read_restatement(review_tools(), "So it stays the same?") == "cannot_tell"
+
+
+@pytest.mark.parametrize("label,probability,accepted", [
+    ("partly", 0.49, True),    # read correctly in gg-dev at 0.49: it must reach the member
+    ("matches", 0.54, False),  # read wrongly in gg-dev at 0.54: it must not
+    ("matches", 0.7, True), ("differs", 0.45, False), ("differs", 0.6, True), ("cannot_tell", 0.35, True),
+])
+def test_b2_a_restatement_verdict_needs_more_confidence_where_a_wrong_answer_costs_more(
+        monkeypatch, label, probability, accepted):
+    from governedgraph.agents import decision_model
+
+    labels = ("matches", "partly", "differs", "cannot_tell")
+    rest = (1 - probability) / 3
+    body = {"model": "m", "answers": {"restatement": {"type": "choice", "choice": label, "confidence": 0.3, "probabilities": {
+        name: probability if name == label else rest for name in labels}}}, "usage": {"input_tokens": 1, "output_tokens": 1}}
+    monkeypatch.setattr(decision_model, "_decision_endpoint", lambda: ("https://decision.invalid", "decision-v1"))
+    monkeypatch.setattr(decision_model, "_send", lambda *_: body)
+    monkeypatch.setattr(decision_model, "_record_usage", lambda *_: None)
+    monkeypatch.setattr(decision_model.llm_log, "record", lambda *_, **__: None)
+    turn = review_tools(sources=[("C-002-v1.2", "Your payment after the transition is your official amount.")])
+    verdict = decision_agents.read_restatement(turn, "So it stays the same?")
+    assert verdict == (label if accepted else "cannot_tell")

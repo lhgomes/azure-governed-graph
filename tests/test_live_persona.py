@@ -107,6 +107,23 @@ def test_persona_output_contract_is_closed(output_text):
         asyncio.run(actor.next_turn("Reply."))
 
 
+def test_persona_response_with_two_messages_uses_the_first_instead_of_failing_to_parse():
+    # Seen in gg-dev: the agent answered twice in one response; the SDK's output_text joined both into invalid JSON.
+    def message(utterance):
+        return SimpleNamespace(type="message", content=[SimpleNamespace(
+            type="output_text", text=json.dumps({"utterance": utterance, "done": False}))])
+
+    first, second = message("Yes, that is right."), message("Yes, I understand it.")
+    client = Mock()
+    client.responses.create.return_value = SimpleNamespace(
+        status="completed", output_text=first.content[0].text + second.content[0].text, output=[first, second])
+    actor = LivePersona(card(), client=client)
+    asyncio.run(actor.next_turn(""))
+    turn = asyncio.run(actor.next_turn("Reply."))
+    assert turn.utterance == "Yes, that is right."
+    assert actor.messages[-1] == {"role": "assistant", "content": first.content[0].text}  # the duplicate is dropped
+
+
 def test_persona_failures_are_reported_not_substituted_with_invented_replies(fake_openai):
     client = Mock()
     actor = LivePersona(card(), client=client)

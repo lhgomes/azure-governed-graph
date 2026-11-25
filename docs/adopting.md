@@ -43,6 +43,7 @@ Point `GOVERNEDGRAPH_DATA_DIR` at a directory with this layout (see the sample's
 | `catalogue/vocabulary_v1.json` | Closed vocabulary: explanation intents and reasons, concepts, answer goals, languages, step labels, `source_talk` phrases (how a reply must not refer to its own sources, per language), domain advice patterns, fixed member-facing messages, speech vocabulary, search probe, demo/proof profile, benchmark questions | Tier 2 |
 | `catalogue/ui/presenter.html` | Optional presenter page for the hosted voice demo | Sample asset |
 | `content/approved_content.jsonl` | Approved, versioned passages for retrieval | Content governance |
+| `content/public_sources_v1.json` | Source register for passages summarised from public pages: URL, licence note and which passage cites it. Provenance for owner review, not approval evidence | Content governance |
 | `fairness/thresholds_v1.json` | Minimum samples, maximum rank shift, cohort-gap limit, audit dimensions | Tier 2 (B5, B6) |
 | `fairness/cohort_aggregates_*.csv` | Aggregate cohort counts, kept in the segregated cohort zone (B7) | Aggregate only |
 | `synthetic/outcome_aggregates_*.csv` | Aggregate outcome counts that drive ranking (B4, B5) | Aggregate only |

@@ -24,7 +24,8 @@ ROUTE_LABEL_DECISIONS = {
     "only_acknowledges": ("comprehension", "unclassified", "restating_previous_explanation"),
 }
 CLARIFICATION_DECISION = ("clarification", "unclassified", "more_context_needed")
-ROUTE_LABELS = frozenset({"asks_information", *ROUTE_LABEL_DECISIONS})
+# `restates_explanation` is offered only after an answer; like `asks_information` it is resolved by the topic question.
+ROUTE_LABELS = frozenset({"asks_information", "restates_explanation", *ROUTE_LABEL_DECISIONS})
 MESSAGE_KEYS = frozenset({
     "audit_unavailable", "advice_declined", "safety_declined", "component_failure", "conversation_limit",
     "handover_arranged", "clarify_question", "advice_escalation_summary", "journey_closed",

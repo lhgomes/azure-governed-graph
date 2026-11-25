@@ -74,17 +74,31 @@ failures are service failures.
   (`decision_criteria` in the vocabulary), validated against the closed reason
   and concept sets. Unrelated questions are never combined in one request.
   Intent routing runs two parallel requests: `route` (four labels:
-  `asks_person`, `asks_choice`, `asks_information`, `only_acknowledges`) and `topic`
-  (the explanation topics, used only when the route is `asks_information`). The
+  `asks_person`, `asks_choice`, `asks_information`, `only_acknowledges`; after an
+  answer, a fifth, `restates_explanation`) and `topic` (the explanation topics, used
+  only when the route is `asks_information` or `restates_explanation`). The
   reply language is not read from the message: it is chosen once when the session
   starts (a persona's declared language, or the member's selector in chat) and
   kept for the journey. The journey state adds a note to the route question
   (a restatement offered for confirmation, with or without a question
-  mark, is `asks_information` and is answered; only plain thanks or agreement is
+  mark, is `restates_explanation`; any other new question is `asks_information`; only plain thanks or agreement is
   `only_acknowledges`; while a teach-back check is pending, a restatement answers
   that check and is `only_acknowledges`; in every state, a restatement of an explanation whose last message asked
   the member to say it in their own words answers that question). The review verdict and the
   concept checks are likewise separate requests.
+- **Confirming a restatement.** A `restates_explanation` route stays an explanation
+  (the intent decision carries `restates: true`; state machine, audit and ranking are
+  unchanged). After sources and strategy are loaded, one more Decision request reads
+  the member's statement against the approved passages only: `matches`, `partly`,
+  `differs` or `cannot_tell`, accepted only above the 60% optional gate, so an unclear
+  or unavailable reading gives the ordinary explanation and never a verdict. `matches`
+  returns the approved lead-in ("Yes, that's right.") with no model-written text and no
+  teach-back; it is recorded as an acknowledgment, not an explanation, so no outcome check
+  is offered for it and the learning pipeline never credits a strategy for it (B5). `partly` and `differs` open with an approved lead-in and then a normal
+  writer answer that goes through the same review and gates, with a task note to name
+  what the material does not state ("I cannot confirm ..."). A comparison with an
+  earlier amount, or a claim that something stays the same or changes, counts as stated
+  only when an approved passage says it, for any period (B1, B2).
 - **Confidence gate.** A reason or verdict is accepted only above a
   30% confidence; an optional reading (the concept checks, which can veto a draft) only above 60%. Transport, response-contract and low-confidence
   failures are distinguished in content-free operational logs. Unavailable
@@ -415,6 +429,16 @@ language and journey state. Results without approval evidence fail closed.
 Each retrieval replaces prior passage context so later turns do not reuse retired
 cached material. Accessibility selects approved retrieval language and presentation,
 not a demographic inference or automatic translation permission.
+
+General pension knowledge (the sample's passages C-013 to C-028 and Dutch C-113 to
+C-128) is summarised from public Dutch government, supervisor and sector pages and
+paraphrased without literal figures. Each passage is traceable to its sources in the
+pack's `content/public_sources_v1.json`. In gg-dev these enter the corpus as
+DEV-curated passages; before production an owner verifies every claim against its
+source and records the approval, as for any other passage. The explanation reason
+`pension_rules_information` routes such general questions (what a term means, who
+decides or supervises, complaints, compensation) to those passages. Its answer goal
+excludes member-value references and never compares or recommends options (B1, B2, GNA).
 
 ## Gap review
 

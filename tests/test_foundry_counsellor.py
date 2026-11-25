@@ -19,6 +19,7 @@ from governedgraph.common.contracts import (
     EXPLANATION_CONCEPTS, ContractError, DecisionEvidence, ExplainabilityRecord, IntentDecision,
 )
 from governedgraph.guardrails.prompt_safety import ScreenResult
+from governedgraph.voice.voice_live_bridge import VoiceReply
 from governedgraph.guardrails.numeric_fidelity import check
 from counsellor_doubles import install as install_azure_doubles, new_session, pinned_search
 from strategy_doubles import run_cycle
@@ -333,13 +334,25 @@ def test_b1_b2_b7_question_focus_limits_reference_context_without_changing_strat
     assert "member_ref" not in json.dumps(task) and "age_band" not in json.dumps(task)
 
 
+def test_b1_b2_general_pension_rules_question_carries_no_member_reference_context(counsellor):
+    counsellor.tools.get_member_values()
+    decision = IntentDecision("explanation", "general_question", "pension_rules_information")
+    counsellor.tools.trace.decision_evidence.append(
+        DecisionEvidence("intent", "gg-intent-agent", "6", asdict(decision)))
+    task = foundry_runtime.task_context(counsellor.tools, counsellor.catalogue.get("S1"))
+    assert task["question_focus"] == "pension_rules_information"
+    assert "official_after_transition_amount" in task["excluded_concepts"]
+    assert foundry_runtime._official_references(counsellor.tools, task) == []
+    assert "recommend or compare" in task["answer_goal"]
+
+
 def test_b4_second_contact_task_contains_stage_but_no_invented_previous_explanation():
     from governedgraph.orchestrator.state_machine import Journey
 
     tools = SimpleNamespace(
         journey=Journey("J-returning", "MEMBER-SYNTHETIC", stage="second_contact"),
         related_answer_context=None, explanation_pattern="A focused plain-language summary.",
-        trace=SimpleNamespace(decision_evidence=[]),
+        trace=SimpleNamespace(decision_evidence=[], restatement=""),
     )
     strategy = SimpleNamespace(strategy_id="S1", version="1.1", name="Plain-language summary",
                                teach_back=False, template_id="T-S1", template_version="1.0")
@@ -468,7 +481,7 @@ def contextual_answer(monkeypatch, azure_errors, channel):
     monkeypatch.setattr(c, "_parallel_explanation_sources", lambda _: None)
     c.start()
 
-    def explain(question, focus):
+    def explain(question, focus, restates=False):
         journey.fire(Event.INTENT_IN_SCOPE)
         journey.intent = "transition_impact_question"
         bound.trace = Trace(values=values, ranked=ranked, content_versions=["C-001-v1.3", "C-006-v1.1"],
@@ -478,7 +491,7 @@ def contextual_answer(monkeypatch, azure_errors, channel):
                             ])
         bound.trace.decision_evidence.append(DecisionEvidence(
             "intent", "gg-intent-agent", "7",
-            asdict(IntentDecision("explanation", journey.intent, focus, "en")),
+            asdict(IntentDecision("explanation", journey.intent, focus, "en", restates)),
         ))
         bound.response_id = uuid4().hex
         return c._explain(question, set())
@@ -574,6 +587,73 @@ def test_b2_when_two_drafts_stay_ungrounded_the_cited_approved_passage_is_the_an
     assert case.records[-1].decision_evidence[-1].decision["verdict"] == "revise"  # the audit stays honest
 
 
+@pytest.fixture
+def restatement_verdict(monkeypatch):
+    from governedgraph.agents import decision_agents
+
+    def set_verdict(verdict):
+        monkeypatch.setattr(decision_agents, "read_restatement", lambda *_: verdict)
+
+    return set_verdict
+
+
+@pytest.mark.parametrize("channel", ["chat", "voice"])
+def test_b2_a_restatement_the_sources_bear_out_gets_a_short_approved_yes_and_no_new_explanation(
+        contextual_answer, monkeypatch, restatement_verdict):
+    case = contextual_answer
+    client = FakeResponses()
+    install_responses(monkeypatch, client)
+    restatement_verdict("matches")
+    result = case.explain("So my rights move into the new contract?", "transition_overview", restates=True)
+    assert result.text == "Yes, that's right." and not client.calls and not result.escalated
+    assert {"stage": "restatement", "result": "matches", "issues": []} in case.counsellor.tools.trace.turn_trace
+    # The spoken reply contract accepts the turn evidence this path writes (it rejected an unknown stage in gg-dev).
+    VoiceReply(text=result.text, state=result.state, turn_trace=case.counsellor.tools.trace.turn_trace)
+    assert result.state == "resolved"  # no teach-back is asked after a confirmation
+    assert case.records[-1].response_kind == "acknowledgment"  # never an explanation: no outcome check, no learning credit
+    assert case.records[-1].decision_evidence[0].decision["restates"] is True
+
+
+@pytest.mark.parametrize("channel", ["chat", "voice"])
+def test_b2_a_partly_supported_restatement_opens_with_the_approved_verdict_and_names_the_gap(
+        contextual_answer, monkeypatch, restatement_verdict):
+    case = contextual_answer
+    gap = response("Rights move into the new contract. I cannot confirm that it stays the same as before.",
+                   content_ids=["C-001-v1.3"], question="What happens to your rights?")
+    client = FakeResponses(gap, judgments=[review_response(
+        concepts=("rights_transfer",), teach_back_concepts=("rights_transfer",))])
+    install_responses(monkeypatch, client)
+    restatement_verdict("partly")
+    result = case.explain("So my rights move and it stays the same as before?", "transition_overview",
+                          restates=True)
+    assert result.text.startswith("That is partly right. ") and "I cannot confirm" in result.text
+    VoiceReply(text=result.text, state=result.state, turn_trace=case.counsellor.tools.trace.turn_trace)
+    task = client.calls[0]["input"][0]["content"]
+    assert '"restatement_verdict": "partly"' in task and "do not give a verdict of your own" in task
+    assert result.fidelity.passed
+
+
+@pytest.mark.parametrize("channel", ["chat", "voice"])
+def test_b2_a_restatement_that_cannot_be_judged_gets_the_ordinary_explanation_without_a_verdict(
+        contextual_answer, monkeypatch, restatement_verdict):
+    case = contextual_answer
+    plain = response("Rights move into the new contract.", content_ids=["C-001-v1.3"],
+                     question="What happens to your rights?")
+    client = FakeResponses(plain, judgments=[review_response(
+        concepts=("rights_transfer",), teach_back_concepts=("rights_transfer",))])
+    install_responses(monkeypatch, client)
+    restatement_verdict("cannot_tell")
+    result = case.explain("So my rights move?", "transition_overview", restates=True)
+    assert "right." not in result.text.split("Rights move")[0] and "Not quite" not in result.text
+    assert "restatement_verdict" not in client.calls[0]["input"][0]["content"]
+
+
+def test_b2_the_prompt_allows_change_or_sameness_only_where_the_approved_material_says_so():
+    assert "Say that a pension will change, differs or stays the" in INSTRUCTIONS
+    assert "including right after the transition" in INSTRUCTIONS
+    assert "never say a pension will change" not in INSTRUCTIONS.lower()
+
+
 @pytest.mark.parametrize("channel", ["chat", "voice"])
 @pytest.mark.parametrize("review", [
     review_response("fail", ["advice"]),
@@ -588,6 +668,36 @@ def test_b2_the_passage_fallback_never_covers_advice_or_an_unclear_review(
     result = case.explain("What happens to my rights?", "transition_overview")
     assert {"stage": "answer_review", "result": "passage_fallback", "issues": []} not in (
         case.counsellor.tools.trace.turn_trace)
+
+
+@pytest.mark.parametrize("channel", ["chat", "voice"])
+def test_b2_the_passage_fallback_is_withheld_when_the_member_already_received_those_words(
+        contextual_answer, monkeypatch):
+    # Observed in gg-dev: a restatement ("so it stays the same but may change?") was answered with the same block.
+    from governedgraph.agents.conversation_context import ConversationMessage
+
+    case = contextual_answer
+    case.counsellor.tools.conversation_history = (
+        ConversationMessage("user", "What happens to my rights?"),
+        ConversationMessage("assistant", FIXTURE_PASSAGE + "\n\nDid this answer your question?"),
+    )
+    added = response("Rights move. It is not guaranteed.", content_ids=["C-001-v1.3"], question="What moves?")
+    client = FakeResponses(added, reviews=[added], judgments=[
+        review_response("revise", ["grounding"]), review_response("revise", ["grounding"])])
+    install_responses(monkeypatch, client)
+    result = case.explain("So my rights move, right?", "transition_overview")
+    assert FIXTURE_PASSAGE not in result.text
+    assert case.counsellor.tools.trace.composition_source != "foundry"
+
+
+def test_b2_the_revision_and_payment_goal_keep_only_source_stated_uncertainty():
+    from governedgraph.agents.foundry_runtime import ANSWER_GOALS
+
+    goal, _ = ANSWER_GOALS["payment_continuity"]
+    assert "later uncertainty the sources state" in goal and "of your own" in goal
+    assert "relevant uncertainty" not in goal
+    source = (os.path.dirname(foundry_runtime.__file__) + "/foundry_runtime.py")
+    assert "Preserve relevant uncertainty" not in open(source).read()
 
 
 @pytest.mark.parametrize("channel", ["chat", "voice"])
@@ -701,6 +811,7 @@ def test_b1_b3_explicit_source_question_keeps_relevant_provenance(counsellor, mo
         return decision
 
     counsellor.decision_agents["intent"] = SimpleNamespace(run=route)
+    counsellor.tools.search = pinned_search("C-001-v1.3")
     text = ("The fund's administrator calculates your official figures. "
             "Can you tell me where those figures come from?")
     client = FakeResponses(

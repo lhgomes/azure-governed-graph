@@ -160,7 +160,7 @@ class VoiceReply:
 
     def _validate_turn_trace(self) -> None:
         code = re.compile(r"[a-z][a-z_]{0,39}")
-        stages = {"intent", "answer_review", "answer_repair", "output_gate", "outcome", "rate_limit"}
+        stages = {"intent", "answer_review", "answer_repair", "output_gate", "outcome", "rate_limit", "restatement"}
         if (not isinstance(self.turn_trace, list) or len(self.turn_trace) > 16
                 or any(not isinstance(item, dict) or set(item) != {"stage", "result", "issues"}
                        or item["stage"] not in stages

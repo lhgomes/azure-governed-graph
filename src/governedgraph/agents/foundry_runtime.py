@@ -29,6 +29,13 @@ FOLLOW_UP_SCOPE = (
     "mentions one of those facts, do not repeat it unless the current question needs it. "
     "Keep every prohibition, grounding requirement and relevant uncertainty in force."
 )
+RESTATEMENT_SCOPE = (
+    "The member restated the previous explanation to check it. The host opens the reply with a short approved "
+    "verdict, so do not give a verdict of your own. Repeat what the approved material states about what the member "
+    "said, briefly, even if last_explanation already covered it. For anything the member said that the material does "
+    "not state, including a comparison with an earlier amount or a claim that something stays the same or changes, "
+    'write "I cannot confirm <that>" and stop. Do not add anything the member did not touch on.'
+)
 BOUND_ARGUMENTS = {
     "member_ref", "authenticated_member_ref", "journey_id", "request_key",
     "journey_state", "intent", "channel", "accessibility_mode",
@@ -126,6 +133,16 @@ def _assemble_answer(result: str, *, teach_back: bool, step_by_step: bool = Fals
     return AnswerDraft.from_dict({"text": " ".join(parts), "closing_question": closing, **payload})
 
 
+def first_message_text(result) -> str:
+    """The text of a response's first message. A response can carry several messages and the SDK's `output_text`
+    joins them, which is not one JSON document (seen in gg-dev when the persona agent answered twice in one turn)."""
+    for item in result.output:
+        for part in getattr(item, "content", None) or []:
+            if getattr(part, "type", "") == "output_text" and getattr(part, "text", ""):
+                return part.text
+    return result.output_text
+
+
 def task_context(tools, strategy) -> dict:
     selected = tools.related_answer_context
     previous = selected.last_explanation if selected else tools.journey.last_explanation
@@ -148,7 +165,10 @@ def task_context(tools, strategy) -> dict:
                              else "explanation"),
         "last_explanation": asdict(previous) if previous is not None else None,
     }
-    if previous is not None:
+    if tools.trace.restatement in ("partly", "differs"):
+        task["follow_up_scope"] = RESTATEMENT_SCOPE
+        task["restatement_verdict"] = tools.trace.restatement
+    elif previous is not None:
         task["follow_up_scope"] = FOLLOW_UP_SCOPE
     intent = next((item.decision for item in reversed(tools.trace.decision_evidence)
                    if item.role == "intent"), None)
@@ -334,7 +354,8 @@ class FoundryComposer:
                 "Answer the supported part and state the specific information gap when necessary. "
                 "Describe what is unknown in plain member language, not 'the references', "
                 "'approved sources' or the internal evidence pipeline. "
-                "Use task.response_language and the selected strategy. Preserve relevant uncertainty. "
+                "Use task.response_language and the selected strategy. Keep only uncertainty the authorized sources state; "
+                "never add 'not guaranteed' or any other caveat of your own. "
                 "Use one to three short explanation_parts, each a distinct relevant point. "
                 "Do not repeat a point or add one to fill a minimum length. "
                 "Do not copy host-added First/Next/Finally labels into the parts; the host renders them. "

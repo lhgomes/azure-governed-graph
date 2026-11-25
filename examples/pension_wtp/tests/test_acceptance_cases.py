@@ -22,7 +22,8 @@ def test_sample_cases_keep_the_baseline_human_access_and_adversarial_coverage():
     assert all(set(case) <= {"id", "member_ref", "utterance", "expect", "persona", "answer_goal"}
                for case in curated + adversarial)
     assert {case["id"]: case["answer_goal"] for case in curated + adversarial if "answer_goal" in case} == {
-        "cur-04": "personal_letter_context"}
+        "cur-04": "personal_letter_context", "cur-06": "pension_rules_information",
+        "cur-07": "pension_rules_information"}
 
 
 def test_sample_deployment_requires_both_channel_modes_and_its_own_evaluation():

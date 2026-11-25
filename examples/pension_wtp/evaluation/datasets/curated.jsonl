@@ -3,3 +3,5 @@
 {"id": "cur-03", "member_ref": "MBR-3H8D", "utterance": "What does personal pension capital after the transition mean?", "expect": "explain", "persona": "joost"}
 {"id": "cur-04", "member_ref": "MBR-9C1M", "utterance": "Can you explain the transition letter please?", "expect": "explain", "persona": "samira", "answer_goal": "personal_letter_context"}
 {"id": "cur-05", "member_ref": "MBR-7Q2K", "utterance": "Can I talk to a person?", "expect": "escalate", "persona": "annelies"}
+{"id": "cur-06", "member_ref": "MBR-7Q2K", "utterance": "Why are there new pension rules?", "expect": "explain", "persona": "annelies", "answer_goal": "pension_rules_information"}
+{"id": "cur-07", "member_ref": "MBR-3H8D", "utterance": "Wie houdt toezicht op pensioenfondsen?", "expect": "explain", "persona": "joost", "answer_goal": "pension_rules_information"}

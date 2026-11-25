@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import json
 
 from governedgraph.agents import llm_log
-from governedgraph.agents.foundry_runtime import agent_reference
+from governedgraph.agents.foundry_runtime import agent_reference, first_message_text
 from governedgraph.common.config import DATA_DIR
 from governedgraph.common.contracts import ContractError, _strict
 from governedgraph.common.io import load_json
@@ -107,7 +107,8 @@ class FoundryPersona:
         if (result.status != "completed" or not result.output_text.strip()
                 or any(item.type != "message" for item in result.output)):
             raise RuntimeError("persona did not return a completed text-only turn")
-        body = json.loads(result.output_text)
+        reply = first_message_text(result)
+        body = json.loads(reply)
         if (not isinstance(body, dict) or set(body) != {"utterance"}
                 or not isinstance(body["utterance"], str) or not body["utterance"].strip()
                 or len(body["utterance"]) > 2000):
@@ -115,7 +116,7 @@ class FoundryPersona:
         text = body["utterance"].strip()
         if first and text != self.scenario.opening:
             raise ContractError("persona changed the fixed evaluation opening")
-        self.messages.append({"role": "assistant", "content": result.output_text})
+        self.messages.append({"role": "assistant", "content": reply})
         return None if text == "DONE" else text
 
 

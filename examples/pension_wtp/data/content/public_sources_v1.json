@@ -1,0 +1,117 @@
+{
+  "watermark": "ILLUSTRATIVE - synthetic data. Public-source register for DEV content curation; it is not approval evidence.",
+  "register_version": "1.0",
+  "retrieved": "2026-11-25",
+  "review_status": "DEV curated from public pages and paraphrased; the production owner must verify every claim against its source and record the approval before release.",
+  "scope": "Passages C-013 to C-028 and their Dutch counterparts C-113 to C-128 (the Dutch id is the English id plus 100).",
+  "sources": {
+    "S-01": {
+      "title": "Overgang naar nieuwe pensioenstelsel",
+      "publisher": "Rijksoverheid.nl",
+      "url": "https://www.rijksoverheid.nl/themas/werk/pensioen/overgang-naar-nieuwe-pensioenstelsel",
+      "licence": "CC0 1.0 (https://www.rijksoverheid.nl/service/copyright); images excluded"
+    },
+    "S-02": {
+      "title": "Wat verandert er met het nieuwe pensioenstelsel voor mij?",
+      "publisher": "Rijksoverheid.nl",
+      "url": "https://www.rijksoverheid.nl/documenten/vraag-en-antwoord/pensioen/wat-verandert-er-met-het-nieuwe-pensioenstelsel-voor-mij",
+      "licence": "CC0 1.0 (https://www.rijksoverheid.nl/service/copyright); images excluded"
+    },
+    "S-03": {
+      "title": "De nieuwe regels voor pensioen",
+      "publisher": "Pensioenduidelijkheid.nl (Ministry of Social Affairs and Employment information site)",
+      "url": "https://www.pensioenduidelijkheid.nl/de-nieuwe-regels-voor-pensioen",
+      "licence": "not verified; verify reuse terms before production"
+    },
+    "S-04": {
+      "title": "Waarom zijn er nieuwe regels voor pensioen?",
+      "publisher": "Pensioenduidelijkheid.nl",
+      "url": "https://www.pensioenduidelijkheid.nl/de-nieuwe-regels-voor-pensioen/waarom-zijn-er-nieuwe-regels-voor-pensioen",
+      "licence": "not verified; verify reuse terms before production"
+    },
+    "S-05": {
+      "title": "Wat zijn de veranderingen voor pensioen?",
+      "publisher": "Pensioenduidelijkheid.nl",
+      "url": "https://www.pensioenduidelijkheid.nl/de-nieuwe-regels-voor-pensioen/wat-zijn-de-veranderingen-voor-pensioen",
+      "licence": "not verified; verify reuse terms before production"
+    },
+    "S-06": {
+      "title": "Wat verandert er voor het nabestaandenpensioen?",
+      "publisher": "Pensioenduidelijkheid.nl",
+      "url": "https://www.pensioenduidelijkheid.nl/de-nieuwe-regels-voor-pensioen/wat-verandert-er-voor-het-nabestaandenpensioen",
+      "licence": "not verified; verify reuse terms before production"
+    },
+    "S-07": {
+      "title": "Compensatie voor andere opbouw van uw pensioen",
+      "publisher": "Pensioenduidelijkheid.nl",
+      "url": "https://www.pensioenduidelijkheid.nl/de-nieuwe-regels-voor-pensioen/compensatie",
+      "licence": "not verified; verify reuse terms before production"
+    },
+    "S-08": {
+      "title": "Economische ontwikkelingen en uw pensioen",
+      "publisher": "Pensioenduidelijkheid.nl",
+      "url": "https://www.pensioenduidelijkheid.nl/de-nieuwe-regels-voor-pensioen/economische-ontwikkelingen-en-uw-pensioen",
+      "licence": "not verified; verify reuse terms before production"
+    },
+    "S-09": {
+      "title": "Welk pensioen kan ik verwachten?",
+      "publisher": "Pensioenduidelijkheid.nl",
+      "url": "https://www.pensioenduidelijkheid.nl/de-nieuwe-regels-voor-pensioen/welk-pensioen-kan-ik-verwachten",
+      "licence": "not verified; verify reuse terms before production"
+    },
+    "S-10": {
+      "title": "Hoe is uw pensioen beschermd?",
+      "publisher": "Pensioenduidelijkheid.nl",
+      "url": "https://www.pensioenduidelijkheid.nl/de-nieuwe-regels-voor-pensioen/hoe-is-uw-pensioen-beschermd",
+      "licence": "not verified; verify reuse terms before production"
+    },
+    "S-11": {
+      "title": "Hoe blijft u op de hoogte van de nieuwe regels?",
+      "publisher": "Pensioenduidelijkheid.nl",
+      "url": "https://www.pensioenduidelijkheid.nl/de-nieuwe-regels-voor-pensioen/hoe-blijft-u-op-de-hoogte-van-de-nieuwe-regels",
+      "licence": "not verified; verify reuse terms before production"
+    },
+    "S-12": {
+      "title": "Hoe bouwt u pensioen op?",
+      "publisher": "Pensioenduidelijkheid.nl",
+      "url": "https://www.pensioenduidelijkheid.nl/wat-is-pensioen/hoe-bouwt-u-pensioen-op",
+      "licence": "not verified; verify reuse terms before production"
+    },
+    "S-13": {
+      "title": "Opdrachtaanvaarding en besluitvorming pensioenfondsen over transitie (WTP factsheet)",
+      "publisher": "De Nederlandsche Bank",
+      "url": "https://www.dnb.nl/voor-de-sector/open-boek-toezicht/sectoren/pensioenfondsen/verzamelpagina-transitie-wet-toekomst-pensioenen/besluitvorming-en-invaren/opdrachtaanvaarding-en-besluitvorming-pensioenfondsen-over-transitie/",
+      "licence": "not verified; verify reuse terms before production"
+    },
+    "S-14": {
+      "title": "Solidaire of flexibele premieregeling?",
+      "publisher": "CNV (trade union)",
+      "url": "https://www.cnv.nl/themas/pensioen-en-aow/nieuw-pensioenstelsel/solidair-of-flex/",
+      "licence": "not verified; read from a search excerpt only, so re-read the full page before production"
+    },
+    "S-15": {
+      "title": "De verschillen tussen de solidaire en flexibele premieregeling",
+      "publisher": "Werken aan ons pensioen (Wtp implementation programme)",
+      "url": "https://www.werkenaanonspensioen.nl/site/binaries/site-content/collections/documents/2023/04/28/de-verschillen-tussen-de-solidaire-en-flexibele-premieregeling/5.2_Pf-kant_Contractkeuze_Afbeelding_2_V1.pdf",
+      "licence": "not verified; read from a search excerpt only, so re-read the full document before production"
+    }
+  },
+  "passages": {
+    "C-013": ["S-12"],
+    "C-014": ["S-05"],
+    "C-015": ["S-04"],
+    "C-016": ["S-03", "S-05"],
+    "C-017": ["S-02", "S-05", "S-08"],
+    "C-018": ["S-09"],
+    "C-019": ["S-01", "S-14", "S-15"],
+    "C-020": ["S-01", "S-13"],
+    "C-021": ["S-01"],
+    "C-022": ["S-13"],
+    "C-023": ["S-01", "S-07"],
+    "C-024": ["S-02", "S-06"],
+    "C-025": ["S-10"],
+    "C-026": ["S-10"],
+    "C-027": ["S-11"],
+    "C-028": ["S-05", "S-11"]
+  }
+}

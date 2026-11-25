@@ -249,6 +249,27 @@ def test_b3_tools_replace_previous_passages_instead_of_reusing_retired_content(l
     assert tools.trace.content_texts == [new.body]
 
 
+def test_b3_retrieval_anchors_to_the_chosen_topic_without_replacing_the_question(local_counsellor):
+    from dataclasses import asdict
+
+    from governedgraph.common import domain
+    from governedgraph.common.contracts import DecisionEvidence, IntentDecision
+
+    tools = new_session("MBR-7Q2K").tools
+    tools.search = Mock()
+    tools.search.search.return_value = []
+    question = "Good afternoon. I received a letter. Will the transition change what I receive?"
+    decision = IntentDecision("explanation", "transition_impact_question", "payment_continuity")
+    tools.trace.decision_evidence.append(DecisionEvidence("intent", "gg-intent-agent", "7", asdict(decision)))
+    tools.search_approved_content(question)
+    query = tools.search.search.call_args.args[0]
+    assert query.startswith(question) and domain.vocabulary()["decision_criteria"]["intent"]["payment_continuity"] in query
+    historical = IntentDecision("explanation", "transition_impact_question", "official_transition_information")
+    tools.trace.decision_evidence.append(DecisionEvidence("intent", "gg-intent-agent", "7", asdict(historical)))
+    tools.search_approved_content(question)
+    assert tools.search.search.call_args.args[0] == question
+
+
 def test_b3_retrieval_uses_current_question_and_a_bounded_broader_evidence_set(local_counsellor):
     tools = new_session("MBR-7Q2K").tools
     tools.search = Mock()

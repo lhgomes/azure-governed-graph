@@ -1,6 +1,6 @@
 {
-  "vocabulary_version": "1.3",
-  "approval_ref": "IMP-ROUTE-RESTATEMENT-2026-11-23-user-approval",
+  "vocabulary_version": "1.6",
+  "approval_ref": "IMP-RESTATEMENT-VERDICT-2026-11-25-user-approval",
   "watermark": "ILLUSTRATIVE - synthetic data. Closed domain vocabulary; changing it is a Tier 2 material change (B8).",
   "response_languages": ["en", "nl"],
   "default_language": "nl",
@@ -40,11 +40,13 @@
     ["transition_impact_question", "transition_information_gap"],
     ["transition_impact_question", "official_value_details"],
     ["transition_impact_question", "combined_transition_question"],
-    ["general_question", "approved_fund_information"]
+    ["general_question", "approved_fund_information"],
+    ["general_question", "pension_rules_information"]
   ],
   "historical_reasons": ["official_transition_information", "combined_transition_question"],
   "decision_criteria": {
     "route": {
+      "restates_explanation": "The message restates or sums up the explanation just given in the customer's own words, with or without a question mark (\"so ...\", \"if I understand correctly ...\"), to check that it is right. It asks nothing new. Whether a restatement counts depends on the context note",
       "asks_information": "The message asks for an explanation or information, including a question about the explanation just given and a request to focus on something else. Whether a restatement of the explanation counts depends on the context note.",
       "asks_person": "Explicitly asks to speak to a person. Mentioning an advisor or declining one is not a request.",
       "asks_choice": "Asks the assistant to decide or recommend: which option to choose, a comparison, or whether the customer should take an action such as objecting, or not. A worried tone or a question about payment impact is not a request to decide.",
@@ -58,7 +60,8 @@
       "personal_letter_context": "A broad request for help with an unseen personal transition letter, with no specific term, passage or substantive question supplied. Mentioning a letter or quoting a term is not enough: classify a question about that term or an official figure by its specific topic instead",
       "transition_information_gap": "Factual question whether it is possible to object, cancel or opt out, or how to do so (not whether the customer should)",
       "official_value_details": "Asks what a specific official date, capital or other value is or means. A question such as what 'personal pension capital after the transition' means belongs here, including when the term is quoted from a letter. Asking what a term means is not asking to inspect an unseen letter",
-      "approved_fund_information": "Factual question about the fund unrelated to the transition, such as contact details or opening hours"
+      "approved_fund_information": "Factual question about the fund unrelated to the transition, such as contact details or opening hours",
+      "pension_rules_information": "Factual question about how Dutch pensions or the new pension rules work in general, such as what a term means, why the rules changed, who decides or supervises, compensation, complaints or how to stay informed. It does not ask about the customer's own payment, rights, official figures or letter, and does not ask the assistant to choose"
     },
     "concepts": {
       "rights_transfer": "Built-up pension rights transfer into the new scheme",
@@ -91,7 +94,7 @@
       "excluded": ["official_after_transition_amount", "official_source", "personal_capital_presentation"]
     },
     "payment_continuity": {
-      "goal": "Give the official immediate-after payment reference and relevant later uncertainty; do not repeat rights conversion or provenance.",
+      "goal": "Give the official immediate-after payment reference and the later uncertainty the sources state (adjustments can be upward or downward); do not add guarantee or non-guarantee wording of your own, and do not repeat rights conversion or provenance.",
       "excluded": ["rights_transfer", "official_source", "document_scope", "personal_capital_presentation"]
     },
     "rights_conversion": {
@@ -113,6 +116,10 @@
     "official_value_details": {
       "goal": "Explain only the explicitly requested official term or value using authorized evidence. For a meaning question, explain the term first; do not quote a personal figure unless the member requests it. Do not invent comparisons, add calculation provenance or ask for a term or passage already supplied.",
       "excluded": ["official_source"]
+    },
+    "pension_rules_information": {
+      "goal": "Explain the general term, rule or process the member asked about in plain language, using only the approved material, and stay with the question without adding transition detail it did not ask for. Do not quote a member-value reference, calculation provenance or personal-capital presentation, and do not say what applies to this member's own pension or payment: say that the fund or pension provider can confirm that. Never recommend or compare options.",
+      "excluded": ["official_after_transition_amount", "official_source", "personal_capital_presentation"]
     }
   },
   "p2_acceptance_request_key": ["first_contact", "transition_impact_question", "voice", "standard"],

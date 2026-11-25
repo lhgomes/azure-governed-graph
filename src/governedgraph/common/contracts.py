@@ -155,11 +155,14 @@ class IntentDecision:
     intent: str
     reason: str
     response_language: str = "en"
+    # The member restated the last explanation to check it; only an explanation can be a restatement.
+    restates: bool = False
 
     def __post_init__(self):
         if (not all(isinstance(value, str) for value in (self.route, self.intent, self.reason))
                 or (self.route, self.intent, self.reason) not in INTENT_DECISIONS
-                or not isinstance(self.response_language, str) or self.response_language not in RESPONSE_LANGUAGES):
+                or not isinstance(self.response_language, str) or self.response_language not in RESPONSE_LANGUAGES
+                or not isinstance(self.restates, bool) or (self.restates and self.route != "explanation")):
             raise ContractError("invalid intent-agent decision")
 
     @classmethod

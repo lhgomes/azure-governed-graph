@@ -1,7 +1,9 @@
 param location string
 param tags object
 param token string
-
+// Subnets created outside this template that must survive redeployment: the vnet declares its subnets inline, so
+// ARM deletes any subnet that is not listed. Empty for a standard or net-new deployment.
+param retainedSubnets array = []
 resource apimNsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
   name: 'nsg-gg-apim-${token}'
   location: location
@@ -31,7 +33,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
   tags: tags
   properties: {
     addressSpace: { addressPrefixes: [ '10.33.0.0/16' ] }
-    subnets: [
+    subnets: concat([
       {
         name: 'container-apps'
         properties: {
@@ -58,7 +60,14 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
           privateEndpointNetworkPolicies: 'Disabled'
         }
       }
-    ]
+    ], map(retainedSubnets, subnet => {
+      name: subnet.name
+      properties: {
+        addressPrefix: subnet.addressPrefix
+        networkSecurityGroup: empty(subnet.networkSecurityGroupId) ? null : { id: subnet.networkSecurityGroupId }
+        privateEndpointNetworkPolicies: 'Disabled'
+      }
+    }))
   }
 }
 

@@ -384,11 +384,40 @@ class Counsellor:
                 return self._step_up_reply(utterance)
             self._load_sources(utterance)
             strategy = self._choose_strategy(exclude)
+            verdict = self._read_restatement(utterance)
+            if verdict == "matches":
+                return self._confirm(strategy)
             draft = self._draft(utterance, strategy)
             text, fidelity, last_explanation = self._release(utterance, strategy, draft)
+            if verdict:
+                text = self._lead_in(verdict) + " " + text
         except _Reply as done:
             return done.result
         return self._deliver(strategy, text, fidelity, last_explanation)
+
+    def _read_restatement(self, utterance: str) -> str:
+        """The verdict on a member's restatement of the last answer, or "" when it is not one (or cannot be judged)."""
+        from governedgraph.agents.decision_agents import read_restatement
+
+        trace = self.tools.trace
+        intent = next((item.decision for item in reversed(trace.decision_evidence) if item.role == "intent"), None)
+        if not intent or not intent.get("restates"):
+            return ""
+        verdict = read_restatement(self.tools, utterance)
+        trace.note("restatement", verdict)
+        trace.restatement = verdict if verdict != "cannot_tell" else ""
+        return trace.restatement
+
+    def _lead_in(self, verdict: str) -> str:
+        return TEMPLATES["acknowledgements"][f"restatement_{verdict}"][self.journey.response_language]
+
+    def _confirm(self, strategy) -> TurnResult:
+        """The sources bear the restatement out: a short approved confirmation, no new explanation and no teach-back."""
+        text = self._lead_in("matches")
+        fidelity = numeric_fidelity.check(text, None, [])
+        if not fidelity.passed or response_steers_choice(text):
+            raise DependencyFailure("approved confirmation failed the output gates")
+        return self._deliver(strategy, text, fidelity, self.journey.last_explanation)
 
     def _step_up_reply(self, utterance: str) -> TurnResult:
         """Without step-up verification only the approved general passages are shown."""
@@ -507,17 +536,21 @@ class Counsellor:
         source = t.trace.composition_source
         fallback_goal = source == "template_fallback" and bool(_task_template(t, strategy))
         clarification = fallback_goal and "?" in text
-        t.trace.note("outcome", "follow_up_question" if clarification else "answered")
+        # A bare confirmation styles nothing: it is not an explanation record, so no outcome check is offered for it
+        # and the learning pipeline never credits the strategy for it (B5).
+        confirmed = t.trace.restatement == "matches"
+        t.trace.note("outcome", "restatement_confirmed" if confirmed else
+                     "follow_up_question" if clarification else "answered")
         self.journey.strategies_tried.append(strategy.strategy_id)
         with t.trace.measure("audit_commit"):
             t.write_explainability_record(
                 strategy.strategy_id, numeric_fidelity_passed=fidelity.passed,
-                response_kind="acknowledgment" if clarification else "explanation")
+                response_kind="acknowledgment" if clarification or confirmed else "explanation")
         reviews = [item for item in t.trace.decision_evidence if item.role == "answer-review"]
         if reviews and reviews[-1].decision["verdict"] != "pass":
             self._keep_declined_question(flagged=True)
         # A task-specific fallback is not a reviewed teach-back.
-        teach_back_skipped = source == "foundry" and last_explanation is None
+        teach_back_skipped = (source == "foundry" and last_explanation is None) or confirmed
         event = (Event.OUTPUT_DELIVERED if clarification else
                  Event.RESPONSE_DELIVERED if strategy.teach_back and not fallback_goal and not teach_back_skipped
                  else Event.NO_TEACH_BACK)
@@ -559,6 +592,10 @@ class Counsellor:
         text = " ".join(approved[content_id] for content_id in used)
         if (not text or len(text) > MAX_PASSAGE_FALLBACK_CHARS or not numeric_fidelity.check(text, None, []).passed
                 or response_steers_choice(text) or mentions_own_sources(text)):
+            return ""
+        if any(item.role == "assistant" and text in item.text for item in self.tools.conversation_history):
+            # The member already has these words; repeating them would answer a follow-up with the same block.
+            log.warning("answer_passage_fallback_repeat_withheld", extra={"journey_id": self.journey.journey_id})
             return ""
         log.warning("answer_passage_fallback", extra={"journey_id": self.journey.journey_id})
         trace.note("answer_review", "passage_fallback")
