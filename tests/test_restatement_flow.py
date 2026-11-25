@@ -78,3 +78,4 @@ def test_a_restatement_that_cannot_be_judged_is_answered_like_any_question(resol
     reply = resolved_journey.restate("cannot_tell")
     assert not reply["text"].startswith(("Yes, that's right.", "That is partly right.", "Not quite."))
     assert not any(item["stage"] == "restatement" and item["result"] != "cannot_tell" for item in reply["turn_trace"])
+

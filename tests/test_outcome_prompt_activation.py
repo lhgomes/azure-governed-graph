@@ -90,3 +90,48 @@ def test_malformed_feedback_vocabularies_fail_closed(tmp_path, bad_wording):
     (path / "vocabulary_v1.json").write_text(json.dumps(vocabulary))
     with pytest.raises(domain.DomainPackError):
         domain.vocabulary(tmp_path)
+
+
+def _confirmed_teach_back_context(channel="chat"):
+    journey = Journey("J-outcome-bridge", "MBR-synthetic", channel=channel)
+    journey.fire(Event.DISCLOSED_AND_AUTHENTICATED)
+    journey.fire(Event.INTENT_IN_SCOPE)
+    previous = len(journey.events)
+    journey.fire(Event.RESPONSE_DELIVERED)
+    journey.record_response("b" * 32, previous)
+    journey.fire(Event.TEACH_BACK_PASSED)
+    journey.record_response("c" * 32, len(journey.events) - 1)
+    explanation = SimpleNamespace(response_id="b" * 32, response_kind="explanation")
+    confirmation = SimpleNamespace(response_id="c" * 32, response_kind="acknowledgment")
+    trace = SimpleNamespace(audit_record=confirmation, values=None, content_texts=[])
+    counsellor = SimpleNamespace(tools=SimpleNamespace(trace=trace, auth_ref="x"), journey=journey, step_up_verified=True)
+    result = SimpleNamespace(state=State.RESOLVED.value, escalated=False, audit_status="committed",
+                             text="Thank you. If anything else comes to mind, you can ask a person at any time.", fidelity=None)
+    return counsellor, result, JourneyRecord(journey), explanation
+
+
+def test_b5_the_check_after_a_confirmed_teach_back_names_the_explanation_it_is_about(monkeypatch):
+    counsellor, result, record, explanation = _confirmed_teach_back_context()
+    engine = object.__new__(OrchestratorService)
+    engine._explanation = lambda *_: explanation
+    monkeypatch.setenv("AZURE_ENV_NAME", "gg-dev")
+    monkeypatch.setenv("GOVERNEDGRAPH_ENABLE_OUTCOME_CHECK", "true")
+    offer = engine._offer_outcome(counsellor, result, record)
+    assert offer.response_id == "b" * 32  # the check belongs to the explanation, not the thank-you
+    assert result.text.endswith(f"A quick question about my earlier explanation. {offer.question}")
+    assert result.text.count("A quick question") == 1
+    from dataclasses import asdict
+
+    from governedgraph.voice.voice_live_bridge import VoiceReply
+
+    VoiceReply(text=result.text, state=result.state, outcome_offer=asdict(offer), response_id="b" * 32,
+               journey_id="J-outcome-bridge", strategy_id="S5", audit_status="committed")  # the spoken-reply contract needs the text to end with the approved question
+
+
+def test_b5_a_check_on_an_ordinary_answer_gets_no_bridge(monkeypatch):
+    counsellor, result, record = _synthetic_outcome_context()
+    engine = object.__new__(OrchestratorService)
+    monkeypatch.setenv("AZURE_ENV_NAME", "gg-dev")
+    monkeypatch.setenv("GOVERNEDGRAPH_ENABLE_OUTCOME_CHECK", "true")
+    offer = engine._offer_outcome(counsellor, result, record)
+    assert result.text == f"This is a checked, grounded explanation.\n\n{offer.question}"

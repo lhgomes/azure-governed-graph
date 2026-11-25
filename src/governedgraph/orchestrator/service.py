@@ -295,8 +295,9 @@ class OrchestratorService:
         if (audit is None or result.escalated or result.state == State.COMPREHENSION_CHECK.value or "?" in result.text
                 or result.audit_status not in {"committed", "queued"}):
             return None
-        if (audit.response_kind == "acknowledgment"
-                and record.journey.events[-1].event == Event.TEACH_BACK_PASSED.value):
+        looked_back = (audit.response_kind == "acknowledgment"
+                       and record.journey.events[-1].event == Event.TEACH_BACK_PASSED.value)
+        if looked_back:
             previous = next((event for event in reversed(record.journey.events[:-1])
                              if event.event == Event.RESPONSE_DELIVERED.value
                              and event.to_state == State.COMPREHENSION_CHECK.value), None)
@@ -316,8 +317,10 @@ class OrchestratorService:
             language = counsellor.journey.response_language
             offer = OutcomeOffer(audit.response_id, language, vocabulary["version"],
                                  **vocabulary["outcome_check"][language])
-            wording = (offer.question, offer.yes, offer.no, offer.skip)
-            text = f"{result.text}\n\n{offer.question}"
+            # On a confirmation the check is about the earlier explanation, so say so before asking it.
+            bridge = TEMPLATES["acknowledgements"]["outcome_bridge"][language] if looked_back else ""
+            wording = (offer.question, offer.yes, offer.no, offer.skip, bridge)
+            text = f"{result.text}\n\n{bridge + ' ' if bridge else ''}{offer.question}"
             fidelity = check(text, counsellor.tools.trace.values, counsellor.tools.trace.content_texts)
             if (not fidelity.passed or response_steers_choice(text)
                     or any(domain.has_numeric_characters(part) or response_steers_choice(part) for part in wording)):
