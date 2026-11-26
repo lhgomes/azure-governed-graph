@@ -29,7 +29,7 @@ def configure(environment: str, runtime_principal: str, *, apply: bool = False, 
             "description": "Runtime-only synthetic handover and read-only advisor queue.",
             "isEnabled": True, "value": "ContactCentre.Access"}
     if not apply:
-        return {"data": "ILLUSTRATIVE - synthetic data", "apply": False, "display_name": name,
+        return {"apply": False, "display_name": name,
                 "operations": ["create/reuse single-tenant API application and service principal",
                                "require assigned app role; access tokens v2 with idtyp",
                                "assign ContactCentre.Access to the runtime identity only"],
@@ -67,7 +67,7 @@ def configure(environment: str, runtime_principal: str, *, apply: bool = False, 
     if not grants:
         graph("POST", f"servicePrincipals/{runtime_principal}/appRoleAssignments",
               {"principalId": runtime_principal, "resourceId": resource_id, "appRoleId": role_id})
-    return {"data": "ILLUSTRATIVE - synthetic data", "apply": True, "client_id": app_id,
+    return {"apply": True, "client_id": app_id,
             "audience": audience, "runtime_principal": runtime_principal, "role_id": role_id,
             "service_principal_id": resource_id}
 

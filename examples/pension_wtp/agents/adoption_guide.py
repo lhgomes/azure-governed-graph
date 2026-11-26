@@ -66,7 +66,7 @@ class AdoptionGuide:
         def enqueue() -> EscalationRequest:
             result = EscalationRequest(
                 self.state.journey_id, reason_code,
-                f"ILLUSTRATIVE - synthetic data. Journey stage: {self.state.journey_stage}. "
+                f"Journey stage: {self.state.journey_stage}. "
                 "Warm handover to a licensed human advisor.",
                 [], escalation_id=domain_id("ESC", {"journey_id": self.state.journey_id,
                                                    "key": idempotency_key}),

@@ -1,4 +1,4 @@
-"""ILLUSTRATIVE - synthetic data. Real STT/HTTP/TTS, non-acoustic dispatch sink."""
+"""Real STT/HTTP/TTS, non-acoustic dispatch sink."""
 from __future__ import annotations
 
 import asyncio
@@ -99,7 +99,7 @@ async def run_benchmark(socket, credential, client, token: str, endpoint: str, *
         for index in range(20):
             await measure(speech, index, "warm")
     await socket.send_json({
-        "kind": "benchmark_complete", "label": "ILLUSTRATIVE - synthetic data",
+        "kind": "benchmark_complete",
         "measurement": "real STT/HTTP/TTS, validated dispatch sink; not acoustic playback",
         "cold_definition": "fresh Speech connections and isolated SDK/HTTP clients including agent read; "
                            "orchestrator replica intentionally remains warm",

@@ -99,7 +99,7 @@ def probe_evaluations(signer, issuer: str, orchestrator_url: str, client, *, tok
         if not guards:
             raise ProbeFailure("evaluation_gate_failed_" + case["id"])
         passed += 1
-    summary = {"label": "ILLUSTRATIVE - synthetic data", "platform": "Azure Public",
+    summary = {"platform": "Azure Public",
                "evaluation_cases": len(cases), "passed": passed,
                "failed": len(cases) - passed, "mode": "hosted_runtime",
                "judge_calibration": "separate", "automatic_promotion": False}

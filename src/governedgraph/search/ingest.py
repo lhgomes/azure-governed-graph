@@ -1,6 +1,6 @@
 """P3 approved-content feed -> managed-identity indexer -> integrated embeddings.
 
-ILLUSTRATIVE - synthetic data. Run ``python -m governedgraph.search.ingest`` to seed the
+Run ``python -m governedgraph.search.ingest`` to seed the
 feed once and reindex it. Later runs preserve the authoritative approved feed.
 """
 from __future__ import annotations

@@ -112,8 +112,7 @@ class TestChannel(OrchestratorChannel):
 def config(authorization: str = Header("")):
     require_testing()
     AccessPolicy.from_env().require(authorization, act=True)
-    return {"simulations": [simulation.summary() for simulation in load_simulations()],
-            "watermark": "ILLUSTRATIVE - synthetic data"}
+    return {"simulations": [simulation.summary() for simulation in load_simulations()]}
 
 
 @router.post("/admin-testing/authorize")

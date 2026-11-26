@@ -26,7 +26,6 @@ async def probe_voice(orchestrator: str) -> None:
     import httpx
     from azure.identity import ManagedIdentityCredential
 
-    print("PASS ILLUSTRATIVE - synthetic data", flush=True)
     actor = persona(domain.demo()["persona"]).persona
     script = {key: actor[key] for key in ("opening", "teach_back_answer")}
     checks = ("disclosure_first", "s5_selected", "s2_suspended", "bound_text_only",

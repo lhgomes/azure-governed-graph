@@ -169,7 +169,7 @@ def provision(project, *, apply: bool, role: str = "counsellor", agent_name: str
     else:
         version = project.agents.create_version(
             agent_name=name, definition=definition,
-            metadata={"definition_sha256": digest, "decision": decision, "data": "ILLUSTRATIVE - synthetic data"},
+            metadata={"definition_sha256": digest, "decision": decision},
         )
         action = "created; served as the latest version"
     if role == "fairness":

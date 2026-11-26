@@ -86,7 +86,7 @@ def emit(name: str, **fields) -> None:
     instant = datetime.fromisoformat(fields["occurred_at"])
     if instant.tzinfo is None or instant.utcoffset() is None:
         raise ValueError("telemetry timestamp requires a timezone")
-    log.info(name, extra={"data": "ILLUSTRATIVE - synthetic data", **fields})
+    log.info(name, extra=fields)
 
 
 def model_usage(response, *, journey_id: str, agent_name: str, model: str) -> None:

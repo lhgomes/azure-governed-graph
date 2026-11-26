@@ -28,8 +28,7 @@ class FileJourneyPublisher:
         directory = self.directory / item.queue
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{journey_id}-{item.message_id}.json"
-        content = json.dumps({"message_id": item.message_id, "session_id": journey_id,
-                              "data": "ILLUSTRATIVE - synthetic data", "payload": item.payload},
+        content = json.dumps({"message_id": item.message_id, "session_id": journey_id, "payload": item.payload},
                              sort_keys=True)
         if path.exists():
             if path.read_text() != content:
@@ -58,7 +57,6 @@ class ServiceBusJourneyPublisher:
         message = ServiceBusMessage(
             json.dumps(item.payload), session_id=journey_id, message_id=item.message_id,
             content_type="application/json", correlation_id=journey_id,
-            application_properties={"data": "ILLUSTRATIVE - synthetic data"},
         )
         # Service Bus SDK objects are not thread-safe; reuse only under this lock.
         with self._lock:

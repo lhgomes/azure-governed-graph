@@ -75,7 +75,6 @@ def reconciliation_report(events: list[JourneyEvent], records: list[dict], *,
         else:
             matched += 1
     return {
-        "data": "ILLUSTRATIVE - synthetic data",
         "cutover_utc": cutover_utc if cutover is not None else None,
         "legacy_untracked": {"label": LEGACY_LABEL, "count": legacy_count} if cutover is not None else None,
         "expected_responses": len(expected), "matched_responses": matched,

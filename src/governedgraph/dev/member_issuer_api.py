@@ -64,4 +64,4 @@ async def issue(request: Request, authorization: str = Header("")):
 
 @app.get("/healthz")
 def health():
-    return {"ok": True, "data": "ILLUSTRATIVE - synthetic data"}
+    return {"ok": True}

@@ -68,7 +68,7 @@ def handover(body: dict, request: Request, idempotency_key: str = Header("", ali
     try:
         escalation = EscalationRequest.from_dict(body)
         result = request.app.state.centre.handover(escalation, idempotency_key)
-        return {"handover_id": result, "data": "ILLUSTRATIVE - synthetic data"}
+        return {"handover_id": result}
     except (ContractError, ValueError):
         raise HTTPException(400, "invalid governed handover or idempotency key") from None
     except JourneyBusy:
@@ -81,8 +81,7 @@ def handover(body: dict, request: Request, idempotency_key: str = Header("", ali
 @app.get("/advisor-queue", dependencies=[Depends(require_runtime)])
 def advisor_queue(request: Request, journey_id: str = Query(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$")):
     try:
-        return {"data": "ILLUSTRATIVE - synthetic data",
-                "handovers": request.app.state.centre.advisor_queue(journey_id)}
+        return {"handovers": request.app.state.centre.advisor_queue(journey_id)}
     except JourneyBusy:
         raise HTTPException(409, "advisor queue busy; retry") from None
     except Exception as error:
@@ -92,4 +91,4 @@ def advisor_queue(request: Request, journey_id: str = Query(pattern=r"^[A-Za-z0-
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "data": "ILLUSTRATIVE - synthetic data"}
+    return {"ok": True}

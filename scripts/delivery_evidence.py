@@ -25,7 +25,7 @@ class Evidence:
         files = sorted({*root.glob("scripts/*.py"), *root.glob("infra/**/*.bicep"),
                         *root.glob("examples/*/infra/*.bicep")})
         source = {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
-        self.data = {"label": "ILLUSTRATIVE - synthetic data", "run_id": self.run_id,
+        self.data = {"run_id": self.run_id,
                      "status": "running", "started_at": self.now(), "stage": "target selection",
                      "source_sha256": source, "stages": [], "commands": [], "deployments": [], "jobs": []}
         self.write()

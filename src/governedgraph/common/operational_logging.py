@@ -9,7 +9,7 @@ class OperationalFormatter(logging.Formatter):
         from governedgraph.common.contracts import REVIEW_ISSUES
         from governedgraph.observability import FIELDS
 
-        fields = {"event": record.getMessage(), "data": "ILLUSTRATIVE - synthetic data"}
+        fields = {"event": record.getMessage()}
         names = FIELDS | {"queue", "age_seconds", "error_type", "failure_domain",
                      "snapshot_id", "arm", "source", "frozen",
                      "expected_responses", "matched_responses", "coverage_percent", "pending_records", "published_count", "refused_count"}

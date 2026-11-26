@@ -186,7 +186,7 @@ def deploy(runner, inputs, composition, *, catalogue_upgrade: bool = False) -> d
     print("Checking deployment readiness...", flush=True)
     stage(runner, "readiness")
     readiness(runner, inputs, outputs)
-    receipt = {"label": "ILLUSTRATIVE - synthetic data", "environment": inputs.environment,
+    receipt = {"environment": inputs.environment,
                "subscription": inputs.subscription, "resource_group": inputs.resource_group, "naming_seed": inputs.naming_seed,
                "images": images, "agents": pins, "bootstrap": {"priors": initial, "executions": executions},
                "outputs": outputs, "readiness": "passed", "evaluation": "not_run",

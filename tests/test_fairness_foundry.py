@@ -144,7 +144,7 @@ def test_b8_reinstatement_is_refused_and_durably_routed_before_model_reply():
     assert len(cases) == 1 and cases[0]["case_id"] == result["case_id"]
     assert cases[0]["strategy_id"] == "S2" and cases[0]["status"] == "refused_pending_human_decision"
     assert not audits and not reads
-    assert bound.open_governance_case() == {k: result[k] for k in ("case_id", "tier", "refused", "watermark")}
+    assert bound.open_governance_case() == {k: result[k] for k in ("case_id", "tier", "refused")}
     assert len(cases) == 1
 
 

@@ -14,7 +14,7 @@ let Uplift = union
   | project TimeGenerated, p=Properties),
  (ContainerAppConsoleLogs | where TimeGenerated > ago(24h) and JobName == "job-gg-p2-pipeline"
   | extend p=parse_json(Log)
-  | where tostring(p.event) == "graph_uplift" and tostring(p.data) == "ILLUSTRATIVE - synthetic data"
+  | where tostring(p.event) == "graph_uplift"
   | project TimeGenerated, p);
 union
 (Turns | summarize n=count(), p50_ms=percentile(elapsed, 50), p95_ms=percentile(elapsed, 95)

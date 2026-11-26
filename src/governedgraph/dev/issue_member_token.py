@@ -1,6 +1,6 @@
 """Dev-only issuer metadata and in-network synthetic-channel acceptance.
 
-ILLUSTRATIVE - synthetic data. Never install this as a production identity provider.
+Never install this as a production identity provider.
 Private signing material never leaves Key Vault. Live member tokens exist only
 in the hosted probe's memory; output is check outcomes and IDs, never tokens.
 """
@@ -143,7 +143,6 @@ def probe_channel(signer: RemoteSigner, issuer: str, orchestrator: str,
         require("turn_accepted", response.status_code == 200, journey_id, http_status=response.status_code)
         return response.json()
 
-    print("PASS ILLUSTRATIVE - synthetic data", flush=True)
     require("missing_token_rejected", request("POST", "/journeys", "", json=body).status_code == 401)
     require("expired_token_rejected", request("POST", "/journeys", expired, json=body).status_code == 401)
     foreign = start(other)

@@ -1,6 +1,6 @@
 """Publish P3-approved immutable versions and retire their predecessors in one run.
 
-ILLUSTRATIVE - synthetic data. The JSON input (one document or a list) must carry each human approval_ref.
+The JSON input (one document or a list) must carry each human approval_ref.
     python -m governedgraph.search.reindex_on_approval /secure/p3-approved-document.json
 
 ``--from-approvals`` publishes the passages an owner approved in the administration console and not yet published.

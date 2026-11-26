@@ -106,7 +106,7 @@ def report(contacts: list[Contact], costs: list[Cost], *, as_of: datetime,
         raise ValueError("cannot combine currencies without a sourced conversion")
     total = sum((c.amount for c in attributed), Decimal(0))
     return {
-        "data": "ILLUSTRATIVE - synthetic data", "cost_scope": cost_scope,
+        "cost_scope": cost_scope,
         "cohort_journeys": len(starts), "qualified_resolutions": len(qualified),
         "immature_resolutions": immature, "cost_receipts": len(attributed),
         "currency": next(iter(currencies)) if currencies else None,

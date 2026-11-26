@@ -158,7 +158,7 @@ def start(jobs: dict, config: P2Config, stage: str, cycle: str, image: str, *, f
     container = job["properties"]["template"]["containers"][0]
     command = ["python", "-m", "governedgraph.learning.container_jobs", "--stage", stage]
     if fail_audit:
-        command = ["python", "-c", "raise RuntimeError('ILLUSTRATIVE - synthetic data: audit failure before component code')"]
+        command = ["python", "-c", "raise RuntimeError('audit failure before component code')"]
     body = {"containers": [{
         "name": container["name"], "image": image, "command": command,
         "env": [{"name": name, "value": value} for name, value in env.items()],
@@ -266,7 +266,7 @@ def main(argv: list[str] | None = None) -> None:
             raise RuntimeError("P2 stage failed; verify the protective freeze before any recurrence")
     if wait(jobs["pipeline"], watchdog) != "Succeeded":
         raise RuntimeError("P2 watchdog did not certify completion")
-    print(json.dumps({"cycle_id": cycle, "pipeline": "Completed", "watermark": "ILLUSTRATIVE - synthetic data"}), flush=True)
+    print(json.dumps({"cycle_id": cycle, "pipeline": "Completed"}), flush=True)
     if args.fairness_agent_proof:
         fairness_agent_proof(jobs["fairness"], args.image, values)
 

@@ -1,4 +1,4 @@
-"""ILLUSTRATIVE - synthetic data. Pension sample evaluation harness. Hard gates: numeric fidelity 100%, zero
+"""Pension sample evaluation harness. Hard gates: numeric fidelity 100%, zero
 option-recommendation incidents, no demographic influence. Results are SIMULATED.
 
     python evals/run_evals.py                 # local composer

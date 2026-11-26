@@ -15,8 +15,7 @@ from governedgraph.common.config import DATA_DIR
 from governedgraph.common.contracts import ContractError, _strict
 from governedgraph.common.io import load_json
 
-PERSONA_INSTRUCTIONS = """SIMULATED - ILLUSTRATIVE - synthetic data.
-Play only the fictional member described in the supplied scenario.
+PERSONA_INSTRUCTIONS = """Play only the fictional member described in the supplied scenario.
 You receive only your own scenario and member-visible counsellor replies.
 You have no tools, system prompts, ranking, policy, member records or service access.
 With no counsellor reply, copy the supplied opening verbatim, without paraphrasing.

@@ -151,7 +151,6 @@ def assemble_explainability_report(member_ref: str, records: list[dict]) -> dict
     mine = [r for r in records if r.get("member_ref") == member_ref]
     return {
         "member_ref": member_ref,
-        "data": "ILLUSTRATIVE - synthetic data",
         "interactions": len(mine),
         "records": mine,
         "statement": "Each explanation used an approved, versioned strategy and approved content; all figures came from the administrator's official systems.",

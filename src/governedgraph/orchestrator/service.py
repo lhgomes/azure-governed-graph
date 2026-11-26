@@ -670,5 +670,4 @@ class OrchestratorService:
             if transaction.record.journey.member_ref != identity.member_ref:
                 log.error("member_scope_violation", extra={"journey_id": journey_id})
                 raise MemberScopeViolation(journey_id)
-        return {"data": "ILLUSTRATIVE - synthetic data",
-                "handovers": self.contact_centre.advisor_queue(journey_id)}
+        return {"handovers": self.contact_centre.advisor_queue(journey_id)}

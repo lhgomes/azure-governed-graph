@@ -86,7 +86,7 @@ class FairnessTools:
             raise PermissionError("audit is not bound to this request")
         if self.audit_id is None:
             self.audit_id = self.audit_runner()
-        return {"audit_id": self.audit_id, "protective_vetoes_enforced": True, "watermark": WATERMARK}
+        return {"audit_id": self.audit_id, "protective_vetoes_enforced": True}
 
     def suspend_strategy(self) -> dict:
         # The existing audit runner enforces every veto before acknowledging the audit.
@@ -103,7 +103,7 @@ class FairnessTools:
                 "created_at": utcnow(), "watermark": WATERMARK,
             })
             self.case_id = case_id
-        return {"case_id": self.case_id, "tier": "Tier 2", "refused": True, "watermark": WATERMARK}
+        return {"case_id": self.case_id, "tier": "Tier 2", "refused": True}
 
     def assemble_explainability_report(self) -> dict:
         if self.request.action != "report":
@@ -112,7 +112,7 @@ class FairnessTools:
             self.member_report = assemble_explainability_report(
                 self.request.member_ref, self.records_reader(self.request.member_ref),
             )
-        return {"report_prepared": True, "contents_withheld_from_model": True, "watermark": WATERMARK}
+        return {"report_prepared": True, "contents_withheld_from_model": True}
 
     def preflight(self) -> dict:
         return {"audit": self.run_cohort_audit, "reinstate": self.open_governance_case,
@@ -141,7 +141,7 @@ class FoundryFairnessAgent:
     def run(self, tools: FairnessTools) -> dict:
         receipt = tools.preflight()
         inputs = [{"type": "message", "role": "user", "content": json.dumps({
-            "operation": tools.request.action, "host_receipt": receipt, "watermark": WATERMARK,
+            "operation": tools.request.action, "host_receipt": receipt,
         })}]
         previous = None
         for round_number in range(MAX_TOOL_ROUNDS + 1):

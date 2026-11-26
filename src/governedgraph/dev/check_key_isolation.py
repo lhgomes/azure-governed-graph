@@ -1,4 +1,4 @@
-"""ILLUSTRATIVE - synthetic data. Probe only after approved key-scope cleanup.
+"""Probe only after approved key-scope cleanup.
 
 Run separately in the existing P2 and dev-issuer execution contexts. Signatures
 are discarded; the fixed probe is neither a member token nor a ranking snapshot.
@@ -42,7 +42,6 @@ def check(vault_url: str, identity_role: str, expected_principal_id: str) -> dic
             else:
                 raise RuntimeError("Key isolation failed: the other signing key is accessible")
     return {
-        "data": "ILLUSTRATIVE - synthetic data",
         "identity_role": identity_role,
         "principal_id": principal,
         "allowed_key": allowed,

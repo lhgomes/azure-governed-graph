@@ -183,7 +183,7 @@ def test_b3_separation_probe_checks_allowed_key_and_actual_identity_rbac_denial(
     assert probe_sdk.factory.call_args_list[1].args[0].endswith("/keys/" + denied)
     assert probe_sdk.allowed.sign.call_count == probe_sdk.denied.sign.call_count == 1
     assert result["rbac_denial"] is True and result["principal_id"] == PRINCIPAL
-    assert set(result) == {"data", "identity_role", "principal_id", "allowed_key", "denied_key", "rbac_denial"}
+    assert set(result) == {"identity_role", "principal_id", "allowed_key", "denied_key", "rbac_denial"}
     assert probe_sdk.allowed.sign.call_args.args[1] == probe_sdk.denied.sign.call_args.args[1]
 
 

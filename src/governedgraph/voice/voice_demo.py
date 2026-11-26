@@ -21,7 +21,7 @@ class VoiceDemoResult:
     replies: list[VoiceReply]
     elapsed_seconds: float
     metrics: dict
-    label: str = "ILLUSTRATIVE - synthetic data; audio loopback, not acoustic latency"
+    label: str = "Audio loopback, not acoustic latency"
     session_ended: bool = False
     # persona | escalation | takeover | persona_unavailable | scripted
     ended_by: str = "scripted"
